@@ -10,12 +10,14 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
+	"github.com/mariogutierrez/context-harness-mcp/internal/viewer"
 )
 
 func main() {
@@ -59,7 +61,7 @@ func main() {
 	case "stdio":
 		runStdio(s)
 	case "http":
-		runHTTP(s, *addr, limiter)
+		runHTTP(s, *addr, pool, limiter)
 	default:
 		slog.Error("unknown transport", "transport", *transport)
 		fmt.Fprintf(os.Stderr, "error: unknown transport %q — use stdio or http\n", *transport)
@@ -95,7 +97,7 @@ func configureSecretMode() error {
 	return nil
 }
 
-func runHTTP(s *mcpserver.MCPServer, addr string, limiter *ratelimit.Limiter) {
+func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *ratelimit.Limiter) {
 	// WithHTTPContextFunc extracts the client IP from each incoming HTTP request
 	// and injects it into the request context so tool handlers can read it for
 	// rate-limit decisions without importing net/http directly.
@@ -116,6 +118,7 @@ func runHTTP(s *mcpserver.MCPServer, addr string, limiter *ratelimit.Limiter) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"status":"ok","db":"not-configured"}`)
 	})
+	viewer.Register(mux, pool)
 
 	srv := &http.Server{
 		Addr:    addr,

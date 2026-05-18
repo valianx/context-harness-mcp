@@ -284,6 +284,14 @@ The response carries `IsError: true` at the MCP-protocol level. `message` is in 
 
 ---
 
+## Web viewer
+
+`GET /viewer/` serves a public single-page HTML browser of the knowledge graph. It is embedded directly in the Go binary via `go:embed` — no separate process, no additional port, no external assets. The page loads all active nodes on first render and supports semantic search via a debounced input box (250 ms). Search is powered by the same `embed.Default` + pgvector cosine path used by the `search_nodes` MCP tool; an empty query lists all nodes ordered by creation date.
+
+Access is unauthenticated — the same exposure level as the `read_graph` and `search_nodes` MCP tools. No write or delete operations are exposed through the viewer. Useful for operators inspecting the graph without writing SQL or calling the MCP protocol directly.
+
+---
+
 ## Tool-level invariants
 
 - **Names are unique.** `nodes.name` carries a unique constraint. `create_nodes` with an already-existing `name` returns the existing node's id and a `created_nodes: 0` in the result; observations are deduped on `(node_id, text)`.
