@@ -207,6 +207,22 @@ func decodeTestSecret(encoded string) string {
 	return string(plain)
 }
 
+// fakeRSAPrivateKey assembles a fake RSA-PEM block at runtime from short
+// fragments so no contiguous high-entropy literal appears in source (and
+// GitGuardian's "Generic High Entropy Secret" detector stays quiet). The
+// assembled string DOES match gitleaks' private-key rule at validator
+// runtime — which is the point: it's a test input that must be rejected.
+//
+// The same function exists in cmd/gen-golden/main.go (different package);
+// keep them byte-identical so the regenerated golden fixture stays stable.
+func fakeRSAPrivateKey() string {
+	dashes := strings.Repeat("-", 5)
+	begin := dashes + "BEGIN " + "RSA" + " PRIVATE KEY" + dashes
+	end := dashes + "END " + "RSA" + " PRIVATE KEY" + dashes
+	body := strings.Repeat("a", 64) // low-entropy fake content
+	return begin + "\n" + body + "\n" + end
+}
+
 func TestSecrets_InlineFallback(t *testing.T) {
 	// Secret-shaped strings stored XOR(0x42)+base64 encoded in source to avoid
 	// GitHub push-protection false-positives. Decoded at runtime — all values
@@ -248,10 +264,11 @@ func TestSecrets_InlineFallback(t *testing.T) {
 			wantPat: "stripe-live-key",
 		},
 		{
-			// RSA private key PEM header — XOR+base64 encoded to avoid push
-			// protection. The decoded value is a truncated/fake PEM block.
+			// RSA private-key PEM block — assembled at runtime from short
+			// fragments (see fakeRSAPrivateKey) so no high-entropy literal
+			// lives in source. gitleaks matches the assembled BEGIN marker.
 			name:    "rsa_private_key",
-			obs:     decodeTestSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v"),
+			obs:     fakeRSAPrivateKey(),
 			wantPat: "rsa-private-key",
 		},
 		{
@@ -283,11 +300,13 @@ func TestSecrets_InlineFallback(t *testing.T) {
 	}
 
 	// One representative subtest asserts the golden file. Uses the same
-	// decoded RSA key header as the rsa_private_key subtest above.
+	// fakeRSAPrivateKey() helper as the rsa_private_key subtest above —
+	// gen-golden/main.go duplicates the helper so both produce byte-identical
+	// validator output.
 	t.Run("golden_rsa_key", func(t *testing.T) {
 		p := validate.Payload{
 			Observations: []validate.Observation{
-				{NodeName: "test-node", Text: decodeTestSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v")},
+				{NodeName: "test-node", Text: fakeRSAPrivateKey()},
 			},
 		}
 		got := validate.Run(&p, validate.KindObservations)

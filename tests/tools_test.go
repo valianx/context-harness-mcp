@@ -292,9 +292,11 @@ func TestSecretDetected_E2E(t *testing.T) {
 	obsBefore := countAllRows(t, "observations")
 	relBefore := countAllRows(t, "relations")
 
-	// RSA private key header — XOR+base64 encoded in source as in validator_test.go
-	// to prevent GitHub push-protection from flagging this source file.
-	rsaObs := decodeTestSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v")
+	// RSA private-key PEM block — assembled at runtime from short fragments
+	// via the fakeRSAPrivateKey helper (defined in validator_test.go) so no
+	// high-entropy literal appears in source. GitGuardian's "Generic High
+	// Entropy Secret" detector flagged the previous XOR+base64 blob.
+	rsaObs := fakeRSAPrivateKey()
 
 	result := callTool(t, c, "create_nodes", map[string]any{
 		"nodes": []map[string]any{
