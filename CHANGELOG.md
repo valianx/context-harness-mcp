@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `scripts/pyproject.toml` — uv-managed scripts project (psycopg[binary], pgvector, chromadb, click); `package = false` so scripts run via `uv run` without installation.
+- `scripts/import_to_supabase.py` — generic idempotent JSON → Supabase importer (claude-dev-team export.py shape); ON CONFLICT DO NOTHING for entities, observations, and relations; embedding passthrough with 384-dim validation.
+- `scripts/import_from_chromadb.py` — convenience wrapper that auto-locates claude-dev-team's `export.py` (or accepts `--source-export PATH`) and pipes through `import_to_supabase.py`.
+- `scripts/export_from_supabase.py` — inverse of `import_to_supabase.py`; exports active KG content to JSON in the same shape as claude-dev-team's `export.py`.
+- `scripts/seed_dev.py` — deterministic KG fixtures (≥20 entities across ≥5 entity types, ≥20 relations); idempotent ON CONFLICT DO NOTHING; `--reset` flag for clean-slate seeding; dev-only, not for production.
+- `tests/migration_test.go` — `TestMigrationRoundTrip`: seeds testcontainer Postgres via `import_to_supabase.py`, exports via `export_from_supabase.py`, diffs entities / observations / relations and embedding round-trip within ε=1e-6; skips gracefully when Docker or `uv` is unavailable.
+- `tests/fixtures/migration_input.json` — synthetic parity fixture: 5 entities across 3 types (pattern, stack-profile, decision), 3 observations each, 384-dim zero-vector embeddings for round-trip fidelity testing.
+- `docs/cutover-playbook.md` — operator runbook for the ChromaDB → Supabase flag-day cutover: §1 pre-flight checklist, §2 six numbered flag-day steps, §3 rollback criteria with explicit thresholds, §4 rollback procedure, §5 GH-Actions secret rotation runbook (SUPABASE_DB_URL / DUMP_PASSPHRASE / RENDER_DEPLOY_HOOK_URL), §6 Phase 1 local docker-compose emergency fallback.
+
+### Changed
+
+- `docs/knowledge.md` — added `[patrón]` bullet: cutover playbook lives in `docs/cutover-playbook.md` (committed, not session-docs) so operators on flag day have it locally.
+
 - `render.yaml` — fully spec'd for Phase 2 Render deploy: `region: oregon`, `dockerfilePath`, `dockerContext`, static env vars (`MCP_TRANSPORT`, `MCP_HTTP_ADDR`, `LOG_LEVEL`), and `SUPABASE_DB_URL` with `sync: false` (must be set manually in Render dashboard; never sourced from git).
 - `.github/workflows/deploy.yml` — push-to-main CD: runs `goose up` against Supabase (migrations before code), then curls the Render deploy hook. Guard step exits 0 cleanly when secrets are unset. `concurrency: group: deploy-main` prevents simultaneous deploys.
 - `.github/workflows/pg_dump_weekly.yml` — Sunday 03:00 UTC encrypted backup: `pg_dump --no-owner --no-privileges`, AES-256 via `gpg --symmetric`, uploaded as GH Actions artifact with 90-day retention.
