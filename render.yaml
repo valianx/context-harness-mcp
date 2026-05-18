@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: context-harness-mcp
+    env: docker
+    plan: free
+    healthCheckPath: /healthz
+    # Full env var wiring, region, and deploy hook land in PR-7.
