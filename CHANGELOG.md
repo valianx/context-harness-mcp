@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `migrations/00001_init.sql` — goose-annotated migration: pgvector extension, `entities` / `observations` / `relations` tables with soft-delete columns, HNSW cosine index on `observations.embedding`, CHECK constraints on `entity_type` (9 values) and `relation_type` (5 values), and unique constraints for dedup.
+- `migrations/00002_soft_delete.sql` — goose-annotated migration: partial indexes on `deleted_at IS NULL` for active-row query paths; `v_active_entities` restore helper view.
+- `migrations/README.md` — documents the two goose application paths (docker compose `migrate` profile for manual dev, `deploy.yml` for CI/CD — both target Supabase), the testcontainers test path, and why `supabase db push` is not used.
+- `internal/store/pool.go` — `New(ctx, dsn)` returns a `*pgxpool.Pool` with `pgxvec.RegisterTypes` in `AfterConnect`, `MaxConns=10`, and sensible timeouts.
+- `tests/setup_test.go` — `TestMain` using testcontainers-go `pgvector/pgvector:pg16` ephemeral container + `goose.Up` library for migration application; `NewTestPool(t)` and `CleanDB(t)` helpers for downstream tests; graceful `t.Skip` when Docker daemon is unavailable.
+- `tests/schema_test.go` — integration tests verifying the vector extension, all expected columns (including `deleted_at`), CHECK constraints for all 9 entity types and 5 relation types, unique constraints, and soft-delete view behavior.
 - Go 1.23 module (`github.com/mariogutierrez/context-harness-mcp`) with direct
   dependencies declared: `mcp-go`, `pgx/v5`, `pgvector-go`, `validator/v10`, `goose/v3`.
 - `cmd/server/main.go` — entry point with `-transport=stdio|http` and `-addr` flags,

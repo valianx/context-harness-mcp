@@ -11,7 +11,7 @@
 - `[stack]` Vector index: pgvector HNSW con `vector_cosine_ops`, defaults `m=16, ef_construction=64`. Coincide con la métrica `hnsw:space: "cosine"` del ChromaDB origen para preservar la vecindad semántica tras la migración.
 - `[stack]` Scripts de migración en Python bajo `scripts/`, gestionados con `uv`. Reutilizan `claude-dev-team/knowledge-graph/migrate_knowledge.py`, `export.py`, `import.py`. NO forman parte del runtime del servidor.
 - `[stack]` Build: multi-stage `Dockerfile` (`golang:1.22` → `debian:bookworm-slim`). Runtime stage incluye el shared library de ONNX en `/usr/local/lib` con `LD_LIBRARY_PATH` seteado, y el binario `goose` en `/usr/local/bin`. La misma imagen se usa en Phase 1 (docker-compose local) y Phase 2 (Render).
-- `[stack]` Tests: stdlib `testing` + `github.com/stretchr/testify` + `github.com/testcontainers/testcontainers-go/modules/postgres`. Integration tests levantan postgres+pgvector ephemeral aislado por test run vía testcontainers — no dependen del docker-compose ni de Supabase. Requiere Docker daemon corriendo en la máquina (dev o CI).
+- `[stack]` Tests: stdlib `testing` + `github.com/stretchr/testify` + `github.com/testcontainers/testcontainers-go/modules/postgres` v0.35.0. Integration tests levantan `pgvector/pgvector:pg16` ephemeral aislado por test run vía testcontainers — no dependen del docker-compose ni de Supabase. Requiere Docker daemon corriendo en la máquina (dev o CI). `TestMain` aplica migraciones vía `goose.Up` library (mismo path que prod) y expone `NewTestPool(t)` + `CleanDB(t)` helpers.
 - `[stack]` `github.com/zricethezav/gitleaks/v8` — usado como library (no CLI). Lazy-load en primer request post-cold-start para evitar penalty en boot. ~150 default rules + custom rules si emergen.
 
 ## Decisions
