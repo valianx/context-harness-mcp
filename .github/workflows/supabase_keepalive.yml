@@ -1,0 +1,42 @@
+name: Supabase keepalive
+
+on:
+  schedule:
+    # Every 6 days at 12:00 UTC. Supabase Free auto-pauses after 7 days of DB
+    # inactivity; the 1-day buffer prevents unplanned pauses between cron fires.
+    - cron: "0 12 */6 * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    name: SELECT 1 against Supabase
+    runs-on: ubuntu-latest
+
+    env:
+      # Bound at job scope so the if: expression on subsequent steps can read it.
+      # An unset GH secret resolves to an empty string, not an error.
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+
+    steps:
+      - name: Guard — secret must be set
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::warning::keepalive skipped — SUPABASE_DB_URL not yet configured."
+            exit 0
+          fi
+
+      - name: Install psql
+        if: ${{ env.SUPABASE_DB_URL != '' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+
+      - name: Run SELECT 1
+        if: ${{ env.SUPABASE_DB_URL != '' }}
+        run: |
+          output=$(psql "$SUPABASE_DB_URL" -tAc 'select 1')
+          if [ "$output" != "1" ]; then
+            echo "::error::keepalive query did not return 1; got '$output'"
+            exit 1
+          fi
+          echo "keepalive OK"

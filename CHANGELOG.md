@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `render.yaml` — fully spec'd for Phase 2 Render deploy: `region: oregon`, `dockerfilePath`, `dockerContext`, static env vars (`MCP_TRANSPORT`, `MCP_HTTP_ADDR`, `LOG_LEVEL`), and `SUPABASE_DB_URL` with `sync: false` (must be set manually in Render dashboard; never sourced from git).
+- `.github/workflows/deploy.yml` — push-to-main CD: runs `goose up` against Supabase (migrations before code), then curls the Render deploy hook. Guard step exits 0 cleanly when secrets are unset. `concurrency: group: deploy-main` prevents simultaneous deploys.
+- `.github/workflows/pg_dump_weekly.yml` — Sunday 03:00 UTC encrypted backup: `pg_dump --no-owner --no-privileges`, AES-256 via `gpg --symmetric`, uploaded as GH Actions artifact with 90-day retention.
+- `.github/workflows/supabase_keepalive.yml` — `SELECT 1` every 6 days at 12:00 UTC to prevent Supabase Free auto-pause (7-day inactivity threshold, 1-day safety buffer).
+- README `§Deployment` — one-time setup runbook (Supabase, Render, deploy hook, passphrase, GH secrets), GH secrets reference table, deploy verification steps, Claude Code `~/.claude.json` snippet, free-tier op model, and recovery-from-backup procedure.
+
+### Changed
+
+- `README.md` — status line updated from "Stage 1 — no implementation yet" to "Phase 1 + Phase 2 live (as of PR-7)"; `§Quickstart` added pointing at `docs/local-stack.md`.
+- `docs/knowledge.md` — `[restricción]` GH secrets bullet updated: `SUPABASE_ACCESS_TOKEN` flagged as optional/future-use (no current workflow consumes it); guard-step exit-0 behavior documented.
+
 - `scripts/smoke/happy_path.sh` — end-to-end smoke test: `create_entities` → `read_graph` round-trip → `delete_entities` cleanup; exits 0 on success.
 - `scripts/smoke/secret_rejected.sh` — smoke test asserting that an AWS-shaped credential in an observation returns `code="policy/secret-detected"` from the Content Filter.
 - `scripts/smoke/size_rejected.sh` — smoke test asserting that a >65 KB observation returns `code="policy/size-exceeded"` from the syntactic layer.

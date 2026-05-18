@@ -1,0 +1,54 @@
+name: Weekly pg_dump
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"   # 03:00 UTC every Sunday
+  workflow_dispatch:
+
+jobs:
+  dump:
+    name: pg_dump and gpg-encrypt
+    runs-on: ubuntu-latest
+
+    env:
+      # Bound at job scope so the if: expressions on subsequent steps can read them.
+      # An unset GH secret resolves to an empty string, not an error.
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      DUMP_PASSPHRASE: ${{ secrets.DUMP_PASSPHRASE }}
+
+    steps:
+      - name: Guard — secrets must be set
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ] || [ -z "$DUMP_PASSPHRASE" ]; then
+            echo "::warning::pg_dump skipped — secrets not yet configured."
+            exit 0
+          fi
+
+      - name: Install postgresql-client (pg_dump pinned to 16)
+        if: ${{ env.SUPABASE_DB_URL != '' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+
+      - name: pg_dump → gpg
+        if: ${{ env.SUPABASE_DB_URL != '' }}
+        run: |
+          timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+          outfile="context-harness-mcp-${timestamp}.sql"
+          pg_dump --no-owner --no-privileges --format=plain "$SUPABASE_DB_URL" > "$outfile"
+          gpg --batch --yes --symmetric --cipher-algo AES256 \
+              --passphrase "$DUMP_PASSPHRASE" "$outfile"
+          rm "$outfile"
+          echo "DUMP_FILE=${outfile}.gpg" >> $GITHUB_ENV
+
+      - name: Upload encrypted dump as artifact
+        # The encrypted blob is safe to share; the DUMP_PASSPHRASE is NOT.
+        # Artifacts auto-delete after 90 days. For long-term recovery, download
+        # and archive to durable storage (S3, Glacier) before the retention window.
+        if: ${{ env.SUPABASE_DB_URL != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg_dump-encrypted
+          path: ${{ env.DUMP_FILE }}
+          retention-days: 90
+          if-no-files-found: error

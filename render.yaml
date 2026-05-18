@@ -3,5 +3,16 @@ services:
     name: context-harness-mcp
     env: docker
     plan: free
+    region: oregon
     healthCheckPath: /healthz
-    # Full env var wiring, region, and deploy hook land in PR-7.
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: MCP_TRANSPORT
+        value: http
+      - key: MCP_HTTP_ADDR
+        value: ":8080"
+      - key: LOG_LEVEL
+        value: info
+      - key: SUPABASE_DB_URL
+        sync: false   # set manually in Render dashboard; never sourced from git
