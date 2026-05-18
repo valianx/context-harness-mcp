@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `docs/deployment.md` — Phase 2 cloud-deployment runbook extracted from the README: architecture overview, one-time Supabase + Render + GH-secrets setup, on-each-push behaviour, secrets reference, deploy verification, free-tier op model, recovery from backup.
+- `docs/mcp-tools.md` — reference for the 9 MCP tools + healthz: arguments, success responses, taxonomy enums, atomicity guarantees, policy error codes with full structured-error shape.
 - `scripts/pyproject.toml` — uv-managed scripts project (psycopg[binary], pgvector, chromadb, click); `package = false` so scripts run via `uv run` without installation.
 - `scripts/import_to_supabase.py` — generic idempotent JSON → Supabase importer (claude-dev-team export.py shape); ON CONFLICT DO NOTHING for entities, observations, and relations; embedding passthrough with 384-dim validation.
 - `scripts/import_from_chromadb.py` — convenience wrapper that auto-locates claude-dev-team's `export.py` (or accepts `--source-export PATH`) and pipes through `import_to_supabase.py`.
@@ -27,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.github/workflows/pg_dump_weekly.yml` — Sunday 03:00 UTC encrypted backup: `pg_dump --no-owner --no-privileges`, AES-256 via `gpg --symmetric`, uploaded as GH Actions artifact with 90-day retention.
 - `.github/workflows/supabase_keepalive.yml` — `SELECT 1` every 6 days at 12:00 UTC to prevent Supabase Free auto-pause (7-day inactivity threshold, 1-day safety buffer).
 - README `§Deployment` — one-time setup runbook (Supabase, Render, deploy hook, passphrase, GH secrets), GH secrets reference table, deploy verification steps, Claude Code `~/.claude.json` snippet, free-tier op model, and recovery-from-backup procedure.
+- `README.md` rewritten as a simple landing page: title "Context Harness MCP", functional description, two install paths (local Docker / cloud), documentation index. Deployment runbook moved to `docs/deployment.md`; tool reference extracted into `docs/mcp-tools.md`.
 
 ### Changed
 
