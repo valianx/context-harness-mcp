@@ -6,19 +6,28 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvector "github.com/pgvector/pgvector-go"
 )
 
-// Insert adds a new observation text for the given entity. The embedding column
-// is intentionally omitted — it stays NULL until PR-5 fills it via a vector
-// embedding service. On a (entity_id, text) unique conflict the row is
-// silently skipped and inserted=false is returned.
-func Insert(ctx context.Context, tx pgx.Tx, entityID, text string) (observationID string, inserted bool, err error) {
+// Insert adds a new observation text and its pre-computed embedding for the
+// given entity. When the ONNX runtime is unavailable, callers may pass a
+// zero-length pgvector.Vector{} — this is stored as SQL NULL (degraded mode).
+// A non-zero vector must have exactly 384 dimensions. On a (entity_id, text)
+// unique conflict the row is silently skipped and inserted=false is returned.
+func Insert(ctx context.Context, tx pgx.Tx, entityID, text string, embedding pgvector.Vector) (observationID string, inserted bool, err error) {
+	// Use a typed nil interface so pgx encodes a SQL NULL when no embedding is
+	// available, rather than sending an invalid empty vector to Postgres.
+	var embParam any
+	if len(embedding.Slice()) > 0 {
+		embParam = embedding
+	}
+
 	err = tx.QueryRow(ctx,
-		`INSERT INTO observations (entity_id, text)
-		 VALUES ($1, $2)
+		`INSERT INTO observations (entity_id, text, embedding)
+		 VALUES ($1, $2, $3)
 		 ON CONFLICT (entity_id, text) DO NOTHING
 		 RETURNING id`,
-		entityID, text,
+		entityID, text, embParam,
 	).Scan(&observationID)
 
 	if err == nil {

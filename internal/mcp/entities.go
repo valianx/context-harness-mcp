@@ -9,6 +9,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvector "github.com/pgvector/pgvector-go"
+	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 )
@@ -94,6 +96,22 @@ func createEntitiesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 }
 
 func execCreateEntities(ctx context.Context, pool *pgxpool.Pool, entities []createEntityInput) (int, int, error) {
+	// Collect all observation texts for batch embedding before opening any Tx.
+	// This ensures a model failure does not waste a DB transaction.
+	var allObs []obsRef
+	for ei, e := range entities {
+		for oi, text := range e.Observations {
+			truncated := embed.TruncateToTokens(text, 256)
+			entities[ei].Observations[oi] = truncated
+			allObs = append(allObs, obsRef{entityIdx: ei, obsIdx: oi, text: truncated})
+		}
+	}
+
+	embeddingsByObs, err := batchEmbed(ctx, allObs)
+	if err != nil {
+		return 0, 0, err
+	}
+
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, 0, err
@@ -101,15 +119,16 @@ func execCreateEntities(ctx context.Context, pool *pgxpool.Pool, entities []crea
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	createdEntities, createdObs := 0, 0
-	for _, e := range entities {
+	for ei, e := range entities {
 		id, err := store.Create(ctx, tx, e.Name, e.EntityType)
 		if err != nil {
 			return 0, 0, fmt.Errorf("create entity %q: %w", e.Name, err)
 		}
 		createdEntities++
 
-		for _, obsText := range e.Observations {
-			_, inserted, err := store.Insert(ctx, tx, id, obsText)
+		for oi, obsText := range e.Observations {
+			vec := embeddingsByObs[[2]int{ei, oi}]
+			_, inserted, err := store.Insert(ctx, tx, id, obsText, vec)
 			if err != nil {
 				return 0, 0, fmt.Errorf("insert observation for %q: %w", e.Name, err)
 			}
@@ -120,6 +139,45 @@ func execCreateEntities(ctx context.Context, pool *pgxpool.Pool, entities []crea
 	}
 
 	return createdEntities, createdObs, tx.Commit(ctx)
+}
+
+// obsRef identifies a single observation by its position in the input batch.
+type obsRef struct {
+	entityIdx int
+	obsIdx    int
+	text      string
+}
+
+// batchEmbed encodes all observation texts in one call and returns a map
+// keyed by [entityIdx, obsIdx] → pgvector.Vector.
+//
+// When the ONNX runtime is unavailable (embedder returns an error), the map is
+// returned with zero-value pgvector.Vector entries (length 0). The store.Insert
+// caller passes these as NULL in Postgres, allowing write operations to succeed
+// in degraded mode. search_nodes still requires ONNX and returns an error when
+// embeddings are absent, making the degradation visible to operators.
+func batchEmbed(ctx context.Context, refs []obsRef) (map[[2]int]pgvector.Vector, error) {
+	result := make(map[[2]int]pgvector.Vector, len(refs))
+	if len(refs) == 0 {
+		return result, nil
+	}
+
+	texts := make([]string, len(refs))
+	for i, r := range refs {
+		texts[i] = r.text
+	}
+
+	vecs, err := embed.Default().Encode(ctx, texts)
+	if err != nil {
+		// Degraded mode: ONNX runtime unavailable. Store NULL embeddings so
+		// writes succeed. Operators will see errors on search_nodes queries.
+		return result, nil
+	}
+
+	for i, r := range refs {
+		result[[2]int{r.entityIdx, r.obsIdx}] = pgvector.NewVector(vecs[i])
+	}
+	return result, nil
 }
 
 // ── add_observations ─────────────────────────────────────────────────────────
@@ -161,6 +219,21 @@ func addObservationsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 }
 
 func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObsInput) (int, error) {
+	// Collect and truncate all texts; batch-encode before opening any Tx.
+	var allObs []obsRef
+	for ii, item := range items {
+		for oi, text := range item.Contents {
+			truncated := embed.TruncateToTokens(text, 256)
+			items[ii].Contents[oi] = truncated
+			allObs = append(allObs, obsRef{entityIdx: ii, obsIdx: oi, text: truncated})
+		}
+	}
+
+	embeddingsByObs, err := batchEmbed(ctx, allObs)
+	if err != nil {
+		return 0, err
+	}
+
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -168,7 +241,7 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	added := 0
-	for _, item := range items {
+	for ii, item := range items {
 		id, _, found, err := store.FindByName(ctx, tx, item.EntityName)
 		if err != nil {
 			return 0, fmt.Errorf("find entity %q: %w", item.EntityName, err)
@@ -177,8 +250,9 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 			return 0, &entityNotFoundError{name: item.EntityName}
 		}
 
-		for _, text := range item.Contents {
-			_, inserted, err := store.Insert(ctx, tx, id, text)
+		for oi, text := range item.Contents {
+			vec := embeddingsByObs[[2]int{ii, oi}]
+			_, inserted, err := store.Insert(ctx, tx, id, text, vec)
 			if err != nil {
 				return 0, fmt.Errorf("insert observation for %q: %w", item.EntityName, err)
 			}

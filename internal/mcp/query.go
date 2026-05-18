@@ -8,6 +8,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvector "github.com/pgvector/pgvector-go"
+	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
 
@@ -81,7 +83,16 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 }
 
 func searchNodes(ctx context.Context, pool *pgxpool.Pool, query string) ([]entityJSON, []relationJSON, error) {
-	entityRows, err := store.SearchByTextSubstring(ctx, pool, query)
+	// Encode the query into a vector; fail loudly if the embedder is broken.
+	// The substring helper (store.SearchByTextSubstring) stays in the codebase
+	// but is no longer wired here — failure must be visible to operators.
+	vecs, err := embed.Default().Encode(ctx, []string{query})
+	if err != nil {
+		return nil, nil, fmt.Errorf("search_nodes: embedding failed: %w", err)
+	}
+	queryVec := pgvector.NewVector(vecs[0])
+
+	entityRows, err := store.SearchByCosine(ctx, pool, queryVec)
 	if err != nil {
 		return nil, nil, err
 	}

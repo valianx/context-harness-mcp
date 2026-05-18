@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvector "github.com/pgvector/pgvector-go"
 )
 
 // EntityRow is a read-projection of an active entities row.
@@ -94,9 +95,34 @@ func ListActive(ctx context.Context, pool *pgxpool.Pool) ([]EntityRow, error) {
 	return scanEntityRows(rows)
 }
 
+// SearchByCosine returns up to 10 active entities ranked by the minimum cosine
+// distance between the query vector and each entity's active observation
+// embeddings. Only entities that have at least one non-null embedding are
+// considered. Results are ordered closest-first (ASC distance = most similar).
+func SearchByCosine(ctx context.Context, pool *pgxpool.Pool, queryVec pgvector.Vector) ([]EntityRow, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT e.id, e.name, e.entity_type
+		 FROM entities e
+		 JOIN observations o ON o.entity_id = e.id
+		 WHERE e.deleted_at IS NULL
+		   AND o.deleted_at IS NULL
+		   AND o.embedding IS NOT NULL
+		 GROUP BY e.id, e.name, e.entity_type
+		 ORDER BY MIN(o.embedding <=> $1::vector) ASC
+		 LIMIT 10`,
+		queryVec,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEntityRows(rows)
+}
+
 // SearchByTextSubstring returns active entities that have at least one active
 // observation whose text contains the query string (case-insensitive ILIKE).
-// This is the PR-4 substring fallback; PR-5 will replace it with pgvector cosine.
+// This is the PR-4 substring fallback; no longer wired into search_nodes as of
+// PR-5 — kept for potential future use (e.g. ?fallback=substring query param).
 func SearchByTextSubstring(ctx context.Context, pool *pgxpool.Pool, query string) ([]EntityRow, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT DISTINCT e.id, e.name, e.entity_type
