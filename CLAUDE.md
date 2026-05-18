@@ -36,8 +36,9 @@ repository. The orchestrator pipeline reads this file before touching any code.
 - `gh` — GitHub CLI for the delivery agent's PR workflow.
 
 **Hosting.**
-- Phase 1: `docker compose up` — local Postgres + pgvector + mcp server.
-- Phase 2: Render Free (Docker deploy) + Supabase Free (managed Postgres).
+- Phase 1: `docker compose up` — local mcp server connecting to Supabase via `SUPABASE_DB_URL`.
+- Phase 2: Render Free (Docker deploy) connecting to the **same Supabase Free** target.
+- Both phases share one DB — only the runtime location of the binary differs.
 
 ---
 
@@ -72,14 +73,14 @@ context-harness-mcp/
 │       └── healthz.go            healthz MCP tool handler
 ├── migrations/                   Sequenced SQL migrations applied by goose (PR-2)
 ├── scripts/                      One-shot Python migration tools — NOT part of the runtime (PR-8)
-├── tests/                        Go integration tests against docker-compose Postgres (PR-2+)
+├── tests/                        Go integration tests with testcontainers-go ephemeral pg+pgvector (PR-2+)
 ├── .github/workflows/
 │   ├── ci.yml                    On PR: go vet + staticcheck + go build (+ go test from PR-2)
 │   ├── deploy.yml                On push to main: goose up + Render deploy hook (PR-7)
 │   ├── pg_dump_weekly.yml        Weekly encrypted pg_dump backup (PR-7)
 │   └── supabase_keepalive.yml    Every 6 days SELECT 1 (PR-7)
 ├── Dockerfile                    Multi-stage: golang:1.23 builder → debian:bookworm-slim runtime
-├── docker-compose.yml            Phase 1 stack: postgres + migrate sidecar + mcp server
+├── docker-compose.yml            Phase 1 stack: mcp server only, connects to Supabase via SUPABASE_DB_URL
 ├── go.mod / go.sum               Go module manifest
 ├── render.yaml                   Render IaC manifest for Phase 2
 ├── docs/
@@ -107,10 +108,10 @@ context-harness-mcp/
 | Content Filter | `github.com/go-playground/validator/v10` (struct tags) + `github.com/zricethezav/gitleaks/v8` (secrets, PR-3) |
 | Migrations | `github.com/pressly/goose/v3` — forward-only SQL in `migrations/`; same binary for Phase 1 and Phase 2 |
 | Logging | stdlib `log/slog` JSON handler to stdout |
-| Testing | stdlib `testing` + `github.com/stretchr/testify` + docker-compose Postgres (PR-2+) |
+| Testing | stdlib `testing` + `github.com/stretchr/testify` + `github.com/testcontainers/testcontainers-go/modules/postgres` (PR-2+); ephemeral pg+pgvector per test run |
 | Container base | `debian:bookworm-slim` — glibc required for ONNX Runtime Linux x64 |
-| Hosting (Phase 1) | `docker compose up` — local Postgres 16 + pgvector + migrate sidecar |
-| Hosting (Phase 2) | Render Free (Docker deploy) + Supabase Free (Postgres + pgvector) |
+| Hosting (Phase 1) | `docker compose up` — local mcp server connecting to Supabase via `SUPABASE_DB_URL` |
+| Hosting (Phase 2) | Render Free (Docker deploy) connecting to the same Supabase Free target |
 
 **Current version:** `0.1.0-dev` (skeleton, PR-1).
 
@@ -129,9 +130,10 @@ All commands run from the repo root unless noted.
 | Run staticcheck | `go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 && staticcheck ./...` |
 | Build and verify | `go build ./... && go vet ./...` |
 | Fetch / tidy deps | `GOTOOLCHAIN=local go mod tidy` |
-| Start Phase 1 local stack | `docker compose up --build` |
-| Apply migrations (local) | `docker compose run --rm migrate` |
-| Run integration tests | `go test ./... # requires docker compose up postgres` |
+| Start Phase 1 local stack | `docker compose up --build` (requires `SUPABASE_DB_URL` in `.env`) |
+| Apply migrations to Supabase (local) | `docker compose --profile migrate run --rm migrate` |
+| Apply migrations to Supabase (CI) | runs automatically via `.github/workflows/deploy.yml` on push to `main` (PR-7) |
+| Run integration tests | `go test ./...  # requires Docker daemon (testcontainers spins ephemeral pg)` |
 | Export local KG to JSON | `cd scripts && uv run export_from_supabase.py --out ../shared-knowledge/<name>-$(date +%F).json` |
 
 **Not applicable to this repo:** `npm`, `pip install`, `python -m`, `uvicorn`. The server is Go only.
@@ -148,7 +150,7 @@ All commands run from the repo root unless noted.
 - **All SQL is parameterized.** No `fmt.Sprintf` inside SQL strings, ever — even next to the validator.
 - **Migrations are forward-only in prod.** `goose Down` annotations exist for dev/CI (`goose reset` between tests) but are never invoked in production.
 - **ONNX session and gitleaks detector are lazy-loaded.** Both use `sync.Once` — initialized on first embedding / first write request, not at startup. Non-embedding tools (`read_graph`, `open_nodes`) pay no model-load cost.
-- **Same Docker image for Phase 1 and Phase 2.** Runtime differences live exclusively in env vars. Build artifact drift between phases is a bug.
+- **Same Docker image AND same Supabase target for Phase 1 and Phase 2.** Runtime differences live exclusively in `SUPABASE_DB_URL`, `MCP_TRANSPORT`, log level. Build artifact drift between phases is a bug.
 - **`log/slog` JSON handler only.** No `fmt.Println`, no `log.Printf`, no third-party logging. Structured JSON to stdout; Render and `docker compose` capture stdout.
 
 ---

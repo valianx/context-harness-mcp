@@ -31,3 +31,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[patrón]` bullets from the design phase.
 - `.github/workflows/ci.yml` — CI stub on `pull_request`: setup-go, `go vet ./...`,
   `staticcheck ./...`, `go build ./...`.
+
+### Changed
+
+- `docker-compose.yml` — Phase 1 stack simplified to run only the `mcp` service against
+  Supabase via `SUPABASE_DB_URL`. Local Postgres + pgvector service removed. Migrations
+  move to an opt-in `migrate` profile (`docker compose --profile migrate run --rm migrate`).
+  Test strategy switches to `testcontainers-go` for ephemeral pg+pgvector per test run,
+  removing the integration-test dependency on docker-compose. Phase 1's "operational
+  fallback" role is dropped; the other three (E2E deploy validation, dev environment,
+  self-hosting base) are preserved.
+- `.env.example` — `POSTGRES_DSN` replaced by `SUPABASE_DB_URL` (required env var,
+  no default in compose via `:?` syntax). Same DB target for Phase 1 and Phase 2.
+- `CLAUDE.md` §1 Hosting, §2 Repo Map, §3 Tech Stack, §4 Golden Commands, §5
+  Architectural Conventions updated to reflect the single Supabase target.
+- `docs/knowledge.md` — bullets updated to reflect single Supabase target + testcontainers
+  test strategy + three-role Phase 1.
+
+### Fixed
+
+- Removed hardcoded `POSTGRES_PASSWORD=postgres` from `docker-compose.yml` flagged by
+  GitGuardian (incident #22875055). The value was a public-knowledge dev default with
+  zero real-world credential value, but the pattern matched secret-detection rules.
+  Replaced with the `SUPABASE_DB_URL` env var (no defaults, fails fast if unset).
