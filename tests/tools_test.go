@@ -11,8 +11,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
 )
+
+// ── embedder guard ────────────────────────────────────────────────────────────
+
+// requireEmbedder skips the test when the ONNX embedder is unavailable (e.g.
+// CGO-disabled Windows dev boxes). Tests that exercise the write path must call
+// this before any create_entities or add_observations invocation — batchEmbed
+// now returns an error on model failure rather than degrading silently to NULL.
+func requireEmbedder(t *testing.T) {
+	t.Helper()
+	if _, err := embed.Default().Encode(context.Background(), []string{"probe"}); err != nil {
+		t.Skipf("embedder unavailable, skipping write-path test: %v", err)
+	}
+}
 
 // ── test client helpers ────────────────────────────────────────────────────────
 
@@ -104,6 +118,7 @@ func countAllRows(t *testing.T, table string) int {
 // with one observation produces exactly one entities row and one observations
 // row (AC-1).
 func TestCreateEntities_SingleEntity(t *testing.T) {
+	requireEmbedder(t)
 	CleanDB(t)
 	c := newMCPClient(t)
 
@@ -134,6 +149,7 @@ func TestCreateEntities_SingleEntity(t *testing.T) {
 // TestAddObservations_Dedup verifies that duplicate observations are deduped at
 // the DB level via the (entity_id, text) unique constraint (AC-2).
 func TestAddObservations_Dedup(t *testing.T) {
+	requireEmbedder(t)
 	CleanDB(t)
 	c := newMCPClient(t)
 
@@ -170,6 +186,7 @@ func TestAddObservations_Dedup(t *testing.T) {
 // TestDeleteEntities_SoftDelete verifies that soft-delete sets deleted_at and
 // that read_graph excludes the deleted entity (AC-3).
 func TestDeleteEntities_SoftDelete(t *testing.T) {
+	requireEmbedder(t)
 	CleanDB(t)
 	c := newMCPClient(t)
 

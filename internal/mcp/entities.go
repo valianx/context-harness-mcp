@@ -149,13 +149,8 @@ type obsRef struct {
 }
 
 // batchEmbed encodes all observation texts in one call and returns a map
-// keyed by [entityIdx, obsIdx] → pgvector.Vector.
-//
-// When the ONNX runtime is unavailable (embedder returns an error), the map is
-// returned with zero-value pgvector.Vector entries (length 0). The store.Insert
-// caller passes these as NULL in Postgres, allowing write operations to succeed
-// in degraded mode. search_nodes still requires ONNX and returns an error when
-// embeddings are absent, making the degradation visible to operators.
+// keyed by [entityIdx, obsIdx] → pgvector.Vector. A model failure is returned
+// as an error — callers must not proceed with DB writes if encoding fails.
 func batchEmbed(ctx context.Context, refs []obsRef) (map[[2]int]pgvector.Vector, error) {
 	result := make(map[[2]int]pgvector.Vector, len(refs))
 	if len(refs) == 0 {
@@ -169,9 +164,7 @@ func batchEmbed(ctx context.Context, refs []obsRef) (map[[2]int]pgvector.Vector,
 
 	vecs, err := embed.Default().Encode(ctx, texts)
 	if err != nil {
-		// Degraded mode: ONNX runtime unavailable. Store NULL embeddings so
-		// writes succeed. Operators will see errors on search_nodes queries.
-		return result, nil
+		return nil, fmt.Errorf("embed encode: %w", err)
 	}
 
 	for i, r := range refs {
