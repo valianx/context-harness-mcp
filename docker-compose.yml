@@ -1,15 +1,13 @@
-version: "3.9"
-
-# Phase 1 local stack — runs ONLY the mcp service against Supabase Free.
-# No local Postgres: dev, CI, and prod all share the same Supabase DB via SUPABASE_DB_URL.
-# Migrations are an opt-in profile (one-shot sidecar against Supabase).
+# Phase 1 local stack — runs ONLY the mcp service against any reachable Postgres.
+# No local Postgres: dev, CI, and prod all share a DSN via SUPABASE_DB_URL.
+# Migrations are an opt-in profile (one-shot sidecar; runs goose against the DB).
 #
 # Usage:
-#   docker compose up                                       # mcp server only
-#   docker compose --profile migrate run --rm migrate       # apply goose migrations to Supabase
+#   docker compose up -d --wait                               # mcp server (waits for healthy)
+#   docker compose --profile migrate run --rm migrate         # apply goose migrations
 #
 # Required env var (set in .env from .env.example):
-#   SUPABASE_DB_URL — full Postgres connection string with sslmode=require
+#   SUPABASE_DB_URL — full Postgres connection string
 
 services:
   mcp:
@@ -22,6 +20,12 @@ services:
       MCP_TRANSPORT: http
       MCP_HTTP_ADDR: ":8080"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsSL", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 
   migrate:
     profiles: ["migrate"]
@@ -32,5 +36,5 @@ services:
       - "postgres"
       - "${SUPABASE_DB_URL:?SUPABASE_DB_URL is required for migrations}"
       - "up"
-    # migrations/ volume + the real /migrations directory in the image land in PR-2
-    volumes: []
+    # migrations/ is baked into the image at /migrations (see Dockerfile COPY --from=builder).
+    # No host bind-mount needed — the same image works on Render and locally.

@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `scripts/smoke/happy_path.sh` — end-to-end smoke test: `create_entities` → `read_graph` round-trip → `delete_entities` cleanup; exits 0 on success.
+- `scripts/smoke/secret_rejected.sh` — smoke test asserting that an AWS-shaped credential in an observation returns `code="policy/secret-detected"` from the Content Filter.
+- `scripts/smoke/size_rejected.sh` — smoke test asserting that a >65 KB observation returns `code="policy/size-exceeded"` from the syntactic layer.
+- `docs/local-stack.md` — contributor runbook: quick start, DB target options (Supabase Free + local pgvector), migration invocation, smoke test execution, Claude Code `~/.claude.json` wiring, emergency fallback procedure, and troubleshooting table.
+- `e2e-smoke` CI job in `.github/workflows/ci.yml` — boots `docker-compose.yml` against a `pgvector/pgvector:pg16` service container, applies migrations via goose, waits for the `mcp` healthcheck, then runs the three smoke scripts to completion.
+- Healthcheck on the `mcp` service in `docker-compose.yml`: `curl -fsSL http://localhost:8080/healthz`, interval 10s, timeout 3s, retries 5, start_period 15s.
+- `COPY --from=builder /src/migrations /migrations` in `Dockerfile` runtime stage — migrations are now baked into the image at `/migrations` so the `migrate` compose profile needs no host bind-mount.
+- `all-MiniLM-L6-v2` ONNX model baked into the image at `/local_cache/fast-all-MiniLM-L6-v2/` via `sentence-transformers-all-MiniLM-L6-v2.tar.gz` (GCS public archive) — eliminates runtime model download and makes cold starts deterministic. `onnxruntime.so` symlink added for `dlopen` compatibility. `model_optimized.onnx` symlink bridges fastembed-go v1.0.0's hardcoded filename vs the archive's `model.onnx`.
+- Three new bullets in `docs/knowledge.md`: `[patrón]` phased deploy, `[restricción]` same-image-both-phases, `[stack]` goose as migration tool.
+
+### Changed
+
+- `.github/workflows/ci.yml` — `lint-and-build` job extended with `go test ./...`; new parallel `e2e-smoke` job added.
+- `Dockerfile` — runtime stage now includes: `COPY --from=builder /src/migrations /migrations`; `onnxruntime.so` symlink; baked ONNX model; goose-builder rebuilt with `-ldflags="-s -w"` and postgres-only tags to reduce binary from 52 MB to 13 MB.
+- `docker-compose.yml` — `mcp` service now has a `healthcheck`; `migrate` service comment updated to reflect that migrations are baked into the image.
+
 - `migrations/00001_init.sql` — goose-annotated migration: pgvector extension, `entities` / `observations` / `relations` tables with soft-delete columns, HNSW cosine index on `observations.embedding`, CHECK constraints on `entity_type` (9 values) and `relation_type` (5 values), and unique constraints for dedup.
 - `migrations/00002_soft_delete.sql` — goose-annotated migration: partial indexes on `deleted_at IS NULL` for active-row query paths; `v_active_entities` restore helper view.
 - `migrations/README.md` — documents the two goose application paths (docker compose `migrate` profile for manual dev, `deploy.yml` for CI/CD — both target Supabase), the testcontainers test path, and why `supabase db push` is not used.

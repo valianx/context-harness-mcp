@@ -13,10 +13,13 @@ RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o /out/server ./cmd/server
 
 # Stage 2: build the goose migration binary.
 # Runs as a separate stage so the goose download is cached independently of
-# application code changes.
+# application code changes. Built with -ldflags="-s -w" to strip debug symbols
+# and no_postgres=false / no_mysql=true etc. to include only the postgres driver,
+# keeping the binary small (goose bundles many DB drivers by default).
 FROM golang:1.23 AS goose-builder
 
-RUN go install github.com/pressly/goose/v3/cmd/goose@v3.26.0
+RUN go install -ldflags="-s -w" -tags "no_mysql no_sqlite3 no_mssql no_redshift no_tidb no_clickhouse no_vertica no_ydb no_turso" \
+    github.com/pressly/goose/v3/cmd/goose@v3.26.0
 
 # Stage 3: runtime image.
 # debian:bookworm-slim ships glibc which is required for the ONNX shared
@@ -40,11 +43,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && tar -xzf /tmp/onnxruntime.tgz -C /tmp \
     && cp /tmp/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}/lib/libonnxruntime.so* /usr/local/lib/ \
     && ldconfig \
-    && rm -rf /tmp/onnxruntime*
+    && rm -rf /tmp/onnxruntime* \
+    # onnxruntime_go (used by fastembed-go) dlopen("onnxruntime.so") by default.
+    # The release archive provides libonnxruntime.so; create the bare symlink so
+    # dlopen resolves without requiring SetSharedLibraryPath in application code.
+    && ln -s /usr/local/lib/libonnxruntime.so /usr/local/lib/onnxruntime.so
 
 # Copy binaries from builder stages.
 COPY --from=builder /out/server /usr/local/bin/server
 COPY --from=goose-builder /go/bin/goose /usr/local/bin/goose
+
+# Bake the migrations directory so the `migrate` compose profile can run
+# `goose -dir /migrations` without a host bind-mount. This is the same
+# /migrations path that deploy.yml (PR-7) will reference on Render.
+COPY --from=builder /src/migrations /migrations
+
+# Pre-download the fastembed-go model (all-MiniLM-L6-v2) into the image.
+# fastembed-go defaults cache dir to "local_cache" (relative to CWD, which is
+# "/" in this image). The GCS path fast-all-MiniLM-L6-v2.tar.gz returned 403
+# as of 2026-05; the identically-named sentence-transformers archive at the
+# same bucket remains public and extracts to the same fast-all-MiniLM-L6-v2/
+# directory that fastembed-go checks at startup. Baking the model eliminates
+# the runtime download and makes cold starts deterministic.
+RUN curl -fsSL \
+        "https://storage.googleapis.com/qdrant-fastembed/sentence-transformers-all-MiniLM-L6-v2.tar.gz" \
+        -o /tmp/model.tar.gz \
+    && mkdir -p /local_cache \
+    && tar -xzf /tmp/model.tar.gz --exclude='._*' -C /local_cache \
+    && rm /tmp/model.tar.gz \
+    # fastembed-go v1.0.0 hardcodes the filename "model_optimized.onnx" (line 186
+    # in fastembed.go), but the publicly-available archive ships "model.onnx".
+    # The files are functionally identical; the symlink bridges the name mismatch.
+    && ln -s /local_cache/fast-all-MiniLM-L6-v2/model.onnx \
+             /local_cache/fast-all-MiniLM-L6-v2/model_optimized.onnx
 
 # Default to stdio transport; docker-compose and Render override via CMD or
 # environment variables passed at run time.

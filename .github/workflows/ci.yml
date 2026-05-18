@@ -6,8 +6,29 @@ on:
 
 jobs:
   lint-and-build:
-    name: Lint and build
+    name: Lint, build, and unit tests
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # testcontainers-go spins its own ephemeral Postgres inside Docker, so
+      # SUPABASE_DB_URL is needed only when a test explicitly reads it. The
+      # service container above is present for any future tests that prefer
+      # a pre-migrated DB over testcontainers.
+      SUPABASE_DB_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 
     steps:
       - uses: actions/checkout@v4
@@ -28,5 +49,76 @@ jobs:
       - name: go build
         run: go build ./...
 
-      # go test is added in PR-2 once migrations + docker-compose integration
-      # tests are in place. The full ci.yml with docker-compose wiring lands in PR-6.
+      - name: go test
+        run: go test ./...
+
+  e2e-smoke:
+    name: E2E smoke tests (docker compose + pgvector)
+    runs-on: ubuntu-latest
+    # Runs in parallel with lint-and-build — each job is independent.
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Install goose
+        run: go install github.com/pressly/goose/v3/cmd/goose@v3.26.0
+
+      - name: Apply migrations against service-container Postgres
+        # Runs from the host; the mcp container later connects via host.docker.internal.
+        run: goose -dir migrations postgres "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable" up
+
+      - name: Write docker-compose.override.yml
+        # On ubuntu-latest runners, the GH Actions service container is reachable
+        # from inside a docker-compose container via host.docker.internal when
+        # extra_hosts is set to host-gateway. The override file is written before
+        # `docker compose up` so the extra_hosts entry is present at container creation.
+        run: |
+          printf 'services:\n  mcp:\n    extra_hosts:\n      - "host.docker.internal:host-gateway"\n' \
+            > docker-compose.override.yml
+
+      - name: Start mcp service and wait for healthy
+        # The healthcheck in docker-compose.yml (curl -fsSL http://localhost:8080/healthz)
+        # must pass before --wait returns. SUPABASE_DB_URL points the mcp container at
+        # the host's service-container Postgres via host.docker.internal.
+        env:
+          SUPABASE_DB_URL: postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable
+        run: docker compose up -d --wait mcp
+
+      - name: Smoke test — happy path
+        env:
+          MCP_URL: http://localhost:8080/mcp
+        run: bash scripts/smoke/happy_path.sh
+
+      - name: Smoke test — secret rejected
+        env:
+          MCP_URL: http://localhost:8080/mcp
+        run: bash scripts/smoke/secret_rejected.sh
+
+      - name: Smoke test — size rejected
+        env:
+          MCP_URL: http://localhost:8080/mcp
+        run: bash scripts/smoke/size_rejected.sh
+
+      - name: Tear down
+        if: always()
+        env:
+          SUPABASE_DB_URL: postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable
+        run: docker compose down
