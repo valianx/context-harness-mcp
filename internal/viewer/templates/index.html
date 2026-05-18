@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Context Harness MCP — Knowledge Graph</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #0f0f12;
+      --surface:     #1a1a22;
+      --border:      #2a2a38;
+      --text:        #e2e2ef;
+      --muted:       #8888aa;
+      --accent:      #6c6cf0;
+      --accent-dim:  #3a3a80;
+      --pill-bg:     #252535;
+      --tag-out:     #1a3a2a;
+      --tag-out-text:#4dd898;
+      --tag-in:      #2a1a3a;
+      --tag-in-text: #c084fc;
+      --radius:      8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 20px 24px;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.3px;
+    }
+
+    header p {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px 20px;
+    }
+
+    .search-wrap {
+      position: relative;
+      margin-bottom: 24px;
+    }
+
+    #search-input {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    #search-input:focus {
+      border-color: var(--accent);
+    }
+
+    #search-input::placeholder {
+      color: var(--muted);
+    }
+
+    #status {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 16px;
+      min-height: 18px;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .node-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .node-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+
+    .node-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .node-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .node-type {
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--pill-bg);
+      color: var(--accent);
+      border-radius: 4px;
+      padding: 2px 7px;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+
+    .obs-list {
+      list-style: none;
+      margin-bottom: 10px;
+    }
+
+    .obs-list li {
+      position: relative;
+      padding-left: 14px;
+      color: #c8c8e0;
+      margin-bottom: 3px;
+      font-size: 13px;
+    }
+
+    .obs-list li::before {
+      content: "·";
+      position: absolute;
+      left: 3px;
+      color: var(--muted);
+    }
+
+    .relations {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .rel-tag {
+      font-size: 11px;
+      border-radius: 4px;
+      padding: 2px 8px;
+    }
+
+    .rel-out {
+      background: var(--tag-out);
+      color: var(--tag-out-text);
+    }
+
+    .rel-in {
+      background: var(--tag-in);
+      color: var(--tag-in-text);
+    }
+
+    .empty-state {
+      text-align: center;
+      color: var(--muted);
+      padding: 60px 0;
+      font-size: 13px;
+      line-height: 1.9;
+    }
+
+    .empty-state code {
+      color: var(--accent);
+      background: var(--pill-bg);
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+
+    .error-msg {
+      color: #f87171;
+      font-size: 13px;
+      padding: 12px 0;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Context Harness MCP — Knowledge Graph</h1>
+    <p>Public read-only viewer</p>
+  </header>
+
+  <div class="container">
+    <div class="search-wrap">
+      <input
+        id="search-input"
+        type="search"
+        placeholder="Search nodes by semantic similarity… (leave blank to list all)"
+        autofocus
+        autocomplete="off"
+      >
+    </div>
+
+    <div id="status"></div>
+    <div id="results"></div>
+  </div>
+
+  <script>
+    (function () {
+      const input   = document.getElementById('search-input');
+      const status  = document.getElementById('status');
+      const results = document.getElementById('results');
+
+      let debounceTimer = null;
+
+      function escapeHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      function renderNodes(data) {
+        if (!data.nodes || data.nodes.length === 0) {
+          if (!data.query) {
+            results.innerHTML = '<div class="empty-state">' +
+              'No nodes yet.<br>' +
+              'Save knowledge via the MCP <code>create_nodes</code> tool to populate the graph.' +
+              '</div>';
+          } else {
+            results.innerHTML = '<div class="empty-state">No nodes matched your query.</div>';
+          }
+          return;
+        }
+
+        const count = data.node_count;
+        const label = data.query
+          ? count + ' result' + (count !== 1 ? 's' : '') + ' for “' + escapeHtml(data.query) + '”'
+          : count + ' node' + (count !== 1 ? 's' : '');
+
+        status.textContent = label;
+
+        const cards = data.nodes.map(function (node) {
+          const obItems = (node.observations || []).map(function (o) {
+            return '<li>' + escapeHtml(o) + '</li>';
+          }).join('');
+
+          const outTags = (node.relations_out || []).map(function (r) {
+            return '<span class="rel-tag rel-out">→ ' +
+              escapeHtml(r.to) + ' <span style="opacity:.7">(' + escapeHtml(r.type) + ')</span>' +
+              '</span>';
+          }).join('');
+
+          const inTags = (node.relations_in || []).map(function (r) {
+            return '<span class="rel-tag rel-in">← ' +
+              escapeHtml(r.from) + ' <span style="opacity:.7">(' + escapeHtml(r.type) + ')</span>' +
+              '</span>';
+          }).join('');
+
+          const relSection = (outTags || inTags)
+            ? '<div class="relations">' + outTags + inTags + '</div>'
+            : '';
+
+          return '<div class="node-card">' +
+            '<div class="node-header">' +
+              '<span class="node-name">' + escapeHtml(node.name) + '</span>' +
+              '<span class="node-type">' + escapeHtml(node.node_type) + '</span>' +
+            '</div>' +
+            '<ul class="obs-list">' + obItems + '</ul>' +
+            relSection +
+            '</div>';
+        }).join('');
+
+        results.innerHTML = '<div class="node-list">' + cards + '</div>';
+      }
+
+      function showLoading() {
+        status.innerHTML = '<span class="spinner"></span>Searching…';
+        results.innerHTML = '';
+      }
+
+      function showError(msg) {
+        status.textContent = '';
+        results.innerHTML = '<div class="error-msg">' + escapeHtml(msg) + '</div>';
+      }
+
+      function fetch_search(q) {
+        showLoading();
+        var url = '/viewer/api/search' + (q ? '?q=' + encodeURIComponent(q) : '');
+        fetch(url)
+          .then(function (res) {
+            if (!res.ok) {
+              return res.json().then(function (e) {
+                throw new Error(e.error || 'HTTP ' + res.status);
+              });
+            }
+            return res.json();
+          })
+          .then(function (data) {
+            status.textContent = '';
+            renderNodes(data);
+          })
+          .catch(function (err) {
+            showError('Error: ' + err.message);
+          });
+      }
+
+      input.addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () {
+          fetch_search(input.value.trim());
+        }, 250);
+      });
+
+      // Initial load — list all nodes.
+      fetch_search('');
+    })();
+  </script>
+</body>
+</html>

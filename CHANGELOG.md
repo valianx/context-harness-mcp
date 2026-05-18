@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `internal/viewer/`: public single-page web viewer at `/viewer/` (HTML + JS embedded via go:embed). Search box with semantic-search via embed.Default + pgvector cosine. Default view lists all active nodes. Same exposure level as the MCP read tools — public/unauthenticated, served on port 8080 alongside `/mcp` and `/healthz`.
+
 ### Changed
 
 - Renamed all `entity`/`entities` vocabulary to `node`/`nodes` across the codebase (PR-3): SQL columns `entity_type`→`node_type`, `entity_id`→`node_id`, `from_entity_id`→`from_node_id`, `to_entity_id`→`to_node_id`; Go types `EntityRow`→`NodeRow`, `KindEntities`→`KindNodes`, `RejectedEntityIndex`→`RejectedNodeIndex`; JSON keys `created_entities`→`created_nodes`, `entity_count`→`node_count`, `rejected_entity_index`→`rejected_node_index`; files `internal/store/entities.go`→`nodes.go`, `internal/mcp/entities.go`→`nodes.go`. The 9 `node_type` enum values and the `relations` schema are unchanged.

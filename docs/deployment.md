@@ -102,6 +102,10 @@ The latest deploy in the service should show **Live** (green). Render Free cold-
 curl https://<your-render-url>.onrender.com/healthz
 ```
 
+After a successful deploy, `https://<your-render-url>.onrender.com/viewer/` shows the KG browser — all active nodes listed by default, with semantic search available via the search input.
+
+
+
 Expect HTTP 200 with `{"status":"ok"}`. A 502 or timeout usually means a cold start in progress — wait 15–30 s and retry.
 
 ### Run the smoke tests against the live URL
