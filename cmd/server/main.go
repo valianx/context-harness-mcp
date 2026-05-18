@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
+	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
 
 func main() {
@@ -22,7 +24,23 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	s := internalmcp.New()
+	dsn := os.Getenv("SUPABASE_DB_URL")
+	if dsn == "" {
+		slog.Error("SUPABASE_DB_URL environment variable is required but not set")
+		fmt.Fprintln(os.Stderr, "error: SUPABASE_DB_URL must be set — cannot start without DB access")
+		os.Exit(1)
+	}
+
+	ctx := context.Background()
+	pool, err := store.New(ctx, dsn)
+	if err != nil {
+		slog.Error("failed to open database pool", "error", err)
+		fmt.Fprintf(os.Stderr, "error: cannot connect to database: %s\n", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	s := internalmcp.New(pool)
 
 	switch *transport {
 	case "stdio":
@@ -50,7 +68,9 @@ func runHTTP(s *mcpserver.MCPServer, addr string) {
 	mux := http.NewServeMux()
 	// MCP streamable-http endpoint
 	mux.Handle("/mcp", httpServer)
-	// Plain HTTP health check consumed by Render and docker-compose healthchecks
+	// Plain HTTP health check consumed by Render and docker-compose healthchecks.
+	// Intentionally returns "db":"not-configured" — a DB ping is not added here
+	// per the anti-scope contract in PR-4.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `{"status":"ok","db":"not-configured"}`)

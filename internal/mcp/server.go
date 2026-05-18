@@ -2,7 +2,8 @@
 package mcp
 
 import (
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/jackc/pgx/v5/pgxpool"
+	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/healthz"
@@ -13,12 +14,15 @@ const (
 	serverVersion = "0.1.0"
 )
 
-// New returns a configured *server.MCPServer ready for transport wiring.
-// PR-3 through PR-5 extend this function by adding additional tools via
-// RegisterXxx helpers.
-func New() *server.MCPServer {
+// New returns a configured *server.MCPServer with all 9 MCP tools registered.
+// pool must be non-nil — the server requires DB access for all write and read
+// tool handlers.
+func New(pool *pgxpool.Pool) *server.MCPServer {
 	s := server.NewMCPServer(serverName, serverVersion)
 	RegisterHealthz(s)
+	RegisterEntities(s, pool)
+	RegisterRelations(s, pool)
+	RegisterQuery(s, pool)
 	return s
 }
 
@@ -26,9 +30,9 @@ func New() *server.MCPServer {
 // It is exported so main.go can also call it directly during bootstrap,
 // and so future PRs can reuse it in tests without constructing a full server.
 func RegisterHealthz(s *server.MCPServer) {
-	tool := mcp.NewTool(
+	tool := mcplib.NewTool(
 		"healthz",
-		mcp.WithDescription("Returns the operational health of the MCP server and its dependencies."),
+		mcplib.WithDescription("Returns the operational health of the MCP server and its dependencies."),
 	)
 	s.AddTool(tool, healthz.Handler)
 }
