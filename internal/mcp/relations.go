@@ -8,18 +8,21 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 )
 
 // RegisterRelations registers the create_relations and delete_relations tools.
-func RegisterRelations(s *server.MCPServer, pool *pgxpool.Pool) {
+// limiter enforces per-IP write-tool rate limits on create_relations.
+// delete_relations is unconstrained.
+func RegisterRelations(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelimit.Limiter) {
 	s.AddTool(
 		mcplib.NewTool("create_relations",
 			mcplib.WithDescription("Create directed relations between entities. Each relation needs from, to, and relationType."),
 			mcplib.WithArray("relations", mcplib.Required()),
 		),
-		createRelationsHandler(pool),
+		createRelationsHandler(pool, limiter),
 	)
 
 	s.AddTool(
@@ -43,8 +46,12 @@ type createRelationsArgs struct {
 	Relations []relationInput `json:"relations"`
 }
 
-func createRelationsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
+func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		if result := checkRateLimit(ctx, limiter); result != nil {
+			return result, nil
+		}
+
 		var args createRelationsArgs
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
@@ -55,7 +62,7 @@ func createRelationsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		for i, r := range args.Relations {
 			vp.Relations[i] = validate.Relation{From: r.From, To: r.To, RelationType: r.RelationType}
 		}
-		if verr := validate.Run(vp, validate.KindRelations); verr != nil {
+		if verr := validate.Run(&vp, validate.KindRelations); verr != nil {
 			return verr.ToMCPResult(), nil
 		}
 

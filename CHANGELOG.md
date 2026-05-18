@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `SECRET_MODE=reject|redact` env var: opt-in redact mode replaces matched secret spans with `[REDACTED]` in-place and lets the call proceed; default `reject` preserves existing behavior. Fail-fast on unknown values. (`internal/validate/mode.go`, `internal/validate/secrets.go`, `cmd/server/main.go`)
+- Per-IP write-tool rate limit: 10 writes per 10 seconds, token bucket, applied to `create_entities`, `add_observations`, `create_relations`. Reads and deletes unconstrained. Client IP from `X-Forwarded-For` (Render) or `RemoteAddr`. New `policy/rate-limited` error code. (`internal/ratelimit/`, `internal/validate/errors.go`)
+- `internal/validate/secrets_test.go` — unit tests for redact mode: `TestRedactMode_ReplacesAWSKey`, `TestRedactMode_MultipleSecrets`, `TestRedactMode_PreservesContextAroundMatch`, `TestRejectMode_StillWorks`.
+- `internal/ratelimit/limiter_test.go` — unit tests for per-IP rate limiter: first-10-pass, 11th-rejected, independent-IPs, recovers-over-time.
+
+### Changed
+
+- `validate.Run` signature changed from `(p Payload, k Kind)` to `(p *Payload, k Kind)` to enable in-place mutation for redact mode. All 5 call sites updated.
+- `docs/mcp-tools.md` — added size limits section (5000 chars/obs, 50 KB/call), secret detection modes section, rate limit section, and updated policy error code table.
+- `docs/deployment.md` — added `SECRET_MODE` configuration note and rate limit / `X-Forwarded-For` note.
+- `docs/knowledge.md` — added `[restricción]` bullets for per-IP rate limit and `SECRET_MODE`.
+- `.env.example` — documented `SECRET_MODE` with trade-off explanation.
+- `go.mod` — added `golang.org/x/time v0.5.0` (direct dep for `rate.Limiter`).
+
 - `docs/deployment.md` — Phase 2 cloud-deployment runbook extracted from the README: architecture overview, one-time Supabase + Render + GH-secrets setup, on-each-push behaviour, secrets reference, deploy verification, free-tier op model, recovery from backup.
 - `docs/mcp-tools.md` — reference for the 9 MCP tools + healthz: arguments, success responses, taxonomy enums, atomicity guarantees, policy error codes with full structured-error shape.
 - `scripts/pyproject.toml` — uv-managed scripts project (psycopg[binary], pgvector, chromadb, click); `package = false` so scripts run via `uv run` without installation.

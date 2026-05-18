@@ -7,6 +7,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/healthz"
+	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 )
 
 const (
@@ -16,12 +17,13 @@ const (
 
 // New returns a configured *server.MCPServer with all 9 MCP tools registered.
 // pool must be non-nil — the server requires DB access for all write and read
-// tool handlers.
-func New(pool *pgxpool.Pool) *server.MCPServer {
+// tool handlers. limiter enforces per-IP write-tool rate limits; pass a non-nil
+// *ratelimit.Limiter for HTTP deployments.
+func New(pool *pgxpool.Pool, limiter *ratelimit.Limiter) *server.MCPServer {
 	s := server.NewMCPServer(serverName, serverVersion)
 	RegisterHealthz(s)
-	RegisterEntities(s, pool)
-	RegisterRelations(s, pool)
+	RegisterEntities(s, pool, limiter)
+	RegisterRelations(s, pool, limiter)
 	RegisterQuery(s, pool)
 	return s
 }

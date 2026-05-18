@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -11,19 +12,22 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
 	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
+	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 )
 
 // RegisterEntities registers the create_entities, add_observations,
 // delete_entities, and delete_observations tools on the server.
-func RegisterEntities(s *server.MCPServer, pool *pgxpool.Pool) {
+// limiter enforces per-IP write-tool rate limits on create_entities and
+// add_observations. Reads and deletes are unconstrained.
+func RegisterEntities(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelimit.Limiter) {
 	s.AddTool(
 		mcplib.NewTool("create_entities",
 			mcplib.WithDescription("Create new entities in the knowledge graph. Each entity must have name, entityType, and observations. Idempotent on name."),
 			mcplib.WithArray("entities", mcplib.Required()),
 		),
-		createEntitiesHandler(pool),
+		createEntitiesHandler(pool, limiter),
 	)
 
 	s.AddTool(
@@ -31,7 +35,7 @@ func RegisterEntities(s *server.MCPServer, pool *pgxpool.Pool) {
 			mcplib.WithDescription("Add observations to existing entities. Each item must have entityName and contents (array of strings)."),
 			mcplib.WithArray("observations", mcplib.Required()),
 		),
-		addObservationsHandler(pool),
+		addObservationsHandler(pool, limiter),
 	)
 
 	s.AddTool(
@@ -63,8 +67,12 @@ type createEntitiesArgs struct {
 	Entities []createEntityInput `json:"entities"`
 }
 
-func createEntitiesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
+func createEntitiesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		if result := checkRateLimit(ctx, limiter); result != nil {
+			return result, nil
+		}
+
 		var args createEntitiesArgs
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
@@ -79,7 +87,7 @@ func createEntitiesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 				Observations: e.Observations,
 			}
 		}
-		if verr := validate.Run(vp, validate.KindEntities); verr != nil {
+		if verr := validate.Run(&vp, validate.KindEntities); verr != nil {
 			return verr.ToMCPResult(), nil
 		}
 
@@ -184,22 +192,38 @@ type addObservationsArgs struct {
 	Observations []addObsInput `json:"observations"`
 }
 
-func addObservationsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
+func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		if result := checkRateLimit(ctx, limiter); result != nil {
+			return result, nil
+		}
+
 		var args addObservationsArgs
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
 		// Flatten into validate.Observation slice for the Content Filter.
+		// vp2.Observations may be mutated (secrets redacted) when SECRET_MODE=redact.
 		var flatObs []validate.Observation
 		for _, item := range args.Observations {
 			for _, text := range item.Contents {
 				flatObs = append(flatObs, validate.Observation{EntityName: item.EntityName, Text: text})
 			}
 		}
-		if verr := validate.Run(validate.Payload{Observations: flatObs}, validate.KindObservations); verr != nil {
+		vp2 := validate.Payload{Observations: flatObs}
+		if verr := validate.Run(&vp2, validate.KindObservations); verr != nil {
 			return verr.ToMCPResult(), nil
+		}
+
+		// Propagate potentially-redacted texts back into args so the DB write
+		// stores the scrubbed version rather than the original.
+		flatIdx := 0
+		for ii := range args.Observations {
+			for ci := range args.Observations[ii].Contents {
+				args.Observations[ii].Contents[ci] = vp2.Observations[flatIdx].Text
+				flatIdx++
+			}
 		}
 
 		added, err := execAddObservations(ctx, pool, args.Observations)
@@ -351,6 +375,40 @@ type entityNotFoundError struct {
 
 func (e *entityNotFoundError) Error() string {
 	return fmt.Sprintf("entity not found: %s", e.name)
+}
+
+// checkRateLimit reads the client IP from ctx and checks the write-tool rate
+// limit. Returns a non-nil *mcp.CallToolResult (IsError=true) when the IP is
+// over quota, or nil when the call is allowed to proceed.
+//
+// When limiter is nil or the context carries no IP (stdio transport), rate
+// limiting is skipped and nil is returned.
+func checkRateLimit(ctx context.Context, limiter *ratelimit.Limiter) *mcplib.CallToolResult {
+	if limiter == nil {
+		return nil
+	}
+	ip := ratelimit.IPFromContext(ctx)
+	if ip == "" {
+		// stdio transport — no IP, no rate limit.
+		return nil
+	}
+	allowed, retryAfter := limiter.Allow(ip)
+	if allowed {
+		return nil
+	}
+	retrySecs := int(math.Ceil(retryAfter.Seconds()))
+	payload, _ := json.Marshal(map[string]any{
+		"code":                validate.CodeRateLimited,
+		"message":             fmt.Sprintf("Demasiadas escrituras desde esta IP. Reintentar en %d segundos.", retrySecs),
+		"layer":               validate.LayerRateLimit,
+		"retry_after_seconds": retrySecs,
+	})
+	return &mcplib.CallToolResult{
+		IsError: true,
+		Content: []mcplib.Content{
+			mcplib.TextContent{Type: mcplib.ContentTypeText, Text: string(payload)},
+		},
+	}
 }
 
 // jsonResult marshals v and returns a successful TextContent result.

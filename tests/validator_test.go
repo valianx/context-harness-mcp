@@ -21,13 +21,15 @@ import (
 func ptr(i int) *int { return &i }
 
 // obsPayload is a shorthand for building a KindEntities payload with a single
-// entity that has one observation.
-func obsPayload(obs string) validate.Payload {
-	return validate.Payload{
+// entity that has one observation. It returns a pointer because validate.Run
+// accepts *Payload (mutation-aware for redact mode).
+func obsPayload(obs string) *validate.Payload {
+	p := validate.Payload{
 		Entities: []validate.Entity{
 			{Name: "test-entity", EntityType: "pattern", Observations: []string{obs}},
 		},
 	}
+	return &p
 }
 
 // assertMatchesGolden marshals got to JSON and byte-compares it against the
@@ -81,7 +83,7 @@ func TestSyntactic_SizeExceeded(t *testing.T) {
 			}
 		}
 		p := validate.Payload{Entities: entities}
-		got := validate.Run(p, validate.KindEntities)
+		got := validate.Run(&p, validate.KindEntities)
 
 		require.NotNil(t, got)
 		assert.Equal(t, validate.CodeSizeExceeded, got.Code)
@@ -269,7 +271,7 @@ func TestSecrets_InlineFallback(t *testing.T) {
 					{EntityName: "test-entity", Text: tc.obs},
 				},
 			}
-			got := validate.Run(p, validate.KindObservations)
+			got := validate.Run(&p, validate.KindObservations)
 
 			require.NotNil(t, got, "expected rejection for secret pattern %q", tc.wantPat)
 			assert.Equal(t, validate.CodeSecretDetected, got.Code)
@@ -288,7 +290,7 @@ func TestSecrets_InlineFallback(t *testing.T) {
 				{EntityName: "test-entity", Text: decodeTestSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v")},
 			},
 		}
-		got := validate.Run(p, validate.KindObservations)
+		got := validate.Run(&p, validate.KindObservations)
 		assertMatchesGolden(t, validate.CodeSecretDetected, got)
 	})
 }
@@ -307,7 +309,7 @@ func TestSecrets_GitleaksDetector(t *testing.T) {
 			{EntityName: "test-entity", Text: "Bot token: " + slackToken},
 		},
 	}
-	got := validate.Run(p, validate.KindObservations)
+	got := validate.Run(&p, validate.KindObservations)
 
 	require.NotNil(t, got, "expected gitleaks to detect the Slack token")
 	assert.Equal(t, validate.CodeSecretDetected, got.Code)
@@ -333,7 +335,7 @@ func TestTaxonomy_EntityType(t *testing.T) {
 					{Name: "test-entity", EntityType: et, Observations: []string{"some observation"}},
 				},
 			}
-			got := validate.Run(p, validate.KindEntities)
+			got := validate.Run(&p, validate.KindEntities)
 			assert.Nil(t, got, "valid entity type %q should pass", et)
 		})
 	}
@@ -345,7 +347,7 @@ func TestTaxonomy_EntityType(t *testing.T) {
 				{Name: "test-entity", EntityType: "invalid-type", Observations: []string{"some observation"}},
 			},
 		}
-		got := validate.Run(p, validate.KindEntities)
+		got := validate.Run(&p, validate.KindEntities)
 
 		require.NotNil(t, got)
 		assert.Equal(t, validate.CodeTaxonomyViolation, got.Code)
@@ -360,7 +362,7 @@ func TestTaxonomy_EntityType(t *testing.T) {
 				{Name: "test-entity", EntityType: "invalid-type", Observations: []string{"some observation"}},
 			},
 		}
-		got := validate.Run(p, validate.KindEntities)
+		got := validate.Run(&p, validate.KindEntities)
 		assertMatchesGolden(t, validate.CodeTaxonomyViolation, got)
 	})
 }
@@ -375,7 +377,7 @@ func TestTaxonomy_RelationType(t *testing.T) {
 					{From: "svc-a", To: "svc-b", RelationType: rt},
 				},
 			}
-			got := validate.Run(p, validate.KindRelations)
+			got := validate.Run(&p, validate.KindRelations)
 			assert.Nil(t, got, "valid relation type %q should pass", rt)
 		})
 	}
@@ -387,7 +389,7 @@ func TestTaxonomy_RelationType(t *testing.T) {
 				{From: "svc-a", To: "svc-b", RelationType: "is-called-by"},
 			},
 		}
-		got := validate.Run(p, validate.KindRelations)
+		got := validate.Run(&p, validate.KindRelations)
 
 		require.NotNil(t, got)
 		assert.Equal(t, validate.CodeTaxonomyViolation, got.Code)
@@ -425,7 +427,7 @@ func TestTaxonomy_AbsolutePath(t *testing.T) {
 					{Name: "test", EntityType: "pattern", Observations: []string{tc.obs}},
 				},
 			}
-			got := validate.Run(p, validate.KindEntities)
+			got := validate.Run(&p, validate.KindEntities)
 
 			require.NotNil(t, got, "absolute path %q should be rejected", tc.obs)
 			assert.Equal(t, validate.CodeTaxonomyViolation, got.Code)
@@ -444,7 +446,7 @@ func TestTaxonomy_ProjectNameBareRepo(t *testing.T) {
 					{Name: name, EntityType: "project", Observations: []string{"A project"}},
 				},
 			}
-			got := validate.Run(p, validate.KindEntities)
+			got := validate.Run(&p, validate.KindEntities)
 			assert.Nil(t, got, "bare repo name %q should pass", name)
 		})
 	}
@@ -465,7 +467,7 @@ func TestTaxonomy_ProjectNameBareRepo(t *testing.T) {
 					{Name: tc.name, EntityType: "project", Observations: []string{"A project"}},
 				},
 			}
-			got := validate.Run(p, validate.KindEntities)
+			got := validate.Run(&p, validate.KindEntities)
 
 			require.NotNil(t, got, "project name %q should be rejected", tc.name)
 			assert.Equal(t, validate.CodeTaxonomyViolation, got.Code)
@@ -511,6 +513,6 @@ func TestRun_NilOnValidPayload(t *testing.T) {
 			},
 		},
 	}
-	got := validate.Run(p, validate.KindEntities)
+	got := validate.Run(&p, validate.KindEntities)
 	assert.Nil(t, got, "valid payload must return nil from Run")
 }

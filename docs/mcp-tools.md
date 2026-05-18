@@ -250,12 +250,53 @@ The `"db"` field reads `"not-configured"` in the current version — a deeper DB
 
 Write tools (1)–(2)–(5) — those that carry user-provided text — gate every payload through three layers of validation **before** opening any transaction.
 
+### Size limits
+
+Layer 1 (syntactic) enforces two hard size caps:
+
+- **Per-observation cap: 5,000 characters.** A single observation longer than this is almost certainly a pasted file rather than a concise knowledge entry. These caps protect Render Free response timeouts and stay well within Supabase Free row limits.
+- **Per-call cap: 50 KB.** The serialised JSON of an entire write call cannot exceed 50 KB. This prevents runaway payloads and multi-entity batches that would exhaust free-tier quotas in a single call.
+
+Violations produce `policy/size-exceeded` with a descriptive Spanish message indicating the limit that was exceeded. No rows are written.
+
+### Secret detection modes
+
+Layer 2 (secrets) scans every observation with [`gitleaks`](https://github.com/gitleaks/gitleaks) (~150 rules) plus 7 inline-regex fallbacks (AWS, GitHub, Anthropic, OpenAI, Stripe, RSA private key, JWT). The detection mode is set via the `SECRET_MODE` environment variable:
+
+- **`reject` (default):** any matched observation aborts the whole call with `policy/secret-detected`. No rows are written.
+- **`redact`:** matched secret spans are replaced with `[REDACTED]` in-place before the call proceeds. The rest of the observation text is preserved byte-for-byte. Analogous to OpenTelemetry exporters that scrub PII rather than dropping the span. Useful when agents occasionally log credential-shaped strings that are not real secrets (e.g., example values in documentation).
+
+Any `SECRET_MODE` value other than `reject` or `redact` causes a startup error (fail-fast; no silent fallback).
+
+### Rate limit
+
+To prevent runaway agent loops (e.g., a buggy agent rapidly inserting thousands of observations), write tools are rate-limited **per client IP**:
+
+- **10 writes per 10 seconds** per IP, token-bucket with burst of 10 and refill rate of 1 token/second.
+- Applies to `create_entities`, `add_observations`, and `create_relations`. Reads (`search_nodes`, `open_nodes`, `read_graph`) and deletes are unconstrained.
+- In HTTP mode, the client IP is read from the leftmost entry of `X-Forwarded-For` (Render passes the real client IP there); falls back to `RemoteAddr` for direct connections.
+- In stdio mode (local Claude Code), rate limiting is skipped — no IP is available.
+
+A rate-limited call returns `policy/rate-limited` with a `retry_after_seconds` field:
+
+```json
+{
+  "code": "policy/rate-limited",
+  "message": "Demasiadas escrituras desde esta IP. Reintentar en 2 segundos.",
+  "layer": "rate-limit",
+  "retry_after_seconds": 2
+}
+```
+
+### Policy error codes
+
 | Code | Layer | Triggers when |
 |---|---|---|
 | `policy/size-exceeded` | `syntactic` | Any observation exceeds 5,000 chars **or** the total request body exceeds 50 KB. |
 | `policy/junk-pattern` | `syntactic` | An observation matches the curated junk-pattern denylist (`internal/validate/denylist.go`). |
-| `policy/secret-detected` | `secrets` | [`gitleaks`](https://github.com/gitleaks/gitleaks) matches a secret, or the inline-regex fallback matches an AWS, GitHub, Anthropic, OpenAI, Stripe, RSA, or JWT key. |
+| `policy/secret-detected` | `secrets` | A secret is detected and `SECRET_MODE=reject` (default). |
 | `policy/taxonomy-violation` | `taxonomy` | `entityType` or `relationType` not in the closed enums, or an observation contains an absolute Windows/WSL/Unix path with a user name, or a `project` entity name is not bare-repo-name. |
+| `policy/rate-limited` | `rate-limit` | The client IP has exceeded 10 writes in 10 seconds. |
 
 A policy rejection looks like:
 

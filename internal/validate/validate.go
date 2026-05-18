@@ -12,15 +12,19 @@ package validate
 // (fail-fast); the remaining layers are skipped. When all layers pass, Run
 // returns nil.
 //
+// The Payload pointer allows the secrets layer to mutate observation text
+// in-place when secretMode == SecretModeRedact (replacing matched spans with
+// RedactionMarker). The caller's Payload is modified when redaction occurs.
+//
 // PR-4 tool handlers call this function once per write request, before opening
 // any pgx.Tx. A nil return means the payload cleared all policy gates and the
 // handler may proceed to insert.
-func Run(p Payload, _ Kind) *Error {
-	if err := checkSyntactic(p); err != nil {
+func Run(p *Payload, _ Kind) *Error {
+	if err := checkSyntactic(*p); err != nil {
 		return err
 	}
 	if err := checkSecrets(p); err != nil {
 		return err
 	}
-	return checkTaxonomy(p)
+	return checkTaxonomy(*p)
 }
