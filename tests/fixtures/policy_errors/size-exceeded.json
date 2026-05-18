@@ -1,0 +1,1 @@
+{"code":"policy/size-exceeded","message":"Una observación supera el límite de 5.000 caracteres. Divide el contenido en observaciones más cortas.","layer":"syntactic","rejected_observation_index":0,"rejected_entity_index":0}

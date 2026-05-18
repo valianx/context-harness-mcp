@@ -1,0 +1,1 @@
+{"code":"policy/junk-pattern","message":"La observación contiene un patrón no permitido (artefacto de filesystem, log binario o volcado de código). Reescribe la observación como conocimiento conciso.","layer":"syntactic","rejected_observation_index":0,"rejected_entity_index":0,"matched_pattern":"filesystem/node_modules"}
