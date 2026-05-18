@@ -17,10 +17,10 @@ const (
 	// envelope for knowledge-graph writes.
 	MaxCallBytes = 50 * 1_024
 
-	// MaxEntitiesPerCall is the maximum number of entities in a single
-	// create_entities call. Batches larger than this are atypical and may
-	// indicate automated scraping or abuse.
-	MaxEntitiesPerCall = 50
+	// MaxNodesPerCall is the maximum number of nodes in a single create_nodes
+	// call. Batches larger than this are atypical and may indicate automated
+	// scraping or abuse.
+	MaxNodesPerCall = 50
 )
 
 // checkSyntactic is Layer 1 of the Content Filter. It validates size caps and
@@ -29,7 +29,7 @@ func checkSyntactic(p Payload) *Error {
 	if err := checkPayloadByteSize(p); err != nil {
 		return err
 	}
-	if err := checkEntityCap(p); err != nil {
+	if err := checkNodeCap(p); err != nil {
 		return err
 	}
 	return checkObservationTexts(p)
@@ -43,35 +43,35 @@ func checkPayloadByteSize(p Payload) *Error {
 	if len(data) > MaxCallBytes {
 		return &Error{
 			Code:    CodeSizeExceeded,
-			Message: "El payload supera el límite de 50 KB por llamada. Divide las entidades u observaciones en llamadas más pequeñas.",
+			Message: "El payload supera el límite de 50 KB por llamada. Divide los nodos u observaciones en llamadas más pequeñas.",
 			Layer:   LayerSyntactic,
 		}
 	}
 	return nil
 }
 
-// checkEntityCap rejects calls that attempt to create more than MaxEntitiesPerCall
-// entities in a single request.
-func checkEntityCap(p Payload) *Error {
-	if len(p.Entities) > MaxEntitiesPerCall {
+// checkNodeCap rejects calls that attempt to create more than MaxNodesPerCall
+// nodes in a single request.
+func checkNodeCap(p Payload) *Error {
+	if len(p.Nodes) > MaxNodesPerCall {
 		return &Error{
 			Code:    CodeSizeExceeded,
-			Message: "La llamada supera el límite de 50 entidades por llamada. Divide en llamadas más pequeñas.",
+			Message: "La llamada supera el límite de 50 nodos por llamada. Divide en llamadas más pequeñas.",
 			Layer:   LayerSyntactic,
 		}
 	}
 	return nil
 }
 
-// checkObservationTexts iterates every observation across all entities (for
-// KindEntities payloads) and standalone observations (for KindObservations
+// checkObservationTexts iterates every observation across all nodes (for
+// KindNodes payloads) and standalone observations (for KindObservations
 // payloads). It checks the per-observation character cap and the junk-pattern
 // denylist, returning the first violation found.
 func checkObservationTexts(p Payload) *Error {
-	// Observations embedded in entities (create_entities path).
-	for entityIdx, entity := range p.Entities {
-		for obsIdx, obs := range entity.Observations {
-			if err := checkSingleObservation(obs, entityIdx, obsIdx); err != nil {
+	// Observations embedded in nodes (create_nodes path).
+	for nodeIdx, node := range p.Nodes {
+		for obsIdx, obs := range node.Observations {
+			if err := checkSingleObservation(obs, nodeIdx, obsIdx); err != nil {
 				return err
 			}
 		}
@@ -88,29 +88,29 @@ func checkObservationTexts(p Payload) *Error {
 }
 
 // checkSingleObservation applies the per-observation size cap and junk-pattern
-// denylist to a single text string. entityIdx is the entity's index when the
-// observation is embedded in an entity; for standalone observations it is 0.
-func checkSingleObservation(text string, entityIdx, obsIdx int) *Error {
+// denylist to a single text string. nodeIdx is the node's index when the
+// observation is embedded in a node; for standalone observations it is 0.
+func checkSingleObservation(text string, nodeIdx, obsIdx int) *Error {
 	if len([]rune(text)) > MaxObservationChars {
-		eIdx := entityIdx
+		nIdx := nodeIdx
 		oIdx := obsIdx
 		return &Error{
 			Code:                     CodeSizeExceeded,
 			Message:                  "Una observación supera el límite de 5.000 caracteres. Divide el contenido en observaciones más cortas.",
 			Layer:                    LayerSyntactic,
-			RejectedEntityIndex:      &eIdx,
+			RejectedNodeIndex:        &nIdx,
 			RejectedObservationIndex: &oIdx,
 		}
 	}
 
 	if pattern, found := containsJunkPattern(text); found {
-		eIdx := entityIdx
+		nIdx := nodeIdx
 		oIdx := obsIdx
 		return &Error{
 			Code:                     CodeJunkPattern,
 			Message:                  "La observación contiene un patrón no permitido (artefacto de filesystem, log binario o volcado de código). Reescribe la observación como conocimiento conciso.",
 			Layer:                    LayerSyntactic,
-			RejectedEntityIndex:      &eIdx,
+			RejectedNodeIndex:        &nIdx,
 			RejectedObservationIndex: &oIdx,
 			MatchedPattern:           pattern,
 		}

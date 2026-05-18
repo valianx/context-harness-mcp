@@ -50,28 +50,28 @@ func main() {
 		{
 			filename: "size-exceeded.json",
 			payload: validate.Payload{
-				Entities: []validate.Entity{
+				Nodes: []validate.Node{
 					{
-						Name:         "test-entity",
-						EntityType:   "pattern",
+						Name:         "test-node",
+						NodeType:     "pattern",
 						Observations: []string{strings.Repeat("a", validate.MaxObservationChars+1)},
 					},
 				},
 			},
-			kind: validate.KindEntities,
+			kind: validate.KindNodes,
 		},
 		{
 			filename: "junk-pattern.json",
 			payload: validate.Payload{
-				Entities: []validate.Entity{
+				Nodes: []validate.Node{
 					{
-						Name:         "test-entity",
-						EntityType:   "pattern",
+						Name:         "test-node",
+						NodeType:     "pattern",
 						Observations: []string{"Dependencies live under node_modules directory"},
 					},
 				},
 			},
-			kind: validate.KindEntities,
+			kind: validate.KindNodes,
 		},
 		{
 			// RSA private key PEM block (truncated/fake) — decoded from
@@ -79,7 +79,7 @@ func main() {
 			filename: "secret-detected.json",
 			payload: validate.Payload{
 				Observations: []validate.Observation{
-					{EntityName: "test-entity", Text: decodeGenGoldenSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v")},
+					{NodeName: "test-node", Text: decodeGenGoldenSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v")},
 				},
 			},
 			kind: validate.KindObservations,
@@ -87,15 +87,15 @@ func main() {
 		{
 			filename: "taxonomy-violation.json",
 			payload: validate.Payload{
-				Entities: []validate.Entity{
+				Nodes: []validate.Node{
 					{
-						Name:         "test-entity",
-						EntityType:   "invalid-type",
+						Name:         "test-node",
+						NodeType:     "invalid-type",
 						Observations: []string{"some observation"},
 					},
 				},
 			},
-			kind: validate.KindEntities,
+			kind: validate.KindNodes,
 		},
 	}
 

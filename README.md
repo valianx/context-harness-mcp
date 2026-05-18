@@ -1,12 +1,12 @@
 # Context Harness MCP
 
-An [MCP](https://modelcontextprotocol.io/) server that exposes a Knowledge Graph (entities, observations, relations) to Claude Code or any MCP-compatible client. Storage is Postgres + [pgvector](https://github.com/pgvector/pgvector); semantic search runs locally via `all-MiniLM-L6-v2` ONNX embeddings. Designed to run at **$0/month** on Render Free + Supabase Free, or fully offline via `docker compose`.
+An [MCP](https://modelcontextprotocol.io/) server that exposes a Knowledge Graph (nodes, observations, relations) to Claude Code or any MCP-compatible client. Storage is Postgres + [pgvector](https://github.com/pgvector/pgvector); semantic search runs locally via `all-MiniLM-L6-v2` ONNX embeddings. Designed to run at **$0/month** on Render Free + Supabase Free, or fully offline via `docker compose`.
 
 ## What it does
 
-- **9 MCP tools** to manage a knowledge graph — `create_entities`, `add_observations`, `delete_entities`, `delete_observations`, `create_relations`, `delete_relations`, `search_nodes`, `open_nodes`, `read_graph`. See [docs/mcp-tools.md](docs/mcp-tools.md).
-- **Semantic search** via 384-dim `all-MiniLM-L6-v2` embeddings indexed with pgvector HNSW cosine. `search_nodes("authentication patterns")` returns the entities whose observations are about auth, not just substring hits.
-- **Content Filter** on every write — three layers (size + junk denylist, secrets scan with [gitleaks](https://github.com/gitleaks/gitleaks), taxonomy enforcement) reject payloads with secrets, oversized text, or out-of-taxonomy entity/relation types before any DB transaction opens. Atomic reject — never partial writes.
+- **6 MCP tools** to manage a knowledge graph — `create_nodes`, `add_observations`, `create_relations`, `search_nodes`, `open_nodes`, `read_graph`. See [docs/mcp-tools.md](docs/mcp-tools.md).
+- **Semantic search** via 384-dim `all-MiniLM-L6-v2` embeddings indexed with pgvector HNSW cosine. `search_nodes("authentication patterns")` returns the nodes whose observations are about auth, not just substring hits.
+- **Content Filter** on every write — three layers (size + junk denylist, secrets scan with [gitleaks](https://github.com/gitleaks/gitleaks), taxonomy enforcement) reject payloads with secrets, oversized text, or out-of-taxonomy node/relation types before any DB transaction opens. Atomic reject — never partial writes.
 - **Drop-in compatible** with the local-ChromaDB knowledge graph shipped by [`claude-dev-team`](https://github.com/valianx/claude-dev-team). Same tool surface, same JSON wire shapes, [migration tooling included](docs/cutover-playbook.md).
 
 ## Install
@@ -52,7 +52,7 @@ One-time setup runbook in [docs/deployment.md](docs/deployment.md).
 
 | File | What's in it |
 |---|---|
-| [docs/mcp-tools.md](docs/mcp-tools.md) | The 9 MCP tools — arguments, responses, examples, error codes. |
+| [docs/mcp-tools.md](docs/mcp-tools.md) | The 6 MCP tools — arguments, responses, examples, error codes. |
 | [docs/local-stack.md](docs/local-stack.md) | Local Docker runbook (Option A above, expanded). |
 | [docs/deployment.md](docs/deployment.md) | Cloud deployment runbook (Option B above, expanded). |
 | [docs/cutover-playbook.md](docs/cutover-playbook.md) | Migrating from `claude-dev-team`'s local ChromaDB to this server. |

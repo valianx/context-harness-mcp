@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 """Export active KG content from Supabase / Postgres to JSON.
 
-Output shape matches claude-dev-team/knowledge-graph/export.py byte-for-byte
-at the structural level (same top-level keys, same nesting, same field names).
-Embeddings serialize as plain JSON arrays of 384 floats — no base64, no
-quantization — identical to ChromaDB's export format.
-
-This script is the inverse of import_to_supabase.py; round-trip parity is
-asserted by tests/migration_test.go.
+Output shape uses graph-DB vocabulary (nodes, nodeType) matching the
+migration-00003 schema rename. The import script (import_to_supabase.py)
+accepts both this shape and the legacy {"entities": [...]} shape during
+the transition window until claude-dev-team PR5 lands.
 
 Usage:
     uv run scripts/export_from_supabase.py [--dsn URL] [--output PATH]
@@ -36,21 +33,21 @@ from pgvector.psycopg import register_vector
 __version__ = "0.1.0"
 
 
-def fetch_entities(cur: psycopg.Cursor) -> list[dict[str, Any]]:
-    """Return all active entities with their observations and embeddings."""
+def fetch_nodes(cur: psycopg.Cursor) -> list[dict[str, Any]]:
+    """Return all active nodes with their observations and embeddings."""
     cur.execute(
         """
-        SELECT e.id, e.name, e.entity_type
-        FROM entities e
-        WHERE e.deleted_at IS NULL
-        ORDER BY e.name
+        SELECT n.id, n.name, n.node_type
+        FROM nodes n
+        WHERE n.deleted_at IS NULL
+        ORDER BY n.name
         """
     )
-    entity_rows = cur.fetchall()
+    node_rows = cur.fetchall()
 
-    entities: list[dict[str, Any]] = []
-    for entity_id, name, entity_type in entity_rows:
-        obs_rows = _fetch_observations(cur, entity_id)
+    nodes: list[dict[str, Any]] = []
+    for node_id, name, node_type in node_rows:
+        obs_rows = _fetch_observations(cur, node_id)
         observations = [row[0] for row in obs_rows]
         embeddings = [
             # pgvector returns numpy float32 values — convert to plain Python float
@@ -61,7 +58,7 @@ def fetch_entities(cur: psycopg.Cursor) -> list[dict[str, Any]]:
 
         entry: dict[str, Any] = {
             "name": name,
-            "entityType": entity_type,
+            "nodeType": node_type,
             "observations": observations,
         }
         # Only include embeddings key when at least one observation has one,
@@ -69,39 +66,39 @@ def fetch_entities(cur: psycopg.Cursor) -> list[dict[str, Any]]:
         if any(e is not None for e in embeddings):
             entry["embeddings"] = embeddings
 
-        entities.append(entry)
+        nodes.append(entry)
 
-    return entities
+    return nodes
 
 
 def _fetch_observations(
-    cur: psycopg.Cursor, entity_id: object
+    cur: psycopg.Cursor, node_id: object
 ) -> list[tuple[str, Any]]:
-    """Return (text, embedding) pairs for a single entity, active rows only."""
+    """Return (text, embedding) pairs for a single node, active rows only."""
     cur.execute(
         """
         SELECT text, embedding
         FROM observations
-        WHERE entity_id = %s AND deleted_at IS NULL
+        WHERE node_id = %s AND deleted_at IS NULL
         ORDER BY created_at
         """,
-        (entity_id,),
+        (node_id,),
     )
     return cur.fetchall()
 
 
 def fetch_relations(cur: psycopg.Cursor) -> list[dict[str, str]]:
-    """Return all active relations using entity names (not UUIDs)."""
+    """Return all active relations using node names (not UUIDs)."""
     cur.execute(
         """
-        SELECT fe.name AS from_name, te.name AS to_name, r.relation_type
+        SELECT fn.name AS from_name, tn.name AS to_name, r.relation_type
         FROM relations r
-        JOIN entities fe ON fe.id = r.from_entity_id
-        JOIN entities te ON te.id = r.to_entity_id
+        JOIN nodes fn ON fn.id = r.from_node_id
+        JOIN nodes tn ON tn.id = r.to_node_id
         WHERE r.deleted_at IS NULL
-          AND fe.deleted_at IS NULL
-          AND te.deleted_at IS NULL
-        ORDER BY fe.name, te.name, r.relation_type
+          AND fn.deleted_at IS NULL
+          AND tn.deleted_at IS NULL
+        ORDER BY fn.name, tn.name, r.relation_type
         """
     )
     return [
@@ -124,7 +121,7 @@ def fetch_relations(cur: psycopg.Cursor) -> list[dict[str, str]]:
     help="Output file path. Defaults to stdout.",
 )
 def main(dsn: str, output: Path | None) -> None:
-    """Export active KG content from Supabase to JSON (same shape as export.py)."""
+    """Export active KG content from Supabase to JSON."""
     if not dsn:
         click.echo(
             "Error: --dsn is required or set SUPABASE_DB_URL.", err=True
@@ -135,7 +132,7 @@ def main(dsn: str, output: Path | None) -> None:
         with psycopg.connect(dsn) as conn:
             register_vector(conn)
             with conn.cursor() as cur:
-                entities = fetch_entities(cur)
+                nodes = fetch_nodes(cur)
                 relations = fetch_relations(cur)
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Error during export: {exc}", err=True)
@@ -145,9 +142,9 @@ def main(dsn: str, output: Path | None) -> None:
         "format_version": __version__,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "source_host": socket.gethostname(),
-        "entity_count": len(entities),
+        "node_count": len(nodes),
         "relation_count": len(relations),
-        "entities": entities,
+        "nodes": nodes,
         "relations": relations,
     }
 
@@ -160,7 +157,7 @@ def main(dsn: str, output: Path | None) -> None:
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(serialized, encoding="utf-8")
             click.echo(
-                f"Exported {len(entities)} entities, "
+                f"Exported {len(nodes)} nodes, "
                 f"{len(relations)} relations → {output}",
                 err=True,
             )

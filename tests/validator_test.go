@@ -20,13 +20,13 @@ import (
 // valid in Go, so this helper keeps the test code readable.
 func ptr(i int) *int { return &i }
 
-// obsPayload is a shorthand for building a KindEntities payload with a single
-// entity that has one observation. It returns a pointer because validate.Run
+// obsPayload is a shorthand for building a KindNodes payload with a single
+// node that has one observation. It returns a pointer because validate.Run
 // accepts *Payload (mutation-aware for redact mode).
 func obsPayload(obs string) *validate.Payload {
 	p := validate.Payload{
-		Entities: []validate.Entity{
-			{Name: "test-entity", EntityType: "pattern", Observations: []string{obs}},
+		Nodes: []validate.Node{
+			{Name: "test-node", NodeType: "pattern", Observations: []string{obs}},
 		},
 	}
 	return &p
@@ -56,12 +56,12 @@ func TestSyntactic_SizeExceeded(t *testing.T) {
 	t.Run("observation_over_5000_chars", func(t *testing.T) {
 		// 5001 rune observation — exceeds MaxObservationChars.
 		longObs := strings.Repeat("a", validate.MaxObservationChars+1)
-		got := validate.Run(obsPayload(longObs), validate.KindEntities)
+		got := validate.Run(obsPayload(longObs), validate.KindNodes)
 
 		require.NotNil(t, got)
 		assert.Equal(t, validate.CodeSizeExceeded, got.Code)
 		assert.Equal(t, validate.LayerSyntactic, got.Layer)
-		assert.Equal(t, ptr(0), got.RejectedEntityIndex)
+		assert.Equal(t, ptr(0), got.RejectedNodeIndex)
 		assert.Equal(t, ptr(0), got.RejectedObservationIndex)
 
 		assertMatchesGolden(t, validate.CodeSizeExceeded, got)
@@ -69,21 +69,21 @@ func TestSyntactic_SizeExceeded(t *testing.T) {
 
 	t.Run("payload_over_50kb", func(t *testing.T) {
 		// Build a payload whose serialised JSON exceeds MaxCallBytes (50 KB).
-		// Two 600-char observations per entity × 50 entities = 60 KB of
+		// Two 600-char observations per node × 50 nodes = 60 KB of
 		// content alone. Observations use spaces — not alphanumeric — to avoid
 		// the long-base64 junk pattern (≥200 consecutive [A-Za-z0-9+/=] chars).
 		// Per-observation character count stays under MaxObservationChars (5000).
 		obs600 := strings.Repeat(" ", 600)
-		entities := make([]validate.Entity, validate.MaxEntitiesPerCall)
-		for i := range entities {
-			entities[i] = validate.Entity{
+		nodes := make([]validate.Node, validate.MaxNodesPerCall)
+		for i := range nodes {
+			nodes[i] = validate.Node{
 				Name:         strings.Repeat("n", 20),
-				EntityType:   "pattern",
+				NodeType:     "pattern",
 				Observations: []string{obs600, obs600},
 			}
 		}
-		p := validate.Payload{Entities: entities}
-		got := validate.Run(&p, validate.KindEntities)
+		p := validate.Payload{Nodes: nodes}
+		got := validate.Run(&p, validate.KindNodes)
 
 		require.NotNil(t, got)
 		assert.Equal(t, validate.CodeSizeExceeded, got.Code)
@@ -172,7 +172,7 @@ func TestSyntactic_JunkPattern(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := validate.Run(obsPayload(tc.obs), validate.KindEntities)
+			got := validate.Run(obsPayload(tc.obs), validate.KindNodes)
 
 			require.NotNil(t, got, "expected rejection for pattern %q", tc.wantPat)
 			assert.Equal(t, validate.CodeJunkPattern, got.Code)
@@ -183,7 +183,7 @@ func TestSyntactic_JunkPattern(t *testing.T) {
 
 	// One representative subtest also asserts the golden file.
 	t.Run("golden_node_modules", func(t *testing.T) {
-		got := validate.Run(obsPayload("Dependencies live under node_modules directory"), validate.KindEntities)
+		got := validate.Run(obsPayload("Dependencies live under node_modules directory"), validate.KindNodes)
 		assertMatchesGolden(t, validate.CodeJunkPattern, got)
 	})
 }
@@ -268,7 +268,7 @@ func TestSecrets_InlineFallback(t *testing.T) {
 			// passes and Layer 2 (secrets) is reached.
 			p := validate.Payload{
 				Observations: []validate.Observation{
-					{EntityName: "test-entity", Text: tc.obs},
+					{NodeName: "test-node", Text: tc.obs},
 				},
 			}
 			got := validate.Run(&p, validate.KindObservations)
@@ -287,7 +287,7 @@ func TestSecrets_InlineFallback(t *testing.T) {
 	t.Run("golden_rsa_key", func(t *testing.T) {
 		p := validate.Payload{
 			Observations: []validate.Observation{
-				{EntityName: "test-entity", Text: decodeTestSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v")},
+				{NodeName: "test-node", Text: decodeTestSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v")},
 			},
 		}
 		got := validate.Run(&p, validate.KindObservations)
@@ -306,7 +306,7 @@ func TestSecrets_GitleaksDetector(t *testing.T) {
 
 	p := validate.Payload{
 		Observations: []validate.Observation{
-			{EntityName: "test-entity", Text: "Bot token: " + slackToken},
+			{NodeName: "test-node", Text: "Bot token: " + slackToken},
 		},
 	}
 	got := validate.Run(&p, validate.KindObservations)
@@ -322,47 +322,47 @@ func TestSecrets_GitleaksDetector(t *testing.T) {
 
 // ── AC-7: Taxonomy layer ────────────────────────────────────────────────────
 
-func TestTaxonomy_EntityType(t *testing.T) {
-	// 9 valid entity types must all pass.
+func TestTaxonomy_NodeType(t *testing.T) {
+	// 9 valid node types must all pass.
 	validTypes := []string{
 		"pattern", "error", "constraint", "decision", "tool-gotcha",
 		"process-insight", "project", "service", "stack-profile",
 	}
-	for _, et := range validTypes {
-		t.Run("valid_"+et, func(t *testing.T) {
+	for _, nt := range validTypes {
+		t.Run("valid_"+nt, func(t *testing.T) {
 			p := validate.Payload{
-				Entities: []validate.Entity{
-					{Name: "test-entity", EntityType: et, Observations: []string{"some observation"}},
+				Nodes: []validate.Node{
+					{Name: "test-node", NodeType: nt, Observations: []string{"some observation"}},
 				},
 			}
-			got := validate.Run(&p, validate.KindEntities)
-			assert.Nil(t, got, "valid entity type %q should pass", et)
+			got := validate.Run(&p, validate.KindNodes)
+			assert.Nil(t, got, "valid node type %q should pass", nt)
 		})
 	}
 
-	// 1 invalid entity type must be rejected.
+	// 1 invalid node type must be rejected.
 	t.Run("invalid_type", func(t *testing.T) {
 		p := validate.Payload{
-			Entities: []validate.Entity{
-				{Name: "test-entity", EntityType: "invalid-type", Observations: []string{"some observation"}},
+			Nodes: []validate.Node{
+				{Name: "test-node", NodeType: "invalid-type", Observations: []string{"some observation"}},
 			},
 		}
-		got := validate.Run(&p, validate.KindEntities)
+		got := validate.Run(&p, validate.KindNodes)
 
 		require.NotNil(t, got)
 		assert.Equal(t, validate.CodeTaxonomyViolation, got.Code)
 		assert.Equal(t, validate.LayerTaxonomy, got.Layer)
-		assert.Equal(t, ptr(0), got.RejectedEntityIndex)
+		assert.Equal(t, ptr(0), got.RejectedNodeIndex)
 	})
 
 	// Golden file assertion.
 	t.Run("golden_taxonomy_violation", func(t *testing.T) {
 		p := validate.Payload{
-			Entities: []validate.Entity{
-				{Name: "test-entity", EntityType: "invalid-type", Observations: []string{"some observation"}},
+			Nodes: []validate.Node{
+				{Name: "test-node", NodeType: "invalid-type", Observations: []string{"some observation"}},
 			},
 		}
-		got := validate.Run(&p, validate.KindEntities)
+		got := validate.Run(&p, validate.KindNodes)
 		assertMatchesGolden(t, validate.CodeTaxonomyViolation, got)
 	})
 }
@@ -423,11 +423,11 @@ func TestTaxonomy_AbsolutePath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := validate.Payload{
-				Entities: []validate.Entity{
-					{Name: "test", EntityType: "pattern", Observations: []string{tc.obs}},
+				Nodes: []validate.Node{
+					{Name: "test", NodeType: "pattern", Observations: []string{tc.obs}},
 				},
 			}
-			got := validate.Run(&p, validate.KindEntities)
+			got := validate.Run(&p, validate.KindNodes)
 
 			require.NotNil(t, got, "absolute path %q should be rejected", tc.obs)
 			assert.Equal(t, validate.CodeTaxonomyViolation, got.Code)
@@ -442,11 +442,11 @@ func TestTaxonomy_ProjectNameBareRepo(t *testing.T) {
 	for _, name := range validNames {
 		t.Run("valid_"+name, func(t *testing.T) {
 			p := validate.Payload{
-				Entities: []validate.Entity{
-					{Name: name, EntityType: "project", Observations: []string{"A project"}},
+				Nodes: []validate.Node{
+					{Name: name, NodeType: "project", Observations: []string{"A project"}},
 				},
 			}
-			got := validate.Run(&p, validate.KindEntities)
+			got := validate.Run(&p, validate.KindNodes)
 			assert.Nil(t, got, "bare repo name %q should pass", name)
 		})
 	}
@@ -463,11 +463,11 @@ func TestTaxonomy_ProjectNameBareRepo(t *testing.T) {
 	for _, tc := range invalidNames {
 		t.Run("invalid_"+tc.desc, func(t *testing.T) {
 			p := validate.Payload{
-				Entities: []validate.Entity{
-					{Name: tc.name, EntityType: "project", Observations: []string{"A project"}},
+				Nodes: []validate.Node{
+					{Name: tc.name, NodeType: "project", Observations: []string{"A project"}},
 				},
 			}
-			got := validate.Run(&p, validate.KindEntities)
+			got := validate.Run(&p, validate.KindNodes)
 
 			require.NotNil(t, got, "project name %q should be rejected", tc.name)
 			assert.Equal(t, validate.CodeTaxonomyViolation, got.Code)
@@ -490,7 +490,7 @@ func TestRun_FailFastOrder(t *testing.T) {
 	awsKey := decodeTestSecret("AwkLA3NwcXZ3dHV6e3IDAAEGBwQ=")
 	combined := "AWS key " + awsKey + " found under node_modules/config.js"
 
-	got := validate.Run(obsPayload(combined), validate.KindEntities)
+	got := validate.Run(obsPayload(combined), validate.KindNodes)
 
 	require.NotNil(t, got)
 	assert.Equal(t, validate.CodeJunkPattern, got.Code,
@@ -502,17 +502,17 @@ func TestRun_FailFastOrder(t *testing.T) {
 // three layers and returns nil.
 func TestRun_NilOnValidPayload(t *testing.T) {
 	p := validate.Payload{
-		Entities: []validate.Entity{
+		Nodes: []validate.Node{
 			{
-				Name:       "context-harness-mcp",
-				EntityType: "project",
+				Name:     "context-harness-mcp",
+				NodeType: "project",
 				Observations: []string{
-					"Go MCP server backed by Postgres + pgvector. Exposes 9 tools.",
+					"Go MCP server backed by Postgres + pgvector. Exposes 6 tools.",
 					"Deployed on Render Free with streamable-http transport.",
 				},
 			},
 		},
 	}
-	got := validate.Run(&p, validate.KindEntities)
+	got := validate.Run(&p, validate.KindNodes)
 	assert.Nil(t, got, "valid payload must return nil from Run")
 }

@@ -17,7 +17,7 @@
 set -e
 
 MCP_URL="${MCP_URL:-http://localhost:8080/mcp}"
-SEED_ENTITY="smoke-secret-seed-$(date +%s)"
+SEED_NODE="smoke-secret-seed-$(date +%s)"
 
 fail() {
     echo "FAIL: $1"
@@ -69,19 +69,19 @@ SESSION_ID=$(initialize)
 [ -z "$SESSION_ID" ] && fail "initialize did not return a session ID"
 echo "session_id=$SESSION_ID"
 
-echo "--- Step 2: create seed entity ---"
-SEED_ARGS=$(printf '{"entities":[{"name":"%s","entityType":"pattern","observations":["clean seed observation"]}]}' \
-    "$SEED_ENTITY")
-SEED_RESP=$(mcp_call "$SESSION_ID" "create_entities" "$SEED_ARGS")
+echo "--- Step 2: create seed node ---"
+SEED_ARGS=$(printf '{"nodes":[{"name":"%s","nodeType":"pattern","observations":["clean seed observation"]}]}' \
+    "$SEED_NODE")
+SEED_RESP=$(mcp_call "$SESSION_ID" "create_nodes" "$SEED_ARGS")
 SEED_TEXT=$(extract_text "$SEED_RESP")
-CREATED=$(echo "$SEED_TEXT" | jq -r '.created_entities // 0')
-[ "$CREATED" = "1" ] || fail "failed to create seed entity. Response: $SEED_RESP"
-echo "seed entity created"
+CREATED=$(echo "$SEED_TEXT" | jq -r '.created_nodes // 0')
+[ "$CREATED" = "1" ] || fail "failed to create seed node. Response: $SEED_RESP"
+echo "seed node created"
 
 echo "--- Step 3: add_observations with AWS key — expect policy/secret-detected ---"
 # AKIAIOSFODNN7EXAMPLE matches AKIA[0-9A-Z]{16} (canonical AWS docs example key).
-OBS_ARGS=$(printf '{"observations":[{"entityName":"%s","contents":["Found AKIAIOSFODNN7EXAMPLE in environment"]}]}' \
-    "$SEED_ENTITY")
+OBS_ARGS=$(printf '{"observations":[{"nodeName":"%s","contents":["Found AKIAIOSFODNN7EXAMPLE in environment"]}]}' \
+    "$SEED_NODE")
 OBS_RESP=$(mcp_call "$SESSION_ID" "add_observations" "$OBS_ARGS")
 OBS_TEXT=$(extract_text "$OBS_RESP")
 echo "response text: $OBS_TEXT"
@@ -91,10 +91,6 @@ LAYER=$(echo "$OBS_TEXT" | jq -r '.layer // empty')
 echo "code=$CODE layer=$LAYER"
 [ "$CODE"  = "policy/secret-detected" ] || fail "expected code=policy/secret-detected, got '$CODE'"
 [ "$LAYER" = "secrets" ]                || fail "expected layer=secrets, got '$LAYER'"
-
-echo "--- Step 4: delete seed entity (cleanup) ---"
-CLEANUP_ARGS=$(printf '{"entityNames":["%s"]}' "$SEED_ENTITY")
-mcp_call "$SESSION_ID" "delete_entities" "$CLEANUP_ARGS" > /dev/null
 
 echo "PASS"
 exit 0

@@ -17,7 +17,7 @@ import (
 func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 	s.AddTool(
 		mcplib.NewTool("search_nodes",
-			mcplib.WithDescription("Search entities by substring match on observation text. Returns matching entities and the relations between them."),
+			mcplib.WithDescription("Search nodes by semantic similarity of observation text. Returns matching nodes and the relations between them."),
 			mcplib.WithString("query", mcplib.Required()),
 		),
 		searchNodesHandler(pool),
@@ -25,7 +25,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 
 	s.AddTool(
 		mcplib.NewTool("open_nodes",
-			mcplib.WithDescription("Retrieve specific entities by name, plus the relations between them."),
+			mcplib.WithDescription("Retrieve specific nodes by name, plus the relations between them."),
 			mcplib.WithArray("names", mcplib.Required()),
 		),
 		openNodesHandler(pool),
@@ -39,17 +39,17 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 	)
 }
 
-// ── wire-shape types (match Python reference shapes byte-for-byte) ───────────
+// ── wire-shape types ─────────────────────────────────────────────────────────
 
-// entityJSON mirrors the Python _get_entity return shape:
-// {"name":..., "entityType":..., "observations":[...]}
-type entityJSON struct {
+// nodeJSON is the wire shape for a single node in query results:
+// {"name":..., "nodeType":..., "observations":[...]}
+type nodeJSON struct {
 	Name         string   `json:"name"`
-	EntityType   string   `json:"entityType"`
+	NodeType     string   `json:"nodeType"`
 	Observations []string `json:"observations"`
 }
 
-// relationJSON mirrors the Python relation shape:
+// relationJSON is the wire shape for a single relation:
 // {"from":..., "to":..., "relationType":...}
 type relationJSON struct {
 	From         string `json:"from"`
@@ -70,19 +70,19 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
-		entities, relations, err := searchNodes(ctx, pool, args.Query)
+		nodes, relations, err := searchNodes(ctx, pool, args.Query)
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
 		return jsonResult(map[string]any{
-			"entities":  entities,
+			"nodes":     nodes,
 			"relations": relations,
 		}), nil
 	}
 }
 
-func searchNodes(ctx context.Context, pool *pgxpool.Pool, query string) ([]entityJSON, []relationJSON, error) {
+func searchNodes(ctx context.Context, pool *pgxpool.Pool, query string) ([]nodeJSON, []relationJSON, error) {
 	// Encode the query into a vector; fail loudly if the embedder is broken.
 	// The substring helper (store.SearchByTextSubstring) stays in the codebase
 	// but is no longer wired here — failure must be visible to operators.
@@ -92,12 +92,12 @@ func searchNodes(ctx context.Context, pool *pgxpool.Pool, query string) ([]entit
 	}
 	queryVec := pgvector.NewVector(vecs[0])
 
-	entityRows, err := store.SearchByCosine(ctx, pool, queryVec)
+	nodeRows, err := store.SearchByCosine(ctx, pool, queryVec)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return buildEntityRelationResult(ctx, pool, entityRows)
+	return buildNodeRelationResult(ctx, pool, nodeRows)
 }
 
 // ── open_nodes ───────────────────────────────────────────────────────────────
@@ -113,27 +113,27 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
-		entities, relations, err := openNodes(ctx, pool, args.Names)
+		nodes, relations, err := openNodes(ctx, pool, args.Names)
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
 		return jsonResult(map[string]any{
-			"entities":  entities,
+			"nodes":     nodes,
 			"relations": relations,
 		}), nil
 	}
 }
 
-func openNodes(ctx context.Context, pool *pgxpool.Pool, names []string) ([]entityJSON, []relationJSON, error) {
+func openNodes(ctx context.Context, pool *pgxpool.Pool, names []string) ([]nodeJSON, []relationJSON, error) {
 	if len(names) == 0 {
-		return []entityJSON{}, []relationJSON{}, nil
+		return []nodeJSON{}, []relationJSON{}, nil
 	}
 
-	// Resolve each name to an active entity row via a single pool query.
+	// Resolve each name to an active node row via a single pool query.
 	rows, err := pool.Query(ctx,
-		`SELECT id, name, entity_type
-		 FROM entities
+		`SELECT id, name, node_type
+		 FROM nodes
 		 WHERE name = ANY($1) AND deleted_at IS NULL
 		 ORDER BY name`,
 		names,
@@ -143,78 +143,78 @@ func openNodes(ctx context.Context, pool *pgxpool.Pool, names []string) ([]entit
 	}
 	defer rows.Close()
 
-	var entityRows []store.EntityRow
+	var nodeRows []store.NodeRow
 	for rows.Next() {
-		var r store.EntityRow
-		if err := rows.Scan(&r.ID, &r.Name, &r.EntityType); err != nil {
+		var r store.NodeRow
+		if err := rows.Scan(&r.ID, &r.Name, &r.NodeType); err != nil {
 			return nil, nil, err
 		}
-		entityRows = append(entityRows, r)
+		nodeRows = append(nodeRows, r)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
 
-	return buildEntityRelationResult(ctx, pool, entityRows)
+	return buildNodeRelationResult(ctx, pool, nodeRows)
 }
 
 // ── read_graph ───────────────────────────────────────────────────────────────
 
 func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-		entityRows, err := store.ListActive(ctx, pool)
+		nodeRows, err := store.ListActive(ctx, pool)
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
-		entities, relations, err := buildEntityRelationResult(ctx, pool, entityRows)
+		nodes, relations, err := buildNodeRelationResult(ctx, pool, nodeRows)
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
 		return jsonResult(map[string]any{
-			"entities":       entities,
+			"nodes":          nodes,
 			"relations":      relations,
-			"entity_count":   len(entities),
+			"node_count":     len(nodes),
 			"relation_count": len(relations),
 		}), nil
 	}
 }
 
-// ── shared builder ───────────────────────────────────────────────────────────
+// ── shared builder ────────────────────────────────────────────────────────────
 
-// buildEntityRelationResult converts a slice of entity rows into the wire-shape
+// buildNodeRelationResult converts a slice of node rows into the wire-shape
 // slices expected by all three query tools. It fetches observations and
 // relations in two additional pool queries.
-func buildEntityRelationResult(ctx context.Context, pool *pgxpool.Pool, entityRows []store.EntityRow) ([]entityJSON, []relationJSON, error) {
-	if len(entityRows) == 0 {
-		return []entityJSON{}, []relationJSON{}, nil
+func buildNodeRelationResult(ctx context.Context, pool *pgxpool.Pool, nodeRows []store.NodeRow) ([]nodeJSON, []relationJSON, error) {
+	if len(nodeRows) == 0 {
+		return []nodeJSON{}, []relationJSON{}, nil
 	}
 
-	ids := make([]string, len(entityRows))
-	for i, r := range entityRows {
+	ids := make([]string, len(nodeRows))
+	for i, r := range nodeRows {
 		ids[i] = r.ID
 	}
 
-	obsMap, err := store.ListByEntityIDs(ctx, pool, ids)
+	obsMap, err := store.ListByNodeIDs(ctx, pool, ids)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	relationRows, err := store.ListActiveRelationsForEntityIDs(ctx, pool, ids)
+	relationRows, err := store.ListActiveRelationsForNodeIDs(ctx, pool, ids)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	entities := make([]entityJSON, len(entityRows))
-	for i, r := range entityRows {
+	nodes := make([]nodeJSON, len(nodeRows))
+	for i, r := range nodeRows {
 		obs := obsMap[r.ID]
 		if obs == nil {
 			obs = []string{}
 		}
-		entities[i] = entityJSON{
+		nodes[i] = nodeJSON{
 			Name:         r.Name,
-			EntityType:   r.EntityType,
+			NodeType:     r.NodeType,
 			Observations: obs,
 		}
 	}
@@ -224,5 +224,5 @@ func buildEntityRelationResult(ctx context.Context, pool *pgxpool.Pool, entityRo
 		relations[i] = relationJSON{From: r.From, To: r.To, RelationType: r.RelationType}
 	}
 
-	return entities, relations, nil
+	return nodes, relations, nil
 }

@@ -10,11 +10,11 @@ import (
 )
 
 // Insert adds a new observation text and its pre-computed embedding for the
-// given entity. When the ONNX runtime is unavailable, callers may pass a
+// given node. When the ONNX runtime is unavailable, callers may pass a
 // zero-length pgvector.Vector{} — this is stored as SQL NULL (degraded mode).
-// A non-zero vector must have exactly 384 dimensions. On a (entity_id, text)
+// A non-zero vector must have exactly 384 dimensions. On a (node_id, text)
 // unique conflict the row is silently skipped and inserted=false is returned.
-func Insert(ctx context.Context, tx pgx.Tx, entityID, text string, embedding pgvector.Vector) (observationID string, inserted bool, err error) {
+func Insert(ctx context.Context, tx pgx.Tx, nodeID, text string, embedding pgvector.Vector) (observationID string, inserted bool, err error) {
 	// Use a typed nil interface so pgx encodes a SQL NULL when no embedding is
 	// available, rather than sending an invalid empty vector to Postgres.
 	var embParam any
@@ -23,11 +23,11 @@ func Insert(ctx context.Context, tx pgx.Tx, entityID, text string, embedding pgv
 	}
 
 	err = tx.QueryRow(ctx,
-		`INSERT INTO observations (entity_id, text, embedding)
+		`INSERT INTO observations (node_id, text, embedding)
 		 VALUES ($1, $2, $3)
-		 ON CONFLICT (entity_id, text) DO NOTHING
+		 ON CONFLICT (node_id, text) DO NOTHING
 		 RETURNING id`,
-		entityID, text, embParam,
+		nodeID, text, embParam,
 	).Scan(&observationID)
 
 	if err == nil {
@@ -39,16 +39,18 @@ func Insert(ctx context.Context, tx pgx.Tx, entityID, text string, embedding pgv
 	return "", false, err
 }
 
-// MarkDeletedByEntityAndTexts soft-deletes active observations belonging to
-// entityID whose text matches any value in texts. Returns the count of rows
+// MarkDeletedByNodeAndTexts soft-deletes active observations belonging to
+// nodeID whose text matches any value in texts. Returns the count of rows
 // updated.
-func MarkDeletedByEntityAndTexts(ctx context.Context, tx pgx.Tx, entityID string, texts []string) (int, error) {
+//
+// Admin-script API only — not wired to any MCP tool.
+func MarkDeletedByNodeAndTexts(ctx context.Context, tx pgx.Tx, nodeID string, texts []string) (int, error) {
 	tag, err := tx.Exec(ctx,
 		`UPDATE observations SET deleted_at = now()
-		 WHERE entity_id = $1
+		 WHERE node_id = $1
 		   AND text = ANY($2)
 		   AND deleted_at IS NULL`,
-		entityID, texts,
+		nodeID, texts,
 	)
 	if err != nil {
 		return 0, err
@@ -56,34 +58,34 @@ func MarkDeletedByEntityAndTexts(ctx context.Context, tx pgx.Tx, entityID string
 	return int(tag.RowsAffected()), nil
 }
 
-// ListByEntityIDs returns the active observation texts for each entity id in
-// the provided slice. The result is a map of entity_id → []text, preserving
-// insertion order via ORDER BY id. Entity ids with no active observations are
+// ListByNodeIDs returns the active observation texts for each node id in the
+// provided slice. The result is a map of node_id → []text, preserving
+// insertion order via ORDER BY id. Node ids with no active observations are
 // omitted from the map.
-func ListByEntityIDs(ctx context.Context, pool *pgxpool.Pool, entityIDs []string) (map[string][]string, error) {
-	if len(entityIDs) == 0 {
+func ListByNodeIDs(ctx context.Context, pool *pgxpool.Pool, nodeIDs []string) (map[string][]string, error) {
+	if len(nodeIDs) == 0 {
 		return map[string][]string{}, nil
 	}
 
 	rows, err := pool.Query(ctx,
-		`SELECT entity_id::text, text
+		`SELECT node_id::text, text
 		 FROM observations
-		 WHERE entity_id::text = ANY($1) AND deleted_at IS NULL
-		 ORDER BY entity_id, id`,
-		entityIDs,
+		 WHERE node_id::text = ANY($1) AND deleted_at IS NULL
+		 ORDER BY node_id, id`,
+		nodeIDs,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	result := make(map[string][]string, len(entityIDs))
+	result := make(map[string][]string, len(nodeIDs))
 	for rows.Next() {
-		var entityID, text string
-		if err := rows.Scan(&entityID, &text); err != nil {
+		var nodeID, text string
+		if err := rows.Scan(&nodeID, &text); err != nil {
 			return nil, err
 		}
-		result[entityID] = append(result[entityID], text)
+		result[nodeID] = append(result[nodeID], text)
 	}
 	return result, rows.Err()
 }

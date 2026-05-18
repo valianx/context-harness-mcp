@@ -72,7 +72,7 @@ Migrations are idempotent: running the command again when already up-to-date pri
 With the stack up (`docker compose up -d --wait`) and migrations applied:
 
 ```sh
-bash scripts/smoke/happy_path.sh        # create/read_graph/delete round-trip
+bash scripts/smoke/happy_path.sh        # create_nodes/read_graph round-trip
 bash scripts/smoke/secret_rejected.sh   # AWS-key observation → policy/secret-detected
 bash scripts/smoke/size_rejected.sh     # 65KB observation → policy/size-exceeded
 ```
@@ -102,7 +102,7 @@ Add the following entry to `~/.claude.json` under `mcpServers`:
 }
 ```
 
-Restart Claude Code after editing. The `read_graph`, `search_nodes`, and all write tools will now call your local server. Run `docker compose up -d --wait` before starting Claude Code.
+Restart Claude Code after editing. The `read_graph`, `search_nodes`, `open_nodes`, `create_nodes`, `add_observations`, and `create_relations` tools will now call your local server. Run `docker compose up -d --wait` before starting Claude Code.
 
 > **Note:** The server uses the MCP Streamable-HTTP transport (`POST /mcp`). The `type: "http"` entry is correct; `type: "sse"` is the legacy transport and is not supported by this server.
 

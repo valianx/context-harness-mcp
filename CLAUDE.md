@@ -8,12 +8,12 @@
 
 ## 1. Purpose & Boundaries
 
-**What this repo is.** `context-harness-mcp` is a **Go MCP server** that exposes the same
-9-tool Knowledge-Graph surface (`search_nodes`, `read_graph`, `open_nodes`,
-`create_entities`, `add_observations`, `delete_entities`, `delete_observations`,
-`create_relations`, `delete_relations`) as `claude-dev-team`'s local ChromaDB server —
-but backed by **Postgres + pgvector** (Supabase in production) and deployable as a
-static Docker binary to **Render Free**.
+**What this repo is.** `context-harness-mcp` is a **Go MCP server** that exposes a
+6-tool Knowledge-Graph surface (`create_nodes`, `add_observations`, `create_relations`,
+`search_nodes`, `open_nodes`, `read_graph`) backed by **Postgres + pgvector** (Supabase
+in production) and deployable as a static Docker binary to **Render Free**. Delete
+operations are intentionally not exposed as MCP tools — only via store-level SQL for
+operators (see `docs/mcp-tools.md §Administrative deletions`).
 
 **Primary audience:** agents and developers who work in the `context-harness-mcp`
 repository. The orchestrator pipeline reads this file before touching any code.
@@ -52,12 +52,12 @@ context-harness-mcp/
 ├── internal/                     Go internal packages — not importable by other modules
 │   ├── mcp/
 │   │   ├── server.go             mcp-go server factory + tool registration scaffold
-│   │   ├── entities.go           create_entities, add_observations, delete_entities, delete_observations (PR-4)
-│   │   ├── relations.go          create_relations, delete_relations (PR-4)
+│   │   ├── nodes.go              create_nodes, add_observations (PR-4; delete tools removed in PR-3)
+│   │   ├── relations.go          create_relations (PR-4; delete_relations removed in PR-3)
 │   │   └── query.go              search_nodes, open_nodes, read_graph (PR-4)
 │   ├── store/                    Postgres + pgvector access (PR-2)
 │   │   ├── pool.go               pgxpool + pgvector type registration
-│   │   ├── entities.go           CRUD + soft-delete
+│   │   ├── nodes.go              CRUD + soft-delete (admin-script only for deletes)
 │   │   ├── observations.go       INSERT with embedding column
 │   │   └── relations.go          CRUD + soft-delete
 │   ├── embed/                    Embedding pipeline (PR-5)
@@ -67,7 +67,7 @@ context-harness-mcp/
 │   │   ├── syntactic.go          Layer 1: size caps + junk-pattern denylist
 │   │   ├── denylist.go           Layer 1: curated junk patterns (in-code table)
 │   │   ├── secrets.go            Layer 2: gitleaks-as-library + inline regex fallback
-│   │   ├── taxonomy.go           Layer 3: entityType / relation_type enums
+│   │   ├── taxonomy.go           Layer 3: nodeType / relation_type enums
 │   │   └── errors.go             Stable policy/* MCP error codes
 │   └── healthz/
 │       └── healthz.go            healthz MCP tool handler

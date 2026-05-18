@@ -156,7 +156,7 @@ func CleanDB(t *testing.T) {
 
 	ctx := context.Background()
 	_, err := pool.Exec(ctx,
-		"truncate table relations, observations, entities restart identity cascade",
+		"truncate table relations, observations, nodes restart identity cascade",
 	)
 	if err != nil {
 		t.Fatalf("CleanDB: truncate failed: %v", err)
