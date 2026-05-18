@@ -13,7 +13,9 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
+	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
+	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 )
 
 func main() {
@@ -23,6 +25,12 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	if err := configureSecretMode(); err != nil {
+		slog.Error("invalid SECRET_MODE value", "error", err)
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		os.Exit(1)
+	}
 
 	dsn := os.Getenv("SUPABASE_DB_URL")
 	if dsn == "" {
@@ -40,13 +48,18 @@ func main() {
 	}
 	defer pool.Close()
 
-	s := internalmcp.New(pool)
+	// The rate limiter is shared across all write-tool registrations.
+	// It is non-nil for both stdio and http transports — tool handlers skip
+	// rate-limiting when the context carries no IP (stdio path).
+	limiter := ratelimit.New()
+
+	s := internalmcp.New(pool, limiter)
 
 	switch *transport {
 	case "stdio":
 		runStdio(s)
 	case "http":
-		runHTTP(s, *addr)
+		runHTTP(s, *addr, limiter)
 	default:
 		slog.Error("unknown transport", "transport", *transport)
 		fmt.Fprintf(os.Stderr, "error: unknown transport %q — use stdio or http\n", *transport)
@@ -62,8 +75,36 @@ func runStdio(s *mcpserver.MCPServer) {
 	}
 }
 
-func runHTTP(s *mcpserver.MCPServer, addr string) {
-	httpServer := mcpserver.NewStreamableHTTPServer(s)
+// configureSecretMode reads SECRET_MODE from the environment and configures the
+// validate package accordingly. Valid values are "reject" (default) and
+// "redact". Any other non-empty value is rejected with an error so a typo
+// (e.g. "rdeact") surfaces immediately at startup rather than silently falling
+// back to reject mode.
+func configureSecretMode() error {
+	raw := os.Getenv("SECRET_MODE")
+	switch raw {
+	case "", "reject":
+		validate.SetSecretMode(validate.SecretModeReject)
+		slog.Info("secret mode configured", "mode", "reject")
+	case "redact":
+		validate.SetSecretMode(validate.SecretModeRedact)
+		slog.Info("secret mode configured", "mode", "redact")
+	default:
+		return fmt.Errorf("SECRET_MODE=%q is not a valid value — use \"reject\" or \"redact\"", raw)
+	}
+	return nil
+}
+
+func runHTTP(s *mcpserver.MCPServer, addr string, limiter *ratelimit.Limiter) {
+	// WithHTTPContextFunc extracts the client IP from each incoming HTTP request
+	// and injects it into the request context so tool handlers can read it for
+	// rate-limit decisions without importing net/http directly.
+	httpServer := mcpserver.NewStreamableHTTPServer(s,
+		mcpserver.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
+			ip := ratelimit.ExtractClientIP(r)
+			return ratelimit.ContextWithIP(ctx, ip)
+		}),
+	)
 
 	mux := http.NewServeMux()
 	// MCP streamable-http endpoint

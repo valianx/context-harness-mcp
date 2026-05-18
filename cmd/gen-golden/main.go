@@ -100,7 +100,7 @@ func main() {
 	}
 
 	for _, c := range cases {
-		result := validate.Run(c.payload, c.kind)
+		result := validate.Run(&c.payload, c.kind)
 		if result == nil {
 			fmt.Fprintf(os.Stderr, "ERROR: payload for %s did not produce a rejection\n", c.filename)
 			os.Exit(1)

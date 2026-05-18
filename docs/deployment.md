@@ -28,6 +28,10 @@ Create a free project at [supabase.com](https://supabase.com) (no credit card re
 postgres://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require
 ```
 
+### 1a. Set the secret detection mode (optional)
+
+By default, the server rejects calls that contain detected credentials (`SECRET_MODE=reject`). If you want the server to scrub secrets in-place instead of aborting the call, set `SECRET_MODE=redact` in the Render service's **Environment** tab. Any other value causes a startup error. See [`docs/mcp-tools.md`](mcp-tools.md#secret-detection-modes) for the full trade-off.
+
 ### 2. Provision the Render service
 
 In the Render dashboard: **New + → Blueprint → connect this repo → review `render.yaml`**. Render parses `render.yaml` and proposes one `context-harness-mcp` web service. Approve it.
@@ -147,6 +151,10 @@ The encrypted blob is safe to share; the passphrase is not. After 90 days the ar
 ### 6-day keepalive
 
 `supabase_keepalive.yml` runs every 6 days at 12:00 UTC, executes `SELECT 1`. Supabase Free auto-pauses after 7 days of DB inactivity; the 6-day cadence is a 1-day safety buffer.
+
+### Rate limits and client IP
+
+Write tools (`create_entities`, `add_observations`, `create_relations`) are rate-limited to **10 writes per 10 seconds per client IP**. Render's load balancer correctly forwards the original client IP in the `X-Forwarded-For` header, which the server reads to apply per-IP limits. Reads and deletes are unconstrained. See [`docs/mcp-tools.md`](mcp-tools.md#rate-limit) for the full policy.
 
 ### Trade-offs (vs paid tier)
 

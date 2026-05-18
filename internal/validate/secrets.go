@@ -100,9 +100,26 @@ func getGitleaksDetector() (*detect.Detector, error) {
 
 // checkSecrets is Layer 2 of the Content Filter. It runs the inline regex
 // fallback (always) and the gitleaks library detector (when available) against
-// every observation in the payload. Both tiers run for every observation; the
-// first hit short-circuits to avoid surfacing multiple secrets.
-func checkSecrets(p Payload) *Error {
+// every observation in the payload.
+//
+// Behavior depends on the package-level secretMode:
+//   - SecretModeReject (default): the first match returns a non-nil *Error,
+//     aborting the call.
+//   - SecretModeRedact: every match is replaced with RedactionMarker in the
+//     payload in-place, and nil is returned so the call proceeds.
+func checkSecrets(p *Payload) *Error {
+	switch secretMode {
+	case SecretModeRedact:
+		redactSecretsInPayload(p)
+		return nil
+	default:
+		return rejectOnFirstSecret(*p)
+	}
+}
+
+// rejectOnFirstSecret implements the reject-mode path (original behavior).
+// Both tiers run for every observation; the first hit short-circuits.
+func rejectOnFirstSecret(p Payload) *Error {
 	// Observations embedded in entities (create_entities path).
 	for entityIdx, entity := range p.Entities {
 		for obsIdx, obs := range entity.Observations {
@@ -120,6 +137,67 @@ func checkSecrets(p Payload) *Error {
 	}
 
 	return nil
+}
+
+// redactSecretsInPayload replaces every matched secret span with RedactionMarker
+// across all observations in the payload. It is intentionally exhaustive —
+// it does not short-circuit on the first match, so all secrets in a text are
+// replaced in a single pass.
+func redactSecretsInPayload(p *Payload) {
+	for entityIdx := range p.Entities {
+		for obsIdx := range p.Entities[entityIdx].Observations {
+			p.Entities[entityIdx].Observations[obsIdx] =
+				redactText(p.Entities[entityIdx].Observations[obsIdx])
+		}
+	}
+	for obsIdx := range p.Observations {
+		p.Observations[obsIdx].Text = redactText(p.Observations[obsIdx].Text)
+	}
+}
+
+// redactText replaces all secret spans in text with RedactionMarker.
+// It applies all inline patterns first, then the gitleaks detector.
+func redactText(text string) string {
+	// Apply all inline patterns. ReplaceAllString processes each pattern
+	// independently; a previously redacted span cannot re-match a different
+	// pattern because [REDACTED] does not resemble any credential prefix.
+	for _, sp := range inlinePatterns {
+		text = sp.pattern.ReplaceAllString(text, RedactionMarker)
+	}
+
+	// Apply gitleaks findings. Gitleaks returns byte-offset findings; we
+	// process them in reverse order so that earlier replacements do not shift
+	// later offsets.
+	detector, err := getGitleaksDetector()
+	if err != nil || detector == nil {
+		return text
+	}
+
+	findings := detector.DetectString(text)
+	if len(findings) == 0 {
+		return text
+	}
+
+	// Sort findings in descending start-byte order so tail replacements
+	// do not invalidate head offsets.
+	for i := 0; i < len(findings)-1; i++ {
+		for j := i + 1; j < len(findings); j++ {
+			if findings[j].StartColumn > findings[i].StartColumn {
+				findings[i], findings[j] = findings[j], findings[i]
+			}
+		}
+	}
+
+	b := []byte(text)
+	for _, f := range findings {
+		start := f.StartColumn - 1 // gitleaks columns are 1-indexed
+		end := f.EndColumn
+		if start < 0 || end > len(b) || start >= end {
+			continue
+		}
+		b = append(b[:start], append([]byte(RedactionMarker), b[end:]...)...)
+	}
+	return string(b)
 }
 
 // checkObservationForSecrets tests a single observation text first against the

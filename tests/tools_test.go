@@ -36,7 +36,7 @@ func requireEmbedder(t *testing.T) {
 func newMCPClient(t *testing.T) *client.Client {
 	t.Helper()
 	pool := NewTestPool(t)
-	srv := internalmcp.New(pool)
+	srv := internalmcp.New(pool, nil)
 
 	c, err := client.NewInProcessClient(srv)
 	require.NoError(t, err, "create in-process client")

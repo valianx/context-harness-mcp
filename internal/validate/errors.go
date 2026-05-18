@@ -19,6 +19,10 @@ const (
 	CodeJunkPattern       = "policy/junk-pattern"
 	CodeSecretDetected    = "policy/secret-detected"
 	CodeTaxonomyViolation = "policy/taxonomy-violation"
+	// CodeRateLimited is returned when a client IP exceeds the write-tool rate
+	// limit (10 writes per 10 seconds). Clients should back off for the number
+	// of seconds indicated in the retry_after_seconds field of the response.
+	CodeRateLimited = "policy/rate-limited"
 )
 
 // Layer names for the Layer field.
@@ -26,7 +30,16 @@ const (
 	LayerSyntactic = "syntactic"
 	LayerSecrets   = "secrets"
 	LayerTaxonomy  = "taxonomy"
+	// LayerRateLimit identifies the per-IP rate-limit layer in error responses.
+	// It is separate from the Content Filter layers — rate-limit enforcement
+	// happens before the Content Filter runs.
+	LayerRateLimit = "rate-limit"
 )
+
+// RedactionMarker is the replacement text inserted in place of a matched secret
+// span when SECRET_MODE=redact. It is defined here so tests can reference the
+// same constant without importing the secrets sub-package.
+const RedactionMarker = "[REDACTED]"
 
 // Kind identifies which logical operation a Payload represents, so Run can
 // apply layer-specific rules accordingly.
