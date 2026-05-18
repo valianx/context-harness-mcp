@@ -1,14 +1,14 @@
 # MCP Tools Reference
 
-The server exposes nine knowledge-graph tools plus a `healthz` probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes six knowledge-graph tools plus a `healthz` probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
-JSON wire shapes are byte-for-byte compatible with [`claude-dev-team/knowledge-graph/server.py`](https://github.com/valianx/claude-dev-team/blob/main/knowledge-graph/server.py) so the two backends are interchangeable from the client's point of view.
+JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Write shapes are also byte-for-byte compatible with the updated [`claude-dev-team/knowledge-graph/server.py`](https://github.com/valianx/claude-dev-team/blob/main/knowledge-graph/server.py).
 
 ## Taxonomy
 
 Two closed enums are enforced at both the validator and the DB CHECK constraints:
 
-| `entityType` (9 values) | `relationType` (5 values) |
+| `nodeType` (9 values) | `relationType` (5 values) |
 |---|---|
 | `pattern` | `relates_to` |
 | `error` | `belongs-to` |
@@ -26,20 +26,20 @@ Anything outside these lists is rejected with `policy/taxonomy-violation`.
 
 ## Write tools
 
-All write tools (1)–(5) wrap their work in a single `pgx.Tx`. If the Content Filter rejects, the transaction is **never opened**. If any insert fails partway through, the transaction rolls back — there are no partial writes. Inserts are deduplicated by DB-level unique constraints (`ON CONFLICT DO NOTHING`).
+All write tools (1)–(3) wrap their work in a single `pgx.Tx`. If the Content Filter rejects, the transaction is **never opened**. If any insert fails partway through, the transaction rolls back — there are no partial writes. Inserts are deduplicated by DB-level unique constraints (`ON CONFLICT DO NOTHING`).
 
-### 1. `create_entities`
+### 1. `create_nodes`
 
-Create new entities with their observations. Idempotent on `name`.
+Create new nodes with their observations. Idempotent on `name`.
 
 **Arguments**
 
 ```json
 {
-  "entities": [
+  "nodes": [
     {
       "name": "pgvector-hnsw-index",
-      "entityType": "pattern",
+      "nodeType": "pattern",
       "observations": [
         "HNSW index on vector(384) columns with cosine ops.",
         "Defaults m=16, ef_construction=64 suffice for ≤100k vectors."
@@ -52,14 +52,14 @@ Create new entities with their observations. Idempotent on `name`.
 **Success response**
 
 ```json
-{ "created_entities": 1, "created_observations": 2 }
+{ "created_nodes": 1, "created_observations": 2 }
 ```
 
-Observations that already exist for the entity (matched by `(entity_id, text)`) are silently deduped and excluded from `created_observations`.
+Observations that already exist for the node (matched by `(node_id, text)`) are silently deduped and excluded from `created_observations`.
 
 ### 2. `add_observations`
 
-Append observations to existing entities. Returns an error if any `entityName` is not found.
+Append observations to existing nodes. Returns an error if any `nodeName` is not found.
 
 **Arguments**
 
@@ -67,7 +67,7 @@ Append observations to existing entities. Returns an error if any `entityName` i
 {
   "observations": [
     {
-      "entityName": "pgvector-hnsw-index",
+      "nodeName": "pgvector-hnsw-index",
       "contents": ["ef_search default 40 is too low for high-recall workloads."]
     }
   ]
@@ -82,48 +82,9 @@ Append observations to existing entities. Returns an error if any `entityName` i
 { "added": 1 }
 ```
 
-### 3. `delete_entities`
+### 3. `create_relations`
 
-Soft-delete entities by name. Sets `deleted_at = now()`; the row physically remains for audit. Subsequent `read_graph` / `search_nodes` / `open_nodes` calls do not return deleted entities. **No Content Filter** (the argument is a list of names, not user content).
-
-**Arguments**
-
-```json
-{ "entityNames": ["pgvector-hnsw-index"] }
-```
-
-**Success response**
-
-```json
-{ "deleted": 1 }
-```
-
-### 4. `delete_observations`
-
-Soft-delete specific observations within an entity. **No Content Filter**.
-
-**Arguments**
-
-```json
-{
-  "deletions": [
-    {
-      "entityName": "pgvector-hnsw-index",
-      "observations": ["ef_search default 40 is too low for high-recall workloads."]
-    }
-  ]
-}
-```
-
-**Success response**
-
-```json
-{ "deleted": 1 }
-```
-
-### 5. `create_relations`
-
-Create relations between existing entities. Each relation triple `(from, to, relationType)` is unique — re-creating an existing relation is a no-op.
+Create relations between existing nodes. Each relation triple `(from, to, relationType)` is unique — re-creating an existing relation is a no-op.
 
 **Arguments**
 
@@ -141,33 +102,13 @@ Create relations between existing entities. Each relation triple `(from, to, rel
 { "created": 1 }
 ```
 
-### 6. `delete_relations`
-
-Soft-delete relations by triple. **No Content Filter**.
-
-**Arguments**
-
-```json
-{
-  "relations": [
-    { "from": "pgvector-hnsw-index", "to": "supabase-postgres", "relationType": "belongs-to" }
-  ]
-}
-```
-
-**Success response**
-
-```json
-{ "deleted": 1 }
-```
-
 ---
 
 ## Read tools
 
-### 7. `search_nodes`
+### 4. `search_nodes`
 
-Semantic search over observations. The query string is embedded via `all-MiniLM-L6-v2` (384 dims) and matched against `observations.embedding` using pgvector cosine (`<=>`). Results aggregate per entity (`MIN(distance)`) and are returned with the relations between entities in the result set.
+Semantic search over observations. The query string is embedded via `all-MiniLM-L6-v2` (384 dims) and matched against `observations.embedding` using pgvector cosine (`<=>`). Results aggregate per node (`MIN(distance)`) and are returned with the relations between nodes in the result set.
 
 **Arguments**
 
@@ -179,10 +120,10 @@ Semantic search over observations. The query string is embedded via `all-MiniLM-
 
 ```json
 {
-  "entities": [
+  "nodes": [
     {
       "name": "oauth-token-rotation",
-      "entityType": "pattern",
+      "nodeType": "pattern",
       "observations": [
         "Refresh tokens rotate every 30 days.",
         "JWT signing keys rotate via JWKS."
@@ -195,11 +136,11 @@ Semantic search over observations. The query string is embedded via `all-MiniLM-
 }
 ```
 
-Returns up to 10 entities ordered by cosine distance. If the embedder is unavailable (ONNX init failed, model file missing) the call fails loudly with an MCP error — `search_nodes` never silently degrades to substring matching.
+Returns up to 10 nodes ordered by cosine distance. If the embedder is unavailable (ONNX init failed, model file missing) the call fails loudly with an MCP error — `search_nodes` never silently degrades to substring matching.
 
-### 8. `open_nodes`
+### 5. `open_nodes`
 
-Retrieve specific entities by name plus the relations between them. Names not found are silently skipped (no error).
+Retrieve specific nodes by name plus the relations between them. Names not found are silently skipped (no error).
 
 **Arguments**
 
@@ -209,7 +150,7 @@ Retrieve specific entities by name plus the relations between them. Names not fo
 
 **Success response** — same shape as `search_nodes`, restricted to the requested names.
 
-### 9. `read_graph`
+### 6. `read_graph`
 
 Read the entire active knowledge graph. Use sparingly — prefer `search_nodes` or `open_nodes` for targeted queries.
 
@@ -219,12 +160,38 @@ Read the entire active knowledge graph. Use sparingly — prefer `search_nodes` 
 
 ```json
 {
-  "entities":  [ /* every active entity */ ],
-  "relations": [ /* every active relation */ ],
-  "entity_count": 42,
+  "nodes":          [ /* every active node */ ],
+  "relations":      [ /* every active relation */ ],
+  "node_count":     42,
   "relation_count": 117
 }
 ```
+
+---
+
+## Administrative deletions
+
+Soft-delete operations (`delete_nodes`, `delete_observations`, `delete_relations`) are **not** exposed as MCP tools. Exposing destructive operations on an unauthenticated public endpoint would allow any caller to irreversibly soft-delete graph content without access controls.
+
+Deletions are available as store-level functions for operator use only:
+
+```sql
+-- Soft-delete a node (and its observations cascade via DB trigger):
+UPDATE nodes SET deleted_at = now() WHERE name = 'my-node-name';
+
+-- Soft-delete a specific observation:
+UPDATE observations SET deleted_at = now()
+WHERE node_id = (SELECT id FROM nodes WHERE name = 'my-node-name')
+  AND text = 'the observation text to remove';
+
+-- Soft-delete a relation triple:
+UPDATE relations SET deleted_at = now()
+WHERE from_node_id = (SELECT id FROM nodes WHERE name = 'from-node')
+  AND to_node_id   = (SELECT id FROM nodes WHERE name = 'to-node')
+  AND relation_type = 'calls';
+```
+
+Hard deletes are operator-only via Supabase Studio. All rows retain `deleted_at` for audit.
 
 ---
 
@@ -248,14 +215,14 @@ The `"db"` field reads `"not-configured"` in the current version — a deeper DB
 
 ## Content Filter — policy errors
 
-Write tools (1)–(2)–(5) — those that carry user-provided text — gate every payload through three layers of validation **before** opening any transaction.
+Write tools (1)–(2)–(3) — those that carry user-provided text — gate every payload through three layers of validation **before** opening any transaction.
 
 ### Size limits
 
 Layer 1 (syntactic) enforces two hard size caps:
 
 - **Per-observation cap: 5,000 characters.** A single observation longer than this is almost certainly a pasted file rather than a concise knowledge entry. These caps protect Render Free response timeouts and stay well within Supabase Free row limits.
-- **Per-call cap: 50 KB.** The serialised JSON of an entire write call cannot exceed 50 KB. This prevents runaway payloads and multi-entity batches that would exhaust free-tier quotas in a single call.
+- **Per-call cap: 50 KB.** The serialised JSON of an entire write call cannot exceed 50 KB. This prevents runaway payloads and multi-node batches that would exhaust free-tier quotas in a single call.
 
 Violations produce `policy/size-exceeded` with a descriptive Spanish message indicating the limit that was exceeded. No rows are written.
 
@@ -273,7 +240,7 @@ Any `SECRET_MODE` value other than `reject` or `redact` causes a startup error (
 To prevent runaway agent loops (e.g., a buggy agent rapidly inserting thousands of observations), write tools are rate-limited **per client IP**:
 
 - **10 writes per 10 seconds** per IP, token-bucket with burst of 10 and refill rate of 1 token/second.
-- Applies to `create_entities`, `add_observations`, and `create_relations`. Reads (`search_nodes`, `open_nodes`, `read_graph`) and deletes are unconstrained.
+- Applies to `create_nodes`, `add_observations`, and `create_relations`. Reads (`search_nodes`, `open_nodes`, `read_graph`) are unconstrained.
 - In HTTP mode, the client IP is read from the leftmost entry of `X-Forwarded-For` (Render passes the real client IP there); falls back to `RemoteAddr` for direct connections.
 - In stdio mode (local Claude Code), rate limiting is skipped — no IP is available.
 
@@ -295,7 +262,7 @@ A rate-limited call returns `policy/rate-limited` with a `retry_after_seconds` f
 | `policy/size-exceeded` | `syntactic` | Any observation exceeds 5,000 chars **or** the total request body exceeds 50 KB. |
 | `policy/junk-pattern` | `syntactic` | An observation matches the curated junk-pattern denylist (`internal/validate/denylist.go`). |
 | `policy/secret-detected` | `secrets` | A secret is detected and `SECRET_MODE=reject` (default). |
-| `policy/taxonomy-violation` | `taxonomy` | `entityType` or `relationType` not in the closed enums, or an observation contains an absolute Windows/WSL/Unix path with a user name, or a `project` entity name is not bare-repo-name. |
+| `policy/taxonomy-violation` | `taxonomy` | `nodeType` or `relationType` not in the closed enums, or an observation contains an absolute Windows/WSL/Unix path with a user name, or a `project` node name is not bare-repo-name. |
 | `policy/rate-limited` | `rate-limit` | The client IP has exceeded 10 writes in 10 seconds. |
 
 A policy rejection looks like:
@@ -306,23 +273,23 @@ A policy rejection looks like:
   "message": "Observation rejected: AWS access key detected.",
   "layer": "secrets",
   "rejected_observation_index": 1,
-  "rejected_entity_index": 2,
+  "rejected_node_index": 2,
   "matched_pattern": "aws-access-key"
 }
 ```
 
-The response carries `IsError: true` at the MCP-protocol level. `message` is in Spanish (the prompt language of the upstream `claude-dev-team` Spanish-first agents); Claude surfaces it directly to the user. `rejected_*` indexes are zero-based into the offending entity/observation; both are `null` when the rejection is not scoped to a single item.
+The response carries `IsError: true` at the MCP-protocol level. `message` is in Spanish (the prompt language of the upstream `claude-dev-team` Spanish-first agents); Claude surfaces it directly to the user. `rejected_*` indexes are zero-based into the offending node/observation; both are `null` when the rejection is not scoped to a single item.
 
-**Atomicity contract**: if the validator returns non-nil, zero rows are written. The DB row counts for `entities`, `observations`, and `relations` are unchanged after a rejected call. This is verified by `tests/tools_test.go` against the golden fixtures in `tests/fixtures/policy_errors/`.
+**Atomicity contract**: if the validator returns non-nil, zero rows are written. The DB row counts for `nodes`, `observations`, and `relations` are unchanged after a rejected call. This is verified by `tests/tools_test.go` against the golden fixtures in `tests/fixtures/policy_errors/`.
 
 ---
 
 ## Tool-level invariants
 
-- **Names are unique.** `entities.name` carries a unique constraint. `create_entities` with an already-existing `name` returns the existing entity's id and a `created_entities: 0` in the result; observations are deduped on `(entity_id, text)`.
+- **Names are unique.** `nodes.name` carries a unique constraint. `create_nodes` with an already-existing `name` returns the existing node's id and a `created_nodes: 0` in the result; observations are deduped on `(node_id, text)`.
 - **All deletes are soft.** `deleted_at = now()`. No `DELETE FROM` is issued anywhere. Hard deletes are operator-only via Supabase Studio.
 - **No partial writes.** Every tool either commits all of its inserts or none.
-- **Embeddings are observation-level.** Each `observations` row carries one vector. `search_nodes` aggregates to entity level via `MIN(distance)`.
-- **JSON parity with the Python reference.** Field names use camelCase (`entityType`, `relationType`, `entityName`) where the Python server does. Snake_case (`created_entities`, `entity_count`, `rejected_observation_index`) is preserved where it was canonical there too.
+- **Embeddings are observation-level.** Each `observations` row carries one vector. `search_nodes` aggregates to node level via `MIN(distance)`.
+- **JSON parity with the Python reference.** Field names use camelCase (`nodeType`, `relationType`, `nodeName`) where the Python server does. Snake_case (`created_nodes`, `node_count`, `rejected_observation_index`) is preserved where it was canonical there too.
 
 For the broader architectural decisions behind these invariants, see [`docs/knowledge.md`](knowledge.md).

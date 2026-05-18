@@ -131,7 +131,7 @@ Add the following to `~/.claude.json` under `mcpServers`, replacing `<your-rende
 }
 ```
 
-Restart Claude Code. All 9 MCP tools (`read_graph`, `search_nodes`, the writers, the deleters) will route through the Render-hosted server. On the first call after a cold start, allow up to 30 s for the server to wake.
+Restart Claude Code. All 6 MCP tools (`read_graph`, `search_nodes`, `open_nodes`, `create_nodes`, `add_observations`, `create_relations`) will route through the Render-hosted server. On the first call after a cold start, allow up to 30 s for the server to wake.
 
 > The server uses the MCP **streamable-http** transport (`POST /mcp`). `type: "http"` is correct; `type: "sse"` is the legacy transport and is not supported.
 
@@ -154,7 +154,7 @@ The encrypted blob is safe to share; the passphrase is not. After 90 days the ar
 
 ### Rate limits and client IP
 
-Write tools (`create_entities`, `add_observations`, `create_relations`) are rate-limited to **10 writes per 10 seconds per client IP**. Render's load balancer correctly forwards the original client IP in the `X-Forwarded-For` header, which the server reads to apply per-IP limits. Reads and deletes are unconstrained. See [`docs/mcp-tools.md`](mcp-tools.md#rate-limit) for the full policy.
+Write tools (`create_nodes`, `add_observations`, `create_relations`) are rate-limited to **10 writes per 10 seconds per client IP**. Render's load balancer correctly forwards the original client IP in the `X-Forwarded-For` header, which the server reads to apply per-IP limits. Reads are unconstrained. See [`docs/mcp-tools.md`](mcp-tools.md#rate-limit) for the full policy.
 
 ### Trade-offs (vs paid tier)
 

@@ -12,7 +12,7 @@
 set -e
 
 MCP_URL="${MCP_URL:-http://localhost:8080/mcp}"
-SEED_ENTITY="smoke-size-seed-$(date +%s)"
+SEED_NODE="smoke-size-seed-$(date +%s)"
 
 fail() {
     echo "FAIL: $1"
@@ -60,16 +60,16 @@ SESSION_ID=$(initialize)
 [ -z "$SESSION_ID" ] && fail "initialize did not return a session ID"
 echo "session_id=$SESSION_ID"
 
-echo "--- Step 2: create seed entity ---"
+echo "--- Step 2: create seed node ---"
 # Write payload to a file to avoid shell ARG_MAX limits.
-printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_entities","arguments":{"entities":[{"name":"%s","entityType":"pattern","observations":["clean seed observation"]}]}}}' \
-    "$SEED_ENTITY" > /tmp/smoke_seed_sz.json
+printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_nodes","arguments":{"nodes":[{"name":"%s","nodeType":"pattern","observations":["clean seed observation"]}]}}}' \
+    "$SEED_NODE" > /tmp/smoke_seed_sz.json
 
 SEED_RESP=$(mcp_call_file "$SESSION_ID" "/tmp/smoke_seed_sz.json")
 SEED_TEXT=$(extract_text "$SEED_RESP")
-CREATED=$(echo "$SEED_TEXT" | jq -r '.created_entities // 0')
-[ "$CREATED" = "1" ] || fail "failed to create seed entity. Response: $SEED_RESP"
-echo "seed entity created"
+CREATED=$(echo "$SEED_TEXT" | jq -r '.created_nodes // 0')
+[ "$CREATED" = "1" ] || fail "failed to create seed node. Response: $SEED_RESP"
+echo "seed node created"
 
 echo "--- Step 3: build oversized payload and send ---"
 # Generate a JSON payload with a 65000-char observation via python3.
@@ -77,9 +77,9 @@ echo "--- Step 3: build oversized payload and send ---"
 # (it's used for the scripts/ migration tools). The large string cannot be
 # passed as a shell variable on systems with small ARG_MAX — a temp file is
 # the portable approach.
-python3 - "$SEED_ENTITY" > /tmp/smoke_size_payload.json <<'PYEOF'
+python3 - "$SEED_NODE" > /tmp/smoke_size_payload.json <<'PYEOF'
 import json, sys
-entity_name = sys.argv[1]
+node_name = sys.argv[1]
 big_text = "a" * 65000  # 65 KB — well above MaxObservationChars=5000
 payload = {
     "jsonrpc": "2.0",
@@ -89,7 +89,7 @@ payload = {
         "name": "add_observations",
         "arguments": {
             "observations": [
-                {"entityName": entity_name, "contents": [big_text]}
+                {"nodeName": node_name, "contents": [big_text]}
             ]
         }
     }
@@ -106,11 +106,6 @@ LAYER=$(echo "$OBS_TEXT" | jq -r '.layer // empty')
 echo "code=$CODE layer=$LAYER"
 [ "$CODE"  = "policy/size-exceeded" ] || fail "expected code=policy/size-exceeded, got '$CODE'"
 [ "$LAYER" = "syntactic" ]            || fail "expected layer=syntactic, got '$LAYER'"
-
-echo "--- Step 4: delete seed entity (cleanup) ---"
-printf '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"delete_entities","arguments":{"entityNames":["%s"]}}}' \
-    "$SEED_ENTITY" > /tmp/smoke_cleanup_sz.json
-mcp_call_file "$SESSION_ID" "/tmp/smoke_cleanup_sz.json" > /dev/null
 
 echo "PASS"
 exit 0

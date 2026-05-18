@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Renamed all `entity`/`entities` vocabulary to `node`/`nodes` across the codebase (PR-3): SQL columns `entity_type`→`node_type`, `entity_id`→`node_id`, `from_entity_id`→`from_node_id`, `to_entity_id`→`to_node_id`; Go types `EntityRow`→`NodeRow`, `KindEntities`→`KindNodes`, `RejectedEntityIndex`→`RejectedNodeIndex`; JSON keys `created_entities`→`created_nodes`, `entity_count`→`node_count`, `rejected_entity_index`→`rejected_node_index`; files `internal/store/entities.go`→`nodes.go`, `internal/mcp/entities.go`→`nodes.go`. The 9 `node_type` enum values and the `relations` schema are unchanged.
+- `migrations/00003_rename_entities_to_nodes.sql` — renames `entities` table to `nodes`, all affected columns and indexes, and `v_active_entities` view to `v_active_nodes`.
+- `docs/mcp-tools.md` — rewritten for 6-tool surface; removed `delete_entities`, `delete_observations`, `delete_relations` tool docs; added `§Administrative deletions` section with SQL snippets for operator use.
+- `scripts/seed_dev.py`, `scripts/export_from_supabase.py`, `scripts/import_to_supabase.py` — updated to use `nodes` table and `node_type`/`node_id` columns. Import script defensively accepts both `{"nodes": [...]}` and legacy `{"entities": [...]}` shapes with a deprecation warning.
+- `scripts/smoke/happy_path.sh` — updated to use `create_nodes`/`nodeType`; removed `delete_entities` cleanup step (delete tools no longer in MCP surface).
+- `scripts/smoke/secret_rejected.sh`, `scripts/smoke/size_rejected.sh`, `scripts/smoke/ratelimit_test.sh` — updated to use `create_nodes`/`nodeType`/`nodeName`.
+
+### Removed
+
+- `delete_entities`, `delete_observations`, `delete_relations` MCP tools removed from the public server surface (PR-3). Exposing destructive ops on an unauthenticated endpoint creates an uncontrolled mass-delete vector. Soft-delete functions remain at the store layer for admin-script use only.
+
 ### Added
 
 - `SECRET_MODE=reject|redact` env var: opt-in redact mode replaces matched secret spans with `[REDACTED]` in-place and lets the call proceed; default `reject` preserves existing behavior. Fail-fast on unknown values. (`internal/validate/mode.go`, `internal/validate/secrets.go`, `cmd/server/main.go`)

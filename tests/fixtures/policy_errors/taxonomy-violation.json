@@ -1,1 +1,1 @@
-{"code":"policy/taxonomy-violation","message":"El tipo de entidad 'invalid-type' no es válido. Usa uno de: constraint, decision, error, pattern, process-insight, project, service, stack-profile, tool-gotcha.","layer":"taxonomy","rejected_observation_index":null,"rejected_entity_index":0}
+{"code":"policy/taxonomy-violation","message":"El tipo de nodo 'invalid-type' no es válido. Usa uno de: constraint, decision, error, pattern, process-insight, project, service, stack-profile, tool-gotcha.","layer":"taxonomy","rejected_observation_index":null,"rejected_node_index":0}

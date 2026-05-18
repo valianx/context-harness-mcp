@@ -1,8 +1,8 @@
 // Package validate implements the three-layer Content Filter that guards every
 // write path in context-harness-mcp. Layers are evaluated in order (syntactic →
 // secrets → taxonomy) with fail-fast semantics: the first non-nil *Error from
-// any layer short-circuits the remaining layers. The handler in PR-4 opens a
-// pgx.Tx only after Run returns nil.
+// any layer short-circuits the remaining layers. The handler opens a pgx.Tx
+// only after Run returns nil.
 package validate
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// Stable policy error codes. Downstream consumers (PR-4 tool handlers, Claude
+// Stable policy error codes. Downstream consumers (tool handlers, Claude
 // itself) branch on these — do NOT change them after PR-3 ships.
 const (
 	CodeSizeExceeded      = "policy/size-exceeded"
@@ -46,23 +46,23 @@ const RedactionMarker = "[REDACTED]"
 type Kind int
 
 const (
-	KindEntities     Kind = iota // create_entities
+	KindNodes        Kind = iota // create_nodes
 	KindObservations             // add_observations
 	KindRelations                // create_relations
 )
 
-// Entity is the input shape for a single entity in a create_entities call.
-type Entity struct {
+// Node is the input shape for a single node in a create_nodes call.
+type Node struct {
 	Name         string   `json:"name"`
-	EntityType   string   `json:"entityType"`
+	NodeType     string   `json:"nodeType"`
 	Observations []string `json:"observations"`
 }
 
 // Observation is the input shape for a single observation in an
 // add_observations call.
 type Observation struct {
-	EntityName string `json:"entityName"`
-	Text       string `json:"text"`
+	NodeName string `json:"nodeName"`
+	Text     string `json:"text"`
 }
 
 // Relation is the input shape for a single relation in a create_relations call.
@@ -75,7 +75,7 @@ type Relation struct {
 // Payload is the union of the three write-path shapes. Each call site populates
 // only the field that matches its Kind; the others are nil/empty.
 type Payload struct {
-	Entities     []Entity
+	Nodes        []Node
 	Observations []Observation
 	Relations    []Relation
 }
@@ -93,9 +93,9 @@ type Error struct {
 	// triggered the rejection. Nil when the rejection is not observation-level.
 	RejectedObservationIndex *int `json:"rejected_observation_index"`
 
-	// RejectedEntityIndex is the zero-based index of the entity that triggered
+	// RejectedNodeIndex is the zero-based index of the node that triggered
 	// the rejection. Nil when not applicable.
-	RejectedEntityIndex *int `json:"rejected_entity_index"`
+	RejectedNodeIndex *int `json:"rejected_node_index"`
 
 	// MatchedPattern provides debugging context (the pattern name or regex that
 	// matched). Never contains the actual secret value.

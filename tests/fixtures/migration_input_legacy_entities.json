@@ -1,0 +1,31 @@
+{
+  "format_version": "0.1.0",
+  "exported_at": "2026-05-18T00:00:00+00:00",
+  "source_host": "legacy-fixture-host",
+  "entity_count": 2,
+  "relation_count": 1,
+  "entities": [
+    {
+      "name": "legacy-pattern-node",
+      "entityType": "pattern",
+      "observations": [
+        "Legacy entity shape observation one.",
+        "Legacy entity shape observation two."
+      ]
+    },
+    {
+      "name": "legacy-decision-node",
+      "entityType": "decision",
+      "observations": [
+        "A decision made in the legacy era."
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "from": "legacy-pattern-node",
+      "to": "legacy-decision-node",
+      "relationType": "relates_to"
+    }
+  ]
+}

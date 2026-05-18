@@ -1,7 +1,7 @@
 #!/bin/sh
 # scripts/smoke/ratelimit_test.sh
 #
-# Rate limit smoke test: sends 11 simultaneous create_entities calls in
+# Rate limit smoke test: sends 11 simultaneous create_nodes calls in
 # parallel and verifies at least one returns policy/rate-limited.
 #
 # Design: the token bucket allows a burst of 10. Firing 11 concurrent requests
@@ -27,7 +27,7 @@ curl -fsSL -X POST "$MCP_URL" \
 SESSION_ID=$(grep -i "Mcp-Session-Id" "$TMPDIR/ratelimit_headers.txt" | tr -d '\r' | awk '{print $2}')
 echo "session_id=$SESSION_ID"
 
-echo "--- Step 2: 11 simultaneous create_entities calls (parallel) ---"
+echo "--- Step 2: 11 simultaneous create_nodes calls (parallel) ---"
 
 # Fire all 11 requests in the background simultaneously, capturing each
 # response to a separate temp file.
@@ -36,7 +36,7 @@ while [ $i -le 11 ]; do
     curl -fsSL -X POST "$MCP_URL" \
         -H 'Content-Type: application/json' \
         -H "Mcp-Session-Id: $SESSION_ID" \
-        -d "{\"jsonrpc\":\"2.0\",\"id\":$i,\"method\":\"tools/call\",\"params\":{\"name\":\"create_entities\",\"arguments\":{\"entities\":[{\"name\":\"rl-test-$i\",\"entityType\":\"pattern\",\"observations\":[\"rate limit test obs $i\"]}]}}}" \
+        -d "{\"jsonrpc\":\"2.0\",\"id\":$i,\"method\":\"tools/call\",\"params\":{\"name\":\"create_nodes\",\"arguments\":{\"nodes\":[{\"name\":\"rl-test-$i\",\"nodeType\":\"pattern\",\"observations\":[\"rate limit test obs $i\"]}]}}}" \
         -o "$TMPDIR/ratelimit_resp_$i.json" 2>/dev/null &
     i=$((i + 1))
 done

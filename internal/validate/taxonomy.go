@@ -6,29 +6,29 @@ import (
 	"strings"
 )
 
-// EntityTypes is the closed enum of allowed entity_type values, sourced from
+// NodeTypes is the closed enum of allowed node_type values, sourced from
 // claude-dev-team/docs/kg-content-policy.md and mirrored in the `check`
 // constraint in migrations/00001_init.sql. A future policy update must touch
 // all three places atomically.
-var EntityTypes = map[string]bool{
-	"pattern":        true,
-	"error":          true,
-	"constraint":     true,
-	"decision":       true,
-	"tool-gotcha":    true,
+var NodeTypes = map[string]bool{
+	"pattern":         true,
+	"error":           true,
+	"constraint":      true,
+	"decision":        true,
+	"tool-gotcha":     true,
 	"process-insight": true,
-	"project":        true,
-	"service":        true,
-	"stack-profile":  true,
+	"project":         true,
+	"service":         true,
+	"stack-profile":   true,
 }
 
 // RelationTypes is the closed enum of allowed relation_type values.
 var RelationTypes = map[string]bool{
-	"relates_to":  true,
-	"belongs-to":  true,
-	"calls":       true,
-	"uses-stack":  true,
-	"depends-on":  true,
+	"relates_to": true,
+	"belongs-to": true,
+	"calls":      true,
+	"uses-stack": true,
+	"depends-on": true,
 }
 
 // absolutePathPatterns matches absolute filesystem paths that embed user names
@@ -50,17 +50,17 @@ var absolutePathPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`/mnt/[a-z]/`),
 }
 
-// projectNameForbidden matches characters that are illegal in a project entity
-// name. Project-type entities must use bare kebab-case repo names (e.g.
+// projectNameForbidden matches characters that are illegal in a project node
+// name. Project-type nodes must use bare kebab-case repo names (e.g.
 // "zippy-backoffice"), never paths that include slashes, backslashes, or
 // colons.
 var projectNameForbidden = regexp.MustCompile(`[/\\:]`)
 
-// checkTaxonomy is Layer 3 of the Content Filter. It validates entity types,
+// checkTaxonomy is Layer 3 of the Content Filter. It validates node types,
 // relation types, absolute-path presence in observation text, and project-name
 // format. Returns the first violation found, or nil.
 func checkTaxonomy(p Payload) *Error {
-	if err := checkEntityTypes(p); err != nil {
+	if err := checkNodeTypes(p); err != nil {
 		return err
 	}
 	if err := checkRelationTypes(p); err != nil {
@@ -72,17 +72,17 @@ func checkTaxonomy(p Payload) *Error {
 	return checkProjectNames(p)
 }
 
-// checkEntityTypes validates that every entity's EntityType is in the allowed
-// enum. Returns on the first invalid type.
-func checkEntityTypes(p Payload) *Error {
-	for idx, entity := range p.Entities {
-		if !EntityTypes[entity.EntityType] {
-			eIdx := idx
+// checkNodeTypes validates that every node's NodeType is in the allowed enum.
+// Returns on the first invalid type.
+func checkNodeTypes(p Payload) *Error {
+	for idx, node := range p.Nodes {
+		if !NodeTypes[node.NodeType] {
+			nIdx := idx
 			return &Error{
-				Code:                "policy/taxonomy-violation",
-				Message:             "El tipo de entidad '" + entity.EntityType + "' no es válido. Usa uno de: " + joinEntityTypes() + ".",
-				Layer:               LayerTaxonomy,
-				RejectedEntityIndex: &eIdx,
+				Code:              "policy/taxonomy-violation",
+				Message:           "El tipo de nodo '" + node.NodeType + "' no es válido. Usa uno de: " + joinNodeTypes() + ".",
+				Layer:             LayerTaxonomy,
+				RejectedNodeIndex: &nIdx,
 			}
 		}
 	}
@@ -94,33 +94,33 @@ func checkEntityTypes(p Payload) *Error {
 func checkRelationTypes(p Payload) *Error {
 	for idx, rel := range p.Relations {
 		if !RelationTypes[rel.RelationType] {
-			eIdx := idx
+			nIdx := idx
 			return &Error{
-				Code:                "policy/taxonomy-violation",
-				Message:             "El tipo de relación '" + rel.RelationType + "' no es válido. Usa uno de: " + joinRelationTypes() + ".",
-				Layer:               LayerTaxonomy,
-				RejectedEntityIndex: &eIdx,
+				Code:              "policy/taxonomy-violation",
+				Message:           "El tipo de relación '" + rel.RelationType + "' no es válido. Usa uno de: " + joinRelationTypes() + ".",
+				Layer:             LayerTaxonomy,
+				RejectedNodeIndex: &nIdx,
 			}
 		}
 	}
 	return nil
 }
 
-// checkAbsolutePaths scans every observation text (embedded in entities and
+// checkAbsolutePaths scans every observation text (embedded in nodes and
 // standalone) for absolute filesystem paths. Absolute paths with user names
 // are forbidden by kg-content-policy.md because they are machine-specific and
 // not portable.
 func checkAbsolutePaths(p Payload) *Error {
-	for entityIdx, entity := range p.Entities {
-		for obsIdx, obs := range entity.Observations {
+	for nodeIdx, node := range p.Nodes {
+		for obsIdx, obs := range node.Observations {
 			if matchedPath(obs) {
-				eIdx := entityIdx
+				nIdx := nodeIdx
 				oIdx := obsIdx
 				return &Error{
 					Code:                     "policy/taxonomy-violation",
 					Message:                  "La observación contiene una ruta absoluta de sistema de archivos. Las rutas absolutas no son portables. Usa el nombre del repositorio o una ruta relativa en su lugar.",
 					Layer:                    LayerTaxonomy,
-					RejectedEntityIndex:      &eIdx,
+					RejectedNodeIndex:        &nIdx,
 					RejectedObservationIndex: &oIdx,
 				}
 			}
@@ -152,34 +152,34 @@ func matchedPath(s string) bool {
 	return false
 }
 
-// checkProjectNames validates that every entity with EntityType "project" has
-// a name that is a plain kebab-case repository name (no slashes, backslashes,
-// or colons). Per kg-content-policy.md the project name must be the bare repo
+// checkProjectNames validates that every node with NodeType "project" has a
+// name that is a plain kebab-case repository name (no slashes, backslashes, or
+// colons). Per kg-content-policy.md the project name must be the bare repo
 // name (e.g. "zippy-backoffice"), not a path.
 func checkProjectNames(p Payload) *Error {
-	for idx, entity := range p.Entities {
-		if entity.EntityType != "project" {
+	for idx, node := range p.Nodes {
+		if node.NodeType != "project" {
 			continue
 		}
-		if projectNameForbidden.MatchString(entity.Name) {
-			eIdx := idx
+		if projectNameForbidden.MatchString(node.Name) {
+			nIdx := idx
 			return &Error{
-				Code:                "policy/taxonomy-violation",
-				Message:             "El nombre de entidad tipo 'project' debe ser el nombre bare del repositorio en kebab-case (p. ej. 'zippy-backoffice'), sin rutas ni separadores de directorio.",
-				Layer:               LayerTaxonomy,
-				RejectedEntityIndex: &eIdx,
+				Code:              "policy/taxonomy-violation",
+				Message:           "El nombre de nodo tipo 'project' debe ser el nombre bare del repositorio en kebab-case (p. ej. 'zippy-backoffice'), sin rutas ni separadores de directorio.",
+				Layer:             LayerTaxonomy,
+				RejectedNodeIndex: &nIdx,
 			}
 		}
 	}
 	return nil
 }
 
-// joinEntityTypes returns a sorted, comma-separated list of allowed entity
-// types for use in error messages. Sorted output ensures message stability
-// across Go versions (map iteration order is intentionally random).
-func joinEntityTypes() string {
-	types := make([]string, 0, len(EntityTypes))
-	for t := range EntityTypes {
+// joinNodeTypes returns a sorted, comma-separated list of allowed node types
+// for use in error messages. Sorted output ensures message stability across Go
+// versions (map iteration order is intentionally random).
+func joinNodeTypes() string {
+	types := make([]string, 0, len(NodeTypes))
+	for t := range NodeTypes {
 		types = append(types, t)
 	}
 	sort.Strings(types)

@@ -59,7 +59,7 @@ func TestRedactMode_ReplacesAWSKey(t *testing.T) {
 
 	p := validate.Payload{
 		Observations: []validate.Observation{
-			{EntityName: "test-entity", Text: obs},
+			{NodeName: "test-node", Text: obs},
 		},
 	}
 
@@ -90,7 +90,7 @@ func TestRedactMode_MultipleSecrets(t *testing.T) {
 
 	p := validate.Payload{
 		Observations: []validate.Observation{
-			{EntityName: "test-entity", Text: obs},
+			{NodeName: "test-node", Text: obs},
 		},
 	}
 
@@ -124,7 +124,7 @@ func TestRedactMode_PreservesContextAroundMatch(t *testing.T) {
 
 	p := validate.Payload{
 		Observations: []validate.Observation{
-			{EntityName: "test-entity", Text: obs},
+			{NodeName: "test-node", Text: obs},
 		},
 	}
 
@@ -160,7 +160,7 @@ func TestRejectMode_StillWorks(t *testing.T) {
 
 	p := validate.Payload{
 		Observations: []validate.Observation{
-			{EntityName: "test-entity", Text: obs},
+			{NodeName: "test-node", Text: obs},
 		},
 	}
 

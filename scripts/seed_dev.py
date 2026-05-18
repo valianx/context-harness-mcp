@@ -5,16 +5,16 @@ WARNING: This script is for development only. Do NOT run it against
 Supabase production or any shared environment — it inserts synthetic
 fixtures that may pollute the team knowledge graph.
 
-Seeds ≥20 entities across ≥5 entity types, ≥10 relations, and ≥3
-observations per entity. Content is realistic KG-shaped text suitable for
+Seeds ≥20 nodes across ≥5 node types, ≥10 relations, and ≥3
+observations per node. Content is realistic KG-shaped text suitable for
 testing search_nodes("authentication patterns") and similar queries.
 
 Embeddings are left NULL — the MCP server computes them on first access
-through create_entities / add_observations. For embedding tests, use the
+through create_nodes / add_observations. For embedding tests, use the
 Go integration suite (tests/migration_test.go) which operates on a test
 container with known embeddings from the fixture JSON.
 
-Idempotency: without --reset, re-running is a no-op because every entity
+Idempotency: without --reset, re-running is a no-op because every node
 INSERT uses ON CONFLICT (name) DO NOTHING.
 
 Usage:
@@ -25,7 +25,7 @@ Environment:
 
 Exit codes:
     0  success
-    1  any error (DSN failure, invalid entity type, etc.)
+    1  any error (DSN failure, invalid node type, etc.)
 """
 from __future__ import annotations
 
@@ -36,15 +36,15 @@ import click
 import psycopg
 
 # ---------------------------------------------------------------------------
-# Fixture data: ≥20 entities, ≥5 types, ≥10 relations, ≥3 observations each.
+# Fixture data: ≥20 nodes, ≥5 types, ≥10 relations, ≥3 observations each.
 # All names are kebab-case. No absolute paths, no secrets, no junk content.
 # ---------------------------------------------------------------------------
 
-ENTITIES: list[dict] = [
-    # --- pattern (5 entities) ---
+NODES: list[dict] = [
+    # --- pattern (5 nodes) ---
     {
         "name": "jwt-auth-pattern",
-        "entityType": "pattern",
+        "nodeType": "pattern",
         "observations": [
             "Use short-lived JWTs (15 min access token + 7-day refresh token) to limit blast radius of token theft.",
             "Store refresh tokens in HttpOnly Secure cookies, never in localStorage or sessionStorage.",
@@ -54,7 +54,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "rate-limiting-pattern",
-        "entityType": "pattern",
+        "nodeType": "pattern",
         "observations": [
             "Apply rate limits at the API gateway layer before requests reach service handlers.",
             "Use a sliding-window algorithm (Redis + token bucket) for per-IP and per-user-ID limits.",
@@ -64,7 +64,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "idempotent-write-pattern",
-        "entityType": "pattern",
+        "nodeType": "pattern",
         "observations": [
             "Idempotency keys (client-supplied UUID in header) let the client retry safely on network failure.",
             "Store the idempotency key and its response in Redis with a 24-hour TTL.",
@@ -74,7 +74,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "soft-delete-pattern",
-        "entityType": "pattern",
+        "nodeType": "pattern",
         "observations": [
             "Set deleted_at = now() instead of DELETE to preserve audit history and enable recovery.",
             "Every read query filters WHERE deleted_at IS NULL; use partial indexes to keep scans fast.",
@@ -84,7 +84,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "vector-search-pattern",
-        "entityType": "pattern",
+        "nodeType": "pattern",
         "observations": [
             "HNSW index with vector_cosine_ops gives sub-millisecond ANN search at ≤1 million vectors.",
             "Embed at query time with the same model used at insert time — model mismatch silently returns wrong results.",
@@ -93,10 +93,10 @@ ENTITIES: list[dict] = [
         ],
     },
 
-    # --- decision (4 entities) ---
+    # --- decision (4 nodes) ---
     {
         "name": "go-over-python-for-mcp-server",
-        "entityType": "decision",
+        "nodeType": "decision",
         "observations": [
             "Go static binary starts in 1-3 s on Render Free; Python equivalent is 15-30 s — kills free-tier UX.",
             "fastembed-go provides the same all-MiniLM-L6-v2 ONNX model as Python sentence-transformers.",
@@ -106,7 +106,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "single-tenant-schema-v1",
-        "entityType": "decision",
+        "nodeType": "decision",
         "observations": [
             "No tenant_id column in v1 — single team, single shared KG, YAGNI for multi-tenancy.",
             "Adding tenant_id later is an additive migration: add column → backfill → switch queries → drop old default.",
@@ -116,7 +116,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "one-shot-migration-not-dual-write",
-        "entityType": "decision",
+        "nodeType": "decision",
         "observations": [
             "Dual-write doubles the failure surface (two backends, sync drift, partial-write reconciliation).",
             "Flag-day cutover is acceptable for a single-team deployment whose writes are idempotent.",
@@ -126,7 +126,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "free-tier-hosting-strategy",
-        "entityType": "decision",
+        "nodeType": "decision",
         "observations": [
             "Render Free + Supabase Free = $0/mo recurring; adequate for a single team's KG at low-MB data sizes.",
             "Weekly pg_dump replaces PITR (Supabase Free has no PITR); 7-day recovery window.",
@@ -135,10 +135,10 @@ ENTITIES: list[dict] = [
         ],
     },
 
-    # --- stack-profile (4 entities) ---
+    # --- stack-profile (4 nodes) ---
     {
         "name": "context-harness-mcp",
-        "entityType": "stack-profile",
+        "nodeType": "stack-profile",
         "observations": [
             "Go 1.23 + mcp-go (mark3labs) + pgx/v5 + pgvector-go + fastembed-go (ONNX all-MiniLM-L6-v2 384 dims).",
             "Deployed as a multi-stage Docker image on Render Free; DB is Supabase Free (pgvector).",
@@ -148,7 +148,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "claude-dev-team-kg-stack",
-        "entityType": "stack-profile",
+        "nodeType": "stack-profile",
         "observations": [
             "Python + FastMCP + ChromaDB (PersistentClient at ~/.claude/chromadb/).",
             "Embeddings computed by sentence-transformers all-MiniLM-L6-v2 (384 dims, same model as context-harness-mcp).",
@@ -158,7 +158,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "github-actions-ci-cd-stack",
-        "entityType": "stack-profile",
+        "nodeType": "stack-profile",
         "observations": [
             "ci.yml: go build + go vet + staticcheck + go test (testcontainers, ubuntu-latest, Docker available).",
             "deploy.yml: goose up against Supabase then curl Render deploy hook on push to main.",
@@ -168,7 +168,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "pgvector-embedding-stack",
-        "entityType": "stack-profile",
+        "nodeType": "stack-profile",
         "observations": [
             "pgvector extension on Postgres 16 — vector(384) column on observations table.",
             "HNSW index with vector_cosine_ops (m=16, ef_construction=64) on observations.embedding WHERE deleted_at IS NULL.",
@@ -177,10 +177,10 @@ ENTITIES: list[dict] = [
         ],
     },
 
-    # --- service (4 entities) ---
+    # --- service (4 nodes) ---
     {
         "name": "render-mcp-service",
-        "entityType": "service",
+        "nodeType": "service",
         "observations": [
             "Render Free web service; auto-deploys on push to main via deploy hook URL stored in GH secrets.",
             "Sleeps after 15 min of inactivity; Go binary cold starts in 1-3 s (non-embedding tools are sub-second).",
@@ -190,7 +190,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "supabase-postgres-service",
-        "entityType": "service",
+        "nodeType": "service",
         "observations": [
             "Supabase Free project: 500 MB DB ceiling, no PITR, auto-pauses after 7 days of DB inactivity.",
             "Connection string exposed as SUPABASE_DB_URL in GH secrets and Render env vars.",
@@ -200,7 +200,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "mcp-server-healthz-endpoint",
-        "entityType": "service",
+        "nodeType": "service",
         "observations": [
             "GET /healthz returns 200 {status:ok, db:ok} when pgxpool SELECT 1 succeeds.",
             "Returns 503 if DB is unreachable — used by Render health check and smoke scripts.",
@@ -210,7 +210,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "claude-code-mcp-client",
-        "entityType": "service",
+        "nodeType": "service",
         "observations": [
             "Claude Code reads ~/.claude.json for MCP server registration under mcpServers.memory.",
             "Local dev: type http, url http://localhost:8080/mcp.",
@@ -219,10 +219,10 @@ ENTITIES: list[dict] = [
         ],
     },
 
-    # --- project (3 entities) ---
+    # --- project (3 nodes) ---
     {
         "name": "context-harness-mcp",
-        "entityType": "project",
+        "nodeType": "project",
         "observations": [
             "Go MCP server replacing claude-dev-team's local ChromaDB KG with a shared Supabase backend.",
             "8 PRs: schema, validator, MCP tools, embeddings, Phase 1 deploy, Phase 2 deploy, migration scripts.",
@@ -232,7 +232,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "claude-dev-team",
-        "entityType": "project",
+        "nodeType": "project",
         "observations": [
             "Distribution of Claude Code agent system: agents, skills, hooks, KG MCP server, cross-platform installer.",
             "Installer targets ~/.claude/ + ~/.claude.json; ChromaDB KG at ~/.claude/chromadb/.",
@@ -242,7 +242,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "context-harness-mcp-backups",
-        "entityType": "project",
+        "nodeType": "project",
         "observations": [
             "Private GitHub repo storing weekly encrypted pg_dump artifacts from the production Supabase.",
             "Artifacts retained 90 days via GH Actions retention policy.",
@@ -251,10 +251,10 @@ ENTITIES: list[dict] = [
         ],
     },
 
-    # --- constraint (2 entities, gives total ≥ 20) ---
+    # --- constraint (2 nodes, gives total ≥ 20) ---
     {
         "name": "embedding-model-locked-at-384-dims",
-        "entityType": "constraint",
+        "nodeType": "constraint",
         "observations": [
             "all-MiniLM-L6-v2 produces 384-dim vectors; locked until ChromaDB migration is complete.",
             "Changing the model after cutover requires a full re-embed of the entire KG — a separate PR.",
@@ -264,7 +264,7 @@ ENTITIES: list[dict] = [
     },
     {
         "name": "content-filter-three-layer-contract",
-        "entityType": "constraint",
+        "nodeType": "constraint",
         "observations": [
             "Every write payload crosses three layers before INSERT: syntactic, secrets, taxonomy.",
             "Rejection at any layer aborts the entire call — no partial writes.",
@@ -274,7 +274,7 @@ ENTITIES: list[dict] = [
     },
 ]
 
-# Relations: ≥10 crossing multiple entity types.
+# Relations: ≥10 crossing multiple node types.
 RELATIONS: list[dict] = [
     {"from": "context-harness-mcp", "to": "pgvector-embedding-stack", "relationType": "uses-stack"},
     {"from": "context-harness-mcp", "to": "github-actions-ci-cd-stack", "relationType": "uses-stack"},
@@ -301,31 +301,31 @@ RELATIONS: list[dict] = [
 
 def truncate_tables(cur: psycopg.Cursor) -> None:
     """TRUNCATE all three tables (CASCADE handles FK ordering)."""
-    cur.execute("TRUNCATE TABLE relations, observations, entities RESTART IDENTITY CASCADE")
+    cur.execute("TRUNCATE TABLE relations, observations, nodes RESTART IDENTITY CASCADE")
 
 
-def insert_entities(cur: psycopg.Cursor) -> int:
-    """Insert all fixture entities; return count of rows inserted."""
+def insert_nodes(cur: psycopg.Cursor) -> int:
+    """Insert all fixture nodes; return count of rows inserted."""
     inserted = 0
-    # project entities share a name with stack-profile — resolve uniqueness by type.
+    # Project nodes share a name with stack-profile — resolve uniqueness by type.
     # The DB enforces uniqueness on name alone, so 'context-harness-mcp' as both
     # project and stack-profile would conflict. Insert only unique names; the
     # stack-profile variant already has richer observations.
     seen_names: set[str] = set()
-    for entity in ENTITIES:
-        name = entity["name"]
+    for node in NODES:
+        name = node["name"]
         if name in seen_names:
             # Skip duplicate names gracefully (project vs stack-profile collision).
             continue
         seen_names.add(name)
         result = cur.execute(
             """
-            INSERT INTO entities (name, entity_type)
+            INSERT INTO nodes (name, node_type)
             VALUES (%s, %s)
             ON CONFLICT (name) DO NOTHING
             RETURNING id
             """,
-            (name, entity["entityType"]),
+            (name, node["nodeType"]),
         )
         if result.fetchone():
             inserted += 1
@@ -333,32 +333,32 @@ def insert_entities(cur: psycopg.Cursor) -> int:
 
 
 def insert_observations(cur: psycopg.Cursor) -> int:
-    """Insert observations for all entities; return count inserted."""
+    """Insert observations for all nodes; return count inserted."""
     inserted = 0
     seen_names: set[str] = set()
-    for entity in ENTITIES:
-        name = entity["name"]
+    for node in NODES:
+        name = node["name"]
         if name in seen_names:
             continue
         seen_names.add(name)
 
         row = cur.execute(
-            "SELECT id FROM entities WHERE name = %s AND deleted_at IS NULL",
+            "SELECT id FROM nodes WHERE name = %s AND deleted_at IS NULL",
             (name,),
         ).fetchone()
         if row is None:
             continue
-        entity_id = row[0]
+        node_id = row[0]
 
-        for text in entity["observations"]:
+        for text in node["observations"]:
             result = cur.execute(
                 """
-                INSERT INTO observations (entity_id, text)
+                INSERT INTO observations (node_id, text)
                 VALUES (%s, %s)
-                ON CONFLICT (entity_id, text) DO NOTHING
+                ON CONFLICT (node_id, text) DO NOTHING
                 RETURNING id
                 """,
-                (entity_id, text),
+                (node_id, text),
             )
             if result.fetchone():
                 inserted += 1
@@ -370,11 +370,11 @@ def insert_relations(cur: psycopg.Cursor) -> int:
     inserted = 0
     for rel in RELATIONS:
         from_row = cur.execute(
-            "SELECT id FROM entities WHERE name = %s AND deleted_at IS NULL",
+            "SELECT id FROM nodes WHERE name = %s AND deleted_at IS NULL",
             (rel["from"],),
         ).fetchone()
         to_row = cur.execute(
-            "SELECT id FROM entities WHERE name = %s AND deleted_at IS NULL",
+            "SELECT id FROM nodes WHERE name = %s AND deleted_at IS NULL",
             (rel["to"],),
         ).fetchone()
         if from_row is None or to_row is None:
@@ -382,9 +382,9 @@ def insert_relations(cur: psycopg.Cursor) -> int:
 
         result = cur.execute(
             """
-            INSERT INTO relations (from_entity_id, to_entity_id, relation_type)
+            INSERT INTO relations (from_node_id, to_node_id, relation_type)
             VALUES (%s, %s, %s)
-            ON CONFLICT (from_entity_id, to_entity_id, relation_type) DO NOTHING
+            ON CONFLICT (from_node_id, to_node_id, relation_type) DO NOTHING
             RETURNING id
             """,
             (from_row[0], to_row[0], rel["relationType"]),
@@ -395,11 +395,11 @@ def insert_relations(cur: psycopg.Cursor) -> int:
 
 
 def count_rows(cur: psycopg.Cursor) -> tuple[int, int, int]:
-    """Return (entity_count, observation_count, relation_count) for active rows."""
-    e = cur.execute("SELECT count(*) FROM entities WHERE deleted_at IS NULL").fetchone()[0]
+    """Return (node_count, observation_count, relation_count) for active rows."""
+    n = cur.execute("SELECT count(*) FROM nodes WHERE deleted_at IS NULL").fetchone()[0]
     o = cur.execute("SELECT count(*) FROM observations WHERE deleted_at IS NULL").fetchone()[0]
     r = cur.execute("SELECT count(*) FROM relations WHERE deleted_at IS NULL").fetchone()[0]
-    return e, o, r
+    return n, o, r
 
 
 @click.command()
@@ -414,7 +414,7 @@ def count_rows(cur: psycopg.Cursor) -> tuple[int, int, int]:
     is_flag=True,
     default=False,
     help=(
-        "TRUNCATE entities, observations, and relations before seeding. "
+        "TRUNCATE nodes, observations, and relations before seeding. "
         "Use only against a local dev database — never against production."
     ),
 )
@@ -431,20 +431,20 @@ def main(dsn: str, reset: bool) -> None:
             with conn.transaction():
                 with conn.cursor() as cur:
                     if reset:
-                        click.echo("--reset: truncating entities, observations, relations...")
+                        click.echo("--reset: truncating nodes, observations, relations...")
                         truncate_tables(cur)
 
-                    ent_inserted = insert_entities(cur)
+                    nodes_inserted = insert_nodes(cur)
                     obs_inserted = insert_observations(cur)
                     rel_inserted = insert_relations(cur)
-                    ent_total, obs_total, rel_total = count_rows(cur)
+                    nodes_total, obs_total, rel_total = count_rows(cur)
 
     except Exception as exc:  # noqa: BLE001
         click.echo(f"Error during seed: {exc}", err=True)
         sys.exit(1)
 
     click.echo(
-        f"seed complete: entities={ent_inserted} inserted, {ent_total} total | "
+        f"seed complete: nodes={nodes_inserted} inserted, {nodes_total} total | "
         f"observations={obs_inserted} inserted, {obs_total} total | "
         f"relations={rel_inserted} inserted, {rel_total} total"
     )

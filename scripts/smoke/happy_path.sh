@@ -1,8 +1,12 @@
 #!/bin/sh
 # scripts/smoke/happy_path.sh
 #
-# End-to-end smoke test: create an entity, verify it appears in read_graph, clean up.
+# End-to-end smoke test: create a node, verify it appears in read_graph.
 # Requires: curl, jq
+#
+# Note: delete_nodes is not exposed as an MCP tool (admin-script only).
+# Clean up test nodes with:
+#   psql $SUPABASE_DB_URL -c "UPDATE nodes SET deleted_at=now() WHERE name LIKE 'smoke-test-%'"
 #
 # Usage:
 #   bash scripts/smoke/happy_path.sh
@@ -11,7 +15,7 @@
 set -e
 
 MCP_URL="${MCP_URL:-http://localhost:8080/mcp}"
-ENTITY_NAME="smoke-test-entity-$(date +%s)"
+NODE_NAME="smoke-test-node-$(date +%s)"
 
 fail() {
     echo "FAIL: $1"
@@ -67,35 +71,28 @@ SESSION_ID=$(initialize)
 [ -z "$SESSION_ID" ] && fail "initialize did not return a session ID"
 echo "session_id=$SESSION_ID"
 
-echo "--- Step 2: create_entities ---"
-CREATE_ARGS=$(printf '{"entities":[{"name":"%s","entityType":"pattern","observations":["smoke test observation"]}]}' \
-    "$ENTITY_NAME")
-CREATE_RESP=$(mcp_call "$SESSION_ID" "create_entities" "$CREATE_ARGS")
+echo "--- Step 2: create_nodes ---"
+CREATE_ARGS=$(printf '{"nodes":[{"name":"%s","nodeType":"pattern","observations":["smoke test observation"]}]}' \
+    "$NODE_NAME")
+CREATE_RESP=$(mcp_call "$SESSION_ID" "create_nodes" "$CREATE_ARGS")
 CREATE_TEXT=$(extract_text "$CREATE_RESP")
-[ -z "$CREATE_TEXT" ] && fail "create_entities returned no content. Response: $CREATE_RESP"
+[ -z "$CREATE_TEXT" ] && fail "create_nodes returned no content. Response: $CREATE_RESP"
 
-CREATED_ENTITIES=$(echo "$CREATE_TEXT" | jq -r '.created_entities // 0')
+CREATED_NODES=$(echo "$CREATE_TEXT" | jq -r '.created_nodes // 0')
 CREATED_OBS=$(echo "$CREATE_TEXT" | jq -r '.created_observations // 0')
-echo "created_entities=$CREATED_ENTITIES created_observations=$CREATED_OBS"
-[ "$CREATED_ENTITIES" = "1" ] || fail "expected created_entities=1, got $CREATED_ENTITIES"
-[ "$CREATED_OBS" = "1" ]      || fail "expected created_observations=1, got $CREATED_OBS"
+echo "created_nodes=$CREATED_NODES created_observations=$CREATED_OBS"
+[ "$CREATED_NODES" = "1" ] || fail "expected created_nodes=1, got $CREATED_NODES"
+[ "$CREATED_OBS" = "1" ]   || fail "expected created_observations=1, got $CREATED_OBS"
 
-echo "--- Step 3: read_graph and assert entity present ---"
+echo "--- Step 3: read_graph and assert node present ---"
 GRAPH_RESP=$(mcp_call "$SESSION_ID" "read_graph" '{}')
 GRAPH_TEXT=$(extract_text "$GRAPH_RESP")
 [ -z "$GRAPH_TEXT" ] && fail "read_graph returned no content. Response: $GRAPH_RESP"
 
-echo "$GRAPH_TEXT" | jq -e --arg name "$ENTITY_NAME" \
-    '.entities | map(select(.name == $name)) | length == 1' > /dev/null \
-    || fail "entity '$ENTITY_NAME' not found in read_graph response"
-echo "entity found in read_graph"
-
-echo "--- Step 4: delete_entities (cleanup) ---"
-DELETE_ARGS=$(printf '{"entityNames":["%s"]}' "$ENTITY_NAME")
-DELETE_RESP=$(mcp_call "$SESSION_ID" "delete_entities" "$DELETE_ARGS")
-DELETE_TEXT=$(extract_text "$DELETE_RESP")
-DELETED=$(echo "$DELETE_TEXT" | jq -r '.deleted // 0')
-echo "deleted=$DELETED"
+echo "$GRAPH_TEXT" | jq -e --arg name "$NODE_NAME" \
+    '.nodes | map(select(.name == $name)) | length == 1' > /dev/null \
+    || fail "node '$NODE_NAME' not found in read_graph response"
+echo "node found in read_graph"
 
 echo "PASS"
 exit 0

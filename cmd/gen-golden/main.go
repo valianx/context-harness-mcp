@@ -12,7 +12,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,18 +20,20 @@ import (
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 )
 
-// decodeGenGoldenSecret XOR-decodes a base64-encoded test string.
-// See tests/validator_test.go:decodeTestSecret for encoding details.
-func decodeGenGoldenSecret(encoded string) string {
-	xorBytes, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		panic("decodeGenGoldenSecret: invalid base64: " + err.Error())
-	}
-	plain := make([]byte, len(xorBytes))
-	for i, b := range xorBytes {
-		plain[i] = b ^ 0x42
-	}
-	return string(plain)
+// fakeRSAPrivateKey assembles a fake RSA-PEM block at runtime from short
+// fragments so no contiguous high-entropy literal appears in source (which
+// previously triggered GitGuardian's "Generic High Entropy Secret" detector).
+// The assembled string DOES match gitleaks' private-key rule at validator
+// runtime — which is the point: it's a test input that must be rejected.
+//
+// The same function exists in tests/validator_test.go (different package);
+// keep them byte-identical so the regenerated golden fixture stays stable.
+func fakeRSAPrivateKey() string {
+	dashes := strings.Repeat("-", 5)
+	begin := dashes + "BEGIN " + "RSA" + " PRIVATE KEY" + dashes
+	end := dashes + "END " + "RSA" + " PRIVATE KEY" + dashes
+	body := strings.Repeat("a", 64) // low-entropy fake content
+	return begin + "\n" + body + "\n" + end
 }
 
 func main() {
@@ -50,36 +51,39 @@ func main() {
 		{
 			filename: "size-exceeded.json",
 			payload: validate.Payload{
-				Entities: []validate.Entity{
+				Nodes: []validate.Node{
 					{
-						Name:         "test-entity",
-						EntityType:   "pattern",
+						Name:         "test-node",
+						NodeType:     "pattern",
 						Observations: []string{strings.Repeat("a", validate.MaxObservationChars+1)},
 					},
 				},
 			},
-			kind: validate.KindEntities,
+			kind: validate.KindNodes,
 		},
 		{
 			filename: "junk-pattern.json",
 			payload: validate.Payload{
-				Entities: []validate.Entity{
+				Nodes: []validate.Node{
 					{
-						Name:         "test-entity",
-						EntityType:   "pattern",
+						Name:         "test-node",
+						NodeType:     "pattern",
 						Observations: []string{"Dependencies live under node_modules directory"},
 					},
 				},
 			},
-			kind: validate.KindEntities,
+			kind: validate.KindNodes,
 		},
 		{
-			// RSA private key PEM block (truncated/fake) — decoded from
-			// XOR+base64 at runtime to avoid triggering GitHub push protection.
+			// RSA private-key PEM block — assembled at runtime from short
+			// fragments via fakeRSAPrivateKey() so no high-entropy literal
+			// lives in source. The assembled string matches gitleaks at
+			// validator runtime, producing the policy/secret-detected error
+			// that this golden file captures.
 			filename: "secret-detected.json",
 			payload: validate.Payload{
 				Observations: []validate.Observation{
-					{EntityName: "test-entity", Text: decodeGenGoldenSecret("b29vb28ABwULDGIQEQNiEhALFAMWB2IJBxtvb29vb0gPCwsHLTULAAMDCQEDEwcDbGxsSG9vb29vBwwGYhARA2ISEAsUAxYHYgkHG29vb29v")},
+					{NodeName: "test-node", Text: fakeRSAPrivateKey()},
 				},
 			},
 			kind: validate.KindObservations,
@@ -87,15 +91,15 @@ func main() {
 		{
 			filename: "taxonomy-violation.json",
 			payload: validate.Payload{
-				Entities: []validate.Entity{
+				Nodes: []validate.Node{
 					{
-						Name:         "test-entity",
-						EntityType:   "invalid-type",
+						Name:         "test-node",
+						NodeType:     "invalid-type",
 						Observations: []string{"some observation"},
 					},
 				},
 			},
-			kind: validate.KindEntities,
+			kind: validate.KindNodes,
 		},
 	}
 

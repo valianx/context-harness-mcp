@@ -23,7 +23,7 @@ your shell.
    full sprint (CI runs against the docker-compose stack; smoke tests pass;
    team members have used the local stack for daily work). Deploy
    `context-harness-mcp` to the Render service URL (Phase 2). Run
-   `scripts/import_to_supabase.py` against a recent export. Smoke-test the 9
+   `scripts/import_to_supabase.py` against a recent export. Smoke-test the 6
    tools from a scratch `~/.claude.json` pointing at the URL.
 
 2. **Freeze (T-0, ~10 min):** Each team member exports their local Chroma via
@@ -32,8 +32,8 @@ your shell.
 
 3. **Merge & seed:** Designated operator runs `scripts/import_to_supabase.py`
    on each pre-cutover JSON in chronological order against prod Supabase.
-   Idempotent merge: existing entity → observations appended with dedup; new
-   entity → created.
+   Idempotent merge: existing node → observations appended with dedup; new
+   node → created.
 
 4. **Flag flip:** `claude-dev-team`'s installer is bumped to a version that
    registers MCP `memory` against the Render URL when `KG_BACKEND=supabase`.
@@ -133,7 +133,7 @@ done
 
 Expected output per file (rows will vary):
 ```
-imported entities=N observations=M relations=K (deduped: entities=X observations=Y relations=Z)
+imported nodes=N observations=M relations=K (deduped: nodes=X observations=Y relations=Z)
 ```
 
 Re-running the same file is safe — deduped counts absorb duplicates.
@@ -152,15 +152,15 @@ python3 -c "
 import json
 with open('/tmp/post-import.json') as f:
     p = json.load(f)
-print('entities:', p['entity_count'], 'relations:', p['relation_count'])
+print('nodes:', p['node_count'], 'relations:', p['relation_count'])
 "
 ```
 
-Expected: `entity_count` and `relation_count` are ≥ the sum across all
-pre-cutover exports (entities are deduplicated, so the count may be lower
+Expected: `node_count` and `relation_count` are ≥ the sum across all
+pre-cutover exports (nodes are deduplicated, so the count may be lower
 than a naive sum).
 
-If counts are suspiciously low (e.g., 0 entities), do NOT proceed — see
+If counts are suspiciously low (e.g., 0 nodes), do NOT proceed — see
 §4 Rollback Procedure.
 
 ### Step 5 — Smoke-test the Render endpoint
@@ -224,7 +224,7 @@ post-cutover:
   consecutive minutes (use GH Actions keepalive alert or manual curl).
 - Supabase DB is auto-paused (dashboard shows "paused" status) and cannot be
   resumed within 15 minutes via the dashboard.
-- Any `create_entities` or `add_observations` call returns a DB error
+- Any `create_nodes` or `add_observations` call returns a DB error
   (not a content-filter rejection) for content that previously worked.
 - Weekly `pg_dump` artifact is missing or the decrypt step fails (means
   the backup chain is broken — proceed with rollback before the 7-day
@@ -263,7 +263,7 @@ Run it only if you want a clean target for the next attempt:
 
 ```bash
 psql "$SUPABASE_DB_URL" -c "
-  TRUNCATE TABLE relations, observations, entities RESTART IDENTITY CASCADE;
+  TRUNCATE TABLE relations, observations, nodes RESTART IDENTITY CASCADE;
 "
 ```
 

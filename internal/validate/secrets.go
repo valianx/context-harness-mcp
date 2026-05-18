@@ -120,10 +120,10 @@ func checkSecrets(p *Payload) *Error {
 // rejectOnFirstSecret implements the reject-mode path (original behavior).
 // Both tiers run for every observation; the first hit short-circuits.
 func rejectOnFirstSecret(p Payload) *Error {
-	// Observations embedded in entities (create_entities path).
-	for entityIdx, entity := range p.Entities {
-		for obsIdx, obs := range entity.Observations {
-			if err := checkObservationForSecrets(obs, entityIdx, obsIdx); err != nil {
+	// Observations embedded in nodes (create_nodes path).
+	for nodeIdx, node := range p.Nodes {
+		for obsIdx, obs := range node.Observations {
+			if err := checkObservationForSecrets(obs, nodeIdx, obsIdx); err != nil {
 				return err
 			}
 		}
@@ -144,10 +144,10 @@ func rejectOnFirstSecret(p Payload) *Error {
 // it does not short-circuit on the first match, so all secrets in a text are
 // replaced in a single pass.
 func redactSecretsInPayload(p *Payload) {
-	for entityIdx := range p.Entities {
-		for obsIdx := range p.Entities[entityIdx].Observations {
-			p.Entities[entityIdx].Observations[obsIdx] =
-				redactText(p.Entities[entityIdx].Observations[obsIdx])
+	for nodeIdx := range p.Nodes {
+		for obsIdx := range p.Nodes[nodeIdx].Observations {
+			p.Nodes[nodeIdx].Observations[obsIdx] =
+				redactText(p.Nodes[nodeIdx].Observations[obsIdx])
 		}
 	}
 	for obsIdx := range p.Observations {
@@ -203,24 +203,24 @@ func redactText(text string) string {
 // checkObservationForSecrets tests a single observation text first against the
 // inline patterns, then against the gitleaks library detector. Returns the
 // first *Error found, or nil if clean.
-func checkObservationForSecrets(text string, entityIdx, obsIdx int) *Error {
-	if err := checkInlinePatterns(text, entityIdx, obsIdx); err != nil {
+func checkObservationForSecrets(text string, nodeIdx, obsIdx int) *Error {
+	if err := checkInlinePatterns(text, nodeIdx, obsIdx); err != nil {
 		return err
 	}
-	return checkGitleaks(text, entityIdx, obsIdx)
+	return checkGitleaks(text, nodeIdx, obsIdx)
 }
 
 // checkInlinePatterns runs the seven inline regex patterns against text.
-func checkInlinePatterns(text string, entityIdx, obsIdx int) *Error {
+func checkInlinePatterns(text string, nodeIdx, obsIdx int) *Error {
 	for _, sp := range inlinePatterns {
 		if sp.pattern.MatchString(text) {
-			eIdx := entityIdx
+			nIdx := nodeIdx
 			oIdx := obsIdx
 			return &Error{
 				Code:                     CodeSecretDetected,
 				Message:                  "La observación contiene lo que parece ser un secreto (credencial o clave privada). Elimina el secreto y reescribe la observación sin información sensible.",
 				Layer:                    LayerSecrets,
-				RejectedEntityIndex:      &eIdx,
+				RejectedNodeIndex:        &nIdx,
 				RejectedObservationIndex: &oIdx,
 				MatchedPattern:           sp.name,
 			}
@@ -232,7 +232,7 @@ func checkInlinePatterns(text string, entityIdx, obsIdx int) *Error {
 // checkGitleaks runs the gitleaks library detector against text. If the
 // detector failed to initialise, this function returns nil (inline fallbacks
 // handle the critical families; a broken gitleaks init does not block writes).
-func checkGitleaks(text string, entityIdx, obsIdx int) *Error {
+func checkGitleaks(text string, nodeIdx, obsIdx int) *Error {
 	detector, err := getGitleaksDetector()
 	if err != nil || detector == nil {
 		// Degraded mode: inline fallbacks remain active, so only non-inline
@@ -246,13 +246,13 @@ func checkGitleaks(text string, entityIdx, obsIdx int) *Error {
 		return nil
 	}
 
-	eIdx := entityIdx
+	nIdx := nodeIdx
 	oIdx := obsIdx
 	return &Error{
 		Code:                     CodeSecretDetected,
 		Message:                  "La observación contiene lo que parece ser un secreto detectado por gitleaks. Elimina el secreto y reescribe la observación sin información sensible.",
 		Layer:                    LayerSecrets,
-		RejectedEntityIndex:      &eIdx,
+		RejectedNodeIndex:        &nIdx,
 		RejectedObservationIndex: &oIdx,
 		// RuleID is the gitleaks rule name — safe to surface (not the value).
 		MatchedPattern: findings[0].RuleID,
