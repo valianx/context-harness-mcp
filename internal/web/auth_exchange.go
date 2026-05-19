@@ -185,19 +185,22 @@ func (h *exchangeHandler) exchangeWithinTx(w http.ResponseWriter, ctx context.Co
 
 // buildSnippet returns a pretty-printed JSON string ready to paste into
 // ~/.claude.json under the mcpServers key.
+//
+// Schema: flat (type, url, headers as siblings — NOT wrapped in a "transport"
+// object). Claude Code's MCP HTTP transport reads this schema; the wrapped
+// variant is silently rejected and the server reports HTTP 404. URL ends in
+// "/mcp/" (trailing slash) because Claude Code's HTTP client calls "/mcp/" and
+// Go's ServeMux distinguishes /mcp from /mcp/.
 func buildSnippet(serverName, mcpPublicURL, host, token string) string {
 	base := mcpPublicURL
 	if base == "" {
 		base = "http://" + host
 	}
 
-	type transport struct {
+	type serverEntry struct {
 		Type    string            `json:"type"`
 		URL     string            `json:"url"`
 		Headers map[string]string `json:"headers"`
-	}
-	type serverEntry struct {
-		Transport transport `json:"transport"`
 	}
 	type snippet struct {
 		MCPServers map[string]serverEntry `json:"mcpServers"`
@@ -206,12 +209,10 @@ func buildSnippet(serverName, mcpPublicURL, host, token string) string {
 	s := snippet{
 		MCPServers: map[string]serverEntry{
 			serverName: {
-				Transport: transport{
-					Type: "http",
-					URL:  base + "/mcp",
-					Headers: map[string]string{
-						"Authorization": "Bearer " + token,
-					},
+				Type: "http",
+				URL:  base + "/mcp/",
+				Headers: map[string]string{
+					"Authorization": "Bearer " + token,
 				},
 			},
 		},

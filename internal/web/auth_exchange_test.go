@@ -208,9 +208,12 @@ func TestBuildSnippet(t *testing.T) {
 	snippet := buildSnippet("context-harness", "https://mcp.example.com", "mcp.example.com:7654", "mytoken")
 
 	assert.Contains(t, snippet, `"context-harness"`)
-	assert.Contains(t, snippet, `"https://mcp.example.com/mcp"`)
+	assert.Contains(t, snippet, `"https://mcp.example.com/mcp/"`,
+		"URL must end in /mcp/ (trailing slash) — Claude Code's HTTP client calls /mcp/")
 	assert.Contains(t, snippet, `"Bearer mytoken"`)
 	assert.Contains(t, snippet, `"mcpServers"`)
+	assert.NotContains(t, snippet, `"transport"`,
+		"snippet must use flat schema (type/url/headers as siblings), not a transport wrapper")
 }
 
 func TestBuildSnippet_FallsBackToHost(t *testing.T) {
@@ -218,6 +221,35 @@ func TestBuildSnippet_FallsBackToHost(t *testing.T) {
 
 	assert.Contains(t, snippet, "localhost:7654")
 	assert.Contains(t, snippet, `"Bearer tok123"`)
+	assert.Contains(t, snippet, "/mcp/", "URL must end in /mcp/ trailing slash")
+}
+
+// TestBuildSnippet_FlatSchemaParseable verifies the snippet is valid JSON in the
+// exact shape Claude Code expects: {mcpServers: {<name>: {type, url, headers}}}
+// with type/url/headers as direct siblings (NO transport wrapper).
+func TestBuildSnippet_FlatSchemaParseable(t *testing.T) {
+	raw := buildSnippet("ch", "https://x.test", "x.test", "tok")
+
+	var parsed struct {
+		MCPServers map[string]struct {
+			Type    string            `json:"type"`
+			URL     string            `json:"url"`
+			Headers map[string]string `json:"headers"`
+			// If a transport wrapper sneaks back in, this will be non-nil and the
+			// flat fields (Type/URL/Headers) will be empty — assertions below catch
+			// the regression.
+			Transport map[string]any `json:"transport"`
+		} `json:"mcpServers"`
+	}
+	err := json.Unmarshal([]byte(raw), &parsed)
+	require.NoError(t, err, "snippet must be valid JSON")
+
+	entry, ok := parsed.MCPServers["ch"]
+	require.True(t, ok, "mcpServers must contain the configured server name")
+	assert.Equal(t, "http", entry.Type)
+	assert.Equal(t, "https://x.test/mcp/", entry.URL)
+	assert.Equal(t, "Bearer tok", entry.Headers["Authorization"])
+	assert.Nil(t, entry.Transport, "no transport wrapper allowed — Claude Code rejects it")
 }
 
 // ── builder helpers ───────────────────────────────────────────────────────────
