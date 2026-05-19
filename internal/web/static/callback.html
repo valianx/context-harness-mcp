@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Context Harness MCP — Auth Callback</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f0f12;
+      --surface:   #1a1a22;
+      --border:    #2a2a38;
+      --text:      #e2e2ef;
+      --muted:     #8888aa;
+      --accent:    #6c6cf0;
+      --error:     #f07070;
+      --success:   #4dd898;
+      --radius:    8px;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 48px 24px;
+    }
+
+    h1 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .muted { color: var(--muted); font-size: 12px; margin-bottom: 32px; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      width: 100%;
+      max-width: 540px;
+      margin-bottom: 16px;
+    }
+
+    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+
+    input[type="password"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      padding: 8px 10px;
+      outline: none;
+      margin-bottom: 14px;
+    }
+    input[type="password"]:focus { border-color: var(--accent); }
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 9px 18px;
+      cursor: pointer;
+      width: 100%;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .snippet-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px;
+      font-size: 12px;
+      white-space: pre;
+      overflow: auto;
+      margin-bottom: 12px;
+      color: var(--success);
+    }
+
+    .copy-btn {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-size: 12px;
+      padding: 5px 12px;
+      cursor: pointer;
+      border-radius: 4px;
+      width: auto;
+      font-family: inherit;
+    }
+
+    .error-msg {
+      color: var(--error);
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    .step { display: none; }
+    .step.active { display: block; }
+
+    #step-loading p { color: var(--muted); }
+    #step-success h2 { color: var(--success); margin-bottom: 8px; }
+    #step-error h2 { color: var(--error); margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Context Harness MCP</h1>
+  <p class="muted">Authentication callback</p>
+
+  <!-- Step: loading / detecting tokens -->
+  <div id="step-loading" class="card step active">
+    <p>Detecting authentication tokens…</p>
+  </div>
+
+  <!-- Step: password form (invite / recovery / signup flow) -->
+  <div id="step-password" class="card step">
+    <label for="pw">Set a new password</label>
+    <input type="password" id="pw" placeholder="New password (8+ characters)" autocomplete="new-password">
+    <button id="btn-set-password">Set password &amp; get token</button>
+    <p id="pw-error" class="error-msg" style="display:none"></p>
+  </div>
+
+  <!-- Step: exchanging token -->
+  <div id="step-exchange" class="card step">
+    <p style="color:var(--muted)">Exchanging token with MCP server…</p>
+  </div>
+
+  <!-- Step: success — show snippet -->
+  <div id="step-success" class="card step">
+    <h2>&#10003; You're authenticated</h2>
+    <p style="color:var(--muted);margin-bottom:16px;font-size:12px">
+      Paste this snippet into <code>~/.claude.json</code> under <code>mcpServers</code>:
+    </p>
+    <pre id="snippet-content" class="snippet-box"></pre>
+    <button class="copy-btn" id="btn-copy">Copy snippet</button>
+    <p id="copy-confirm" style="display:none;color:var(--success);font-size:12px;margin-top:6px">Copied to clipboard!</p>
+  </div>
+
+  <!-- Step: error -->
+  <div id="step-error" class="card step">
+    <h2>Authentication failed</h2>
+    <p id="error-detail" class="error-msg"></p>
+    <p style="font-size:12px;margin-top:12px;color:var(--muted)">
+      Return to <a href="/auth/login" style="color:var(--accent)">login</a> and try again.
+    </p>
+  </div>
+
+  <script>
+    // Server-rendered constants injected at boot time by Go html/template.
+    const SUPABASE_URL  = "{{.SupabaseProjectURL}}";
+    const SUPABASE_ANON = "{{.SupabaseAnonKey}}";
+    const MCP_ORIGIN    = "{{.MCPPublicURL}}";
+
+    // ── helpers ───────────────────────────────────────────────────────────────
+
+    function show(id) {
+      document.querySelectorAll(".step").forEach(el => el.classList.remove("active"));
+      document.getElementById(id).classList.add("active");
+    }
+
+    function showError(msg) {
+      document.getElementById("error-detail").textContent = msg;
+      show("step-error");
+    }
+
+    // Parse URL fragment (#key=val&...) into an object.
+    function parseFragment() {
+      const hash = window.location.hash.replace(/^#/, "");
+      const params = {};
+      hash.split("&").forEach(pair => {
+        const [k, v] = pair.split("=");
+        if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || "");
+      });
+      return params;
+    }
+
+    // Parse URL query (?key=val&...) into an object.
+    function parseQuery() {
+      const params = {};
+      new URLSearchParams(window.location.search).forEach((v, k) => { params[k] = v; });
+      return params;
+    }
+
+    // ── PKCE exchange: ?code=... → access_token via Supabase ─────────────────
+
+    async function exchangePKCE(code) {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=pkce`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": SUPABASE_ANON,
+        },
+        body: JSON.stringify({ auth_code: code }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error_description || body.error || `PKCE exchange failed (${res.status})`);
+      }
+      return res.json();
+    }
+
+    // ── Password set (invite / recovery) ─────────────────────────────────────
+
+    function setupPasswordForm(accessToken) {
+      show("step-password");
+      const btn  = document.getElementById("btn-set-password");
+      const pwEl = document.getElementById("pw");
+      const errEl = document.getElementById("pw-error");
+
+      btn.addEventListener("click", async () => {
+        errEl.style.display = "none";
+        const pw = pwEl.value.trim();
+        if (pw.length < 8) {
+          errEl.textContent = "Password must be at least 8 characters.";
+          errEl.style.display = "block";
+          return;
+        }
+        btn.disabled = true;
+
+        try {
+          const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": SUPABASE_ANON,
+              "Authorization": `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ password: pw }),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.msg || body.message || body.error_description || `Password update failed (${res.status})`);
+          }
+        } catch (e) {
+          errEl.textContent = e.message;
+          errEl.style.display = "block";
+          btn.disabled = false;
+          return;
+        }
+
+        await doExchange(accessToken);
+      });
+
+      pwEl.addEventListener("keydown", e => {
+        if (e.key === "Enter") btn.click();
+      });
+    }
+
+    // ── /auth/exchange call ───────────────────────────────────────────────────
+
+    async function doExchange(accessToken) {
+      show("step-exchange");
+      let data;
+      try {
+        const res = await fetch("/auth/exchange", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ access_token: accessToken }),
+        });
+        data = await res.json().catch(() => null);
+        if (!res.ok) {
+          const msg = data?.message || data?.code || `Exchange failed (${res.status})`;
+          throw new Error(msg);
+        }
+      } catch (e) {
+        showError(e.message);
+        return;
+      }
+
+      // Format and display the snippet.
+      const snippetStr = typeof data.snippet === "string"
+        ? data.snippet
+        : JSON.stringify(data.snippet, null, 2);
+
+      document.getElementById("snippet-content").textContent = snippetStr;
+      show("step-success");
+
+      document.getElementById("btn-copy").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(snippetStr);
+          document.getElementById("copy-confirm").style.display = "block";
+        } catch (_) {
+          // Clipboard API may not be available; user can copy manually.
+        }
+      });
+    }
+
+    // ── Entry point ───────────────────────────────────────────────────────────
+
+    (async function init() {
+      const fragment = parseFragment();
+      const query    = parseQuery();
+
+      // Error from Supabase in fragment (e.g., expired link).
+      if (fragment.error) {
+        showError(`${fragment.error}: ${fragment.error_description || ""}`);
+        return;
+      }
+
+      // Implicit flow (primary): #access_token=...
+      if (fragment.access_token) {
+        const flowType = fragment.type || "";
+        // Invite / recovery / signup flows require setting a password first.
+        if (flowType === "invite" || flowType === "recovery" || flowType === "signup") {
+          setupPasswordForm(fragment.access_token);
+        } else {
+          // Magic link and any other types: go straight to exchange.
+          await doExchange(fragment.access_token);
+        }
+        return;
+      }
+
+      // PKCE fallback: ?code=...
+      if (query.code) {
+        let tokens;
+        try {
+          tokens = await exchangePKCE(query.code);
+        } catch (e) {
+          showError(`PKCE code exchange failed: ${e.message}`);
+          return;
+        }
+        const at = tokens.access_token;
+        if (!at) {
+          showError("PKCE response missing access_token.");
+          return;
+        }
+        await doExchange(at);
+        return;
+      }
+
+      // Neither implicit token nor PKCE code found.
+      showError("No authentication tokens detected in URL. Try the login link again.");
+    })();
+  </script>
+</body>
+</html>
