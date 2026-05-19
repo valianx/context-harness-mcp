@@ -1,13 +1,13 @@
 # Context Harness MCP
 
-An [MCP](https://modelcontextprotocol.io/) server that exposes a Knowledge Graph (nodes, observations, relations) to Claude Code or any MCP-compatible client. Storage is Postgres + [pgvector](https://github.com/pgvector/pgvector); semantic search runs locally via `all-MiniLM-L6-v2` ONNX embeddings. Designed to run at **$0/month** on Render Free + Supabase Free, or fully offline via `docker compose`.
+An [MCP](https://modelcontextprotocol.io/) server that exposes a Knowledge Graph (nodes, observations, relations) to Claude Code or any MCP-compatible client. Storage is Postgres + [pgvector](https://github.com/pgvector/pgvector); semantic search runs locally via `all-MiniLM-L6-v2` ONNX embeddings. Runs **anywhere with Docker + Postgres+pgvector** — local `docker compose` on a dev machine, or any container host (Railway, Render, Fly, Coolify, self-hosted, …) for team-shared deployments.
 
 ## What it does
 
 - **6 MCP tools** to manage a knowledge graph — `create_nodes`, `add_observations`, `create_relations`, `search_nodes`, `open_nodes`, `read_graph`. See [docs/mcp-tools.md](docs/mcp-tools.md).
 - **Semantic search** via 384-dim `all-MiniLM-L6-v2` embeddings indexed with pgvector HNSW cosine. `search_nodes("authentication patterns")` returns the nodes whose observations are about auth, not just substring hits.
 - **Content Filter** on every write — three layers (size + junk denylist, secrets scan with [gitleaks](https://github.com/gitleaks/gitleaks), taxonomy enforcement) reject payloads with secrets, oversized text, or out-of-taxonomy node/relation types before any DB transaction opens. Atomic reject — never partial writes.
-- **Drop-in compatible** with the local-ChromaDB knowledge graph shipped by [`claude-dev-team`](https://github.com/valianx/claude-dev-team). Same tool surface, same JSON wire shapes, [migration tooling included](docs/cutover-playbook.md).
+- **MCP-protocol compatible.** Standard MCP streamable-http transport; works with Claude Code and any other MCP-compatible client. JSON wire shapes are stable and documented in [docs/mcp-tools.md](docs/mcp-tools.md).
 
 ## Install
 
@@ -42,11 +42,11 @@ To use it from Claude Code, add to `~/.claude.json`:
 
 Full local runbook — DB options, migrations, troubleshooting, smoke tests — in [docs/local-stack.md](docs/local-stack.md).
 
-### Option B — Cloud (Render Free + Supabase Free)
+### Option B — Cloud (any container hosting + any Postgres+pgvector)
 
-Same Docker image, deployed to [Render](https://render.com) and pointed at a [Supabase](https://supabase.com) project. Both providers offer free tiers that together run the full stack at $0/month, with continuous deploy on push to `main`, weekly encrypted `pg_dump` backups, and a 6-day Supabase keepalive to dodge auto-pause.
+Same Docker image, deployed to whatever container host you prefer ([Railway](https://railway.app), [Render](https://render.com), [Fly](https://fly.io), [Coolify](https://coolify.io), your own VPS, …) and pointed at any Postgres 16+ with `pgvector` (managed: Supabase, Neon, Railway Postgres, RDS, …; or self-hosted). Continuous deploy via the included GitHub workflows (`goose up` + optional deploy hook), weekly encrypted `pg_dump` backups, and a configurable keepalive cron for providers that auto-pause.
 
-One-time setup runbook in [docs/deployment.md](docs/deployment.md).
+One-time setup runbook — principles plus equally-weighted per-platform examples — in [docs/deployment.md](docs/deployment.md).
 
 ## Documentation
 
@@ -55,7 +55,7 @@ One-time setup runbook in [docs/deployment.md](docs/deployment.md).
 | [docs/mcp-tools.md](docs/mcp-tools.md) | The 6 MCP tools — arguments, responses, examples, error codes. |
 | [docs/local-stack.md](docs/local-stack.md) | Local Docker runbook (Option A above, expanded). |
 | [docs/deployment.md](docs/deployment.md) | Cloud deployment runbook (Option B above, expanded). |
-| [docs/cutover-playbook.md](docs/cutover-playbook.md) | Migrating from `claude-dev-team`'s local ChromaDB to this server. |
+| [docs/auth.md](docs/auth.md) | Auth runbook — Supabase setup, dev flow, webhook config, revocation, troubleshooting. |
 | [docs/knowledge.md](docs/knowledge.md) | Durable decisions, constraints, patterns, stack notes. |
 | [CHANGELOG.md](CHANGELOG.md) | Release notes (Keep-a-Changelog format). |
 | [CLAUDE.md](CLAUDE.md) | Repo conventions for AI-assisted contributors. |

@@ -107,7 +107,8 @@ func (l *Limiter) evictIdle() {
 }
 
 // ExtractClientIP reads the client's real IP from the request.
-// It prefers the leftmost public IP from X-Forwarded-For (Render passes the
+// It prefers the leftmost public IP from X-Forwarded-For (every reverse-proxy
+// container host — Railway, Render, Fly, Cloudflare, nginx, etc. — passes the
 // original client IP there, possibly with a proxy chain). Falls back to
 // r.RemoteAddr (with port stripped) for direct connections where XFF is absent.
 func ExtractClientIP(r *http.Request) string {

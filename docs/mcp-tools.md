@@ -2,7 +2,7 @@
 
 The server exposes six knowledge-graph tools plus a `healthz` probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
-JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Write shapes are also byte-for-byte compatible with the updated [`claude-dev-team/knowledge-graph/server.py`](https://github.com/valianx/claude-dev-team/blob/main/knowledge-graph/server.py).
+JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
 ## Taxonomy
 
@@ -74,7 +74,7 @@ Append observations to existing nodes. Returns an error if any `nodeName` is not
 }
 ```
 
-> Note: the array field is **`contents`** (plural), not `content`. This matches the Python reference.
+> Note: the array field is **`contents`** (plural), not `content`.
 
 **Success response**
 
@@ -221,7 +221,7 @@ Write tools (1)–(2)–(3) — those that carry user-provided text — gate eve
 
 Layer 1 (syntactic) enforces two hard size caps:
 
-- **Per-observation cap: 5,000 characters.** A single observation longer than this is almost certainly a pasted file rather than a concise knowledge entry. These caps protect Render Free response timeouts and stay well within Supabase Free row limits.
+- **Per-observation cap: 5,000 characters.** A single observation longer than this is almost certainly a pasted file rather than a concise knowledge entry. These caps protect free-tier container hosts from response timeouts and stay well within typical managed-Postgres row limits.
 - **Per-call cap: 50 KB.** The serialised JSON of an entire write call cannot exceed 50 KB. This prevents runaway payloads and multi-node batches that would exhaust free-tier quotas in a single call.
 
 Violations produce `policy/size-exceeded` with a descriptive Spanish message indicating the limit that was exceeded. No rows are written.
@@ -241,7 +241,7 @@ To prevent runaway agent loops (e.g., a buggy agent rapidly inserting thousands 
 
 - **10 writes per 10 seconds** per IP, token-bucket with burst of 10 and refill rate of 1 token/second.
 - Applies to `create_nodes`, `add_observations`, and `create_relations`. Reads (`search_nodes`, `open_nodes`, `read_graph`) are unconstrained.
-- In HTTP mode, the client IP is read from the leftmost entry of `X-Forwarded-For` (Render passes the real client IP there); falls back to `RemoteAddr` for direct connections.
+- In HTTP mode, the client IP is read from the leftmost entry of `X-Forwarded-For` (most container hosts forward the real client IP there); falls back to `RemoteAddr` for direct connections.
 - In stdio mode (local Claude Code), rate limiting is skipped — no IP is available.
 
 A rate-limited call returns `policy/rate-limited` with a `retry_after_seconds` field:
@@ -278,7 +278,7 @@ A policy rejection looks like:
 }
 ```
 
-The response carries `IsError: true` at the MCP-protocol level. `message` is in Spanish (the prompt language of the upstream `claude-dev-team` Spanish-first agents); Claude surfaces it directly to the user. `rejected_*` indexes are zero-based into the offending node/observation; both are `null` when the rejection is not scoped to a single item.
+The response carries `IsError: true` at the MCP-protocol level. `message` is in Spanish (the operator's chosen surface language); Claude surfaces it directly to the user. `rejected_*` indexes are zero-based into the offending node/observation; both are `null` when the rejection is not scoped to a single item.
 
 **Atomicity contract**: if the validator returns non-nil, zero rows are written. The DB row counts for `nodes`, `observations`, and `relations` are unchanged after a rejected call. This is verified by `tests/tools_test.go` against the golden fixtures in `tests/fixtures/policy_errors/`.
 
@@ -298,6 +298,6 @@ Access is unauthenticated — the same exposure level as the `read_graph` and `s
 - **All deletes are soft.** `deleted_at = now()`. No `DELETE FROM` is issued anywhere. Hard deletes are operator-only via Supabase Studio.
 - **No partial writes.** Every tool either commits all of its inserts or none.
 - **Embeddings are observation-level.** Each `observations` row carries one vector. `search_nodes` aggregates to node level via `MIN(distance)`.
-- **JSON parity with the Python reference.** Field names use camelCase (`nodeType`, `relationType`, `nodeName`) where the Python server does. Snake_case (`created_nodes`, `node_count`, `rejected_observation_index`) is preserved where it was canonical there too.
+- **Stable JSON field naming.** camelCase for input fields (`nodeType`, `relationType`, `nodeName`), snake_case for response counters (`created_nodes`, `node_count`, `rejected_observation_index`). Adding fields is non-breaking; renaming or removing is a breaking change.
 
 For the broader architectural decisions behind these invariants, see [`docs/knowledge.md`](knowledge.md).

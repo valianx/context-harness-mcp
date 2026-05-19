@@ -1,5 +1,12 @@
 name: Deploy
 
+# Platform-agnostic CD: apply database migrations, then (optionally) trigger a
+# deploy webhook on whatever container hosting the operator chose. The workflow
+# does NOT assume any specific provider — anything that exposes a deploy hook
+# URL works (Railway, Fly, Render, Coolify, self-hosted Dokku, custom CI, etc.).
+# If the operator has DEPLOY_HOOK_URL unset (e.g. their platform auto-deploys
+# from git push directly), the hook step skips with a notice, not an error.
+
 on:
   push:
     branches: [main]
@@ -7,7 +14,7 @@ on:
 
 jobs:
   deploy:
-    name: Apply migrations and trigger Render deploy
+    name: Apply migrations and (optionally) trigger deploy hook
     runs-on: ubuntu-latest
     # Prevent two simultaneous deploys (e.g. two PRs merging in quick succession).
     concurrency:
@@ -20,16 +27,22 @@ jobs:
       # the operator renames their GH secret. An unset GH secret resolves to an
       # empty string, not an error.
       DATABASE_URL: ${{ secrets.DATABASE_URL != '' && secrets.DATABASE_URL || secrets.SUPABASE_DB_URL }}
-      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      # Generic deploy hook — the operator's hosting platform provides this URL.
+      # Backward-compat: RENDER_DEPLOY_HOOK_URL is honoured for one release so
+      # existing deployments don't break on the rename.
+      DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL != '' && secrets.DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
 
     steps:
-      - name: Guard — secrets must be set
+      - name: Guard — required secret
         run: |
-          if [ -z "$DATABASE_URL" ] || [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
-            echo "::warning::Deploy skipped — GH secrets not yet configured. See README §Deployment for setup."
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::warning::Deploy skipped — DATABASE_URL not set. See docs/deployment.md for setup."
             exit 0
           fi
-          echo "Secrets present; proceeding with deploy."
+          echo "DATABASE_URL present; proceeding with migration step."
+          if [ -z "$DEPLOY_HOOK_URL" ]; then
+            echo "::notice::DEPLOY_HOOK_URL not set — migrations will apply, then platform-native auto-deploy (e.g. push-to-deploy) takes over."
+          fi
 
       - uses: actions/checkout@v4
         if: ${{ env.DATABASE_URL != '' }}
@@ -44,13 +57,18 @@ jobs:
         run: go install github.com/pressly/goose/v3/cmd/goose@v3.26.0
 
       - name: Apply migrations to database
-        # Migrations run BEFORE the Render deploy hook: the new code must never
-        # land against a schema that hasn't been migrated yet.
+        # Migrations run BEFORE the deploy hook fires: new code must never land
+        # against a schema that hasn't been migrated yet. Same invariant applies
+        # to platforms that auto-deploy on push — by the time their build picks
+        # up the new image, the DB is already migrated.
         if: ${{ env.DATABASE_URL != '' }}
         run: goose -dir migrations postgres "$DATABASE_URL" up
 
-      - name: Trigger Render deploy hook
-        if: ${{ env.DATABASE_URL != '' }}
+      - name: Trigger deploy hook (if configured)
+        # Optional. Hosts that auto-deploy from git (Railway, Fly auto-deploy,
+        # Vercel-style platforms) don't need this step — leave DEPLOY_HOOK_URL
+        # unset and they take over after migrations.
+        if: ${{ env.DATABASE_URL != '' && env.DEPLOY_HOOK_URL != '' }}
         run: |
-          response=$(curl -fsSL -X POST -o /dev/null -w "%{http_code}" "$RENDER_DEPLOY_HOOK_URL")
-          echo "Render deploy hook returned HTTP $response"
+          response=$(curl -fsSL -X POST -o /dev/null -w "%{http_code}" "$DEPLOY_HOOK_URL")
+          echo "Deploy hook returned HTTP $response"

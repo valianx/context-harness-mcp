@@ -1,149 +1,195 @@
-# Cloud Deployment — Render Free + Supabase Free
+# Cloud Deployment — Generic Guide
 
-Phase 2 of the deployment model: the same Docker image validated by Phase 1 (`docker compose up`) deployed to [Render](https://render.com) and pointed at a [Supabase](https://supabase.com) project. Total cost at the time of writing: **$0/month**, with three free-tier compromises documented at the bottom.
+This server is a single static Docker image. It runs **anywhere with Docker + a Postgres+pgvector database** — your dev laptop, any container host, or a self-managed server. This guide covers the principles that apply across every platform, and finishes with short, equally-weighted examples for several popular hosts.
 
-## Architecture overview
-
-| Component | Where | Purpose |
-|---|---|---|
-| `mcp` container | Render Free (web service, Oregon region) | Runs the Go server, listens on `:7654`, serves `/mcp` (MCP streamable-http) and `/healthz`. |
-| Postgres + pgvector | Supabase Free | The actual KG storage. Schema lives in `migrations/`, applied by goose. |
-| Continuous Deploy | `.github/workflows/deploy.yml` | On every push to `main`: `goose -dir migrations postgres "$DATABASE_URL" up`, then curl the Render deploy hook. |
-| Weekly backup | `.github/workflows/pg_dump_weekly.yml` | Sundays 03:00 UTC: `pg_dump` → `gpg --symmetric` (AES-256) → upload as GH Actions artifact, 90-day retention. |
-| Keepalive | `.github/workflows/supabase_keepalive.yml` | Every 6 days: `psql -c 'SELECT 1'` against Supabase to dodge the 7-day auto-pause on Free tier. |
-
-The Docker image, the `migrations/` directory, and the `goose` binary are byte-identical across Phase 1 and Phase 2. Only `DATABASE_URL` differs.
+> The local `docker compose up` mode is **not** a Phase 1 stepping stone — it is a first-class deployment mode using the same image. See [`local-stack.md`](local-stack.md). Use cloud hosting when you need shared access for a team, or any deployment exposed beyond localhost.
 
 ---
 
-## One-time setup
+## Deployment principles
 
-Complete steps 1–5 once. After step 5, every push to `main` triggers the full CD pipeline automatically.
+Every deployment, regardless of platform, has the same five moving parts:
 
-### 1. Provision a Supabase project
+| Piece | What it is |
+|---|---|
+| **Container image** | Built from the repo's `Dockerfile`. Multi-stage; runtime base is `debian:bookworm-slim`. Same image for local and cloud. |
+| **Environment variables** | `DATABASE_URL` is the only required variable. Auth-related vars are required when `MCP_AUTH=enabled`. Full list below. |
+| **Database** | Any Postgres 16+ with the `pgvector` extension. Managed (Supabase, Neon, Railway Postgres, RDS, …) or self-hosted. |
+| **Migrations** | `goose up` against `DATABASE_URL`. Same binary in dev, CI, and production. Run once per schema change. |
+| **Healthcheck** | `GET /healthz` returns `{"status":"ok"}` over plain HTTP. Wire your host's liveness probe to this URL. |
 
-Create a free project at [supabase.com](https://supabase.com) (no credit card required). Go to **Project Settings → Database → Connection string (URI)** and copy the URI. It looks like:
+Optional pieces that some operators wire up:
 
-```
-postgres://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require
-```
+- **Deploy hook / continuous deploy.** Most container hosts expose a webhook URL that triggers a redeploy. The repo's `.github/workflows/deploy.yml` runs `goose up` then curls a deploy-hook URL on push to `main` — works with any platform that offers one (Render, Railway, Coolify, etc.). If your platform deploys on `git push` natively (Fly machines, Kubernetes via Argo, …), skip the hook step.
+- **Encrypted weekly backups.** `.github/workflows/pg_dump_weekly.yml` produces an encrypted `pg_dump` artifact every Sunday. Independent of where the server is hosted.
+- **Database keepalive.** Some free-tier Postgres providers auto-pause after a week of inactivity. `.github/workflows/supabase_keepalive.yml` runs `SELECT 1` every 6 days. Adapt or skip per provider.
 
-### 1a. Set the secret detection mode (optional)
+---
 
-By default, the server rejects calls that contain detected credentials (`SECRET_MODE=reject`). If you want the server to scrub secrets in-place instead of aborting the call, set `SECRET_MODE=redact` in the Render service's **Environment** tab. Any other value causes a startup error. See [`docs/mcp-tools.md`](mcp-tools.md#secret-detection-modes) for the full trade-off.
+## Required environment variables
 
-### 2. Provision the Render service
+| Var | Required | Notes |
+|---|---|---|
+| `DATABASE_URL` | always | Postgres DSN with `?sslmode=require` for managed providers. `SUPABASE_DB_URL` accepted as a deprecated fallback for one release. |
+| `MCP_TRANSPORT` | always (default `http`) | `http` for cloud. `stdio` only when the binary is exec'd by a local Claude Code. |
+| `MCP_AUTH` | always (default `none`) | `none` (no bearer required) or `enabled` (bearer JWT required). Garbage values fail fast at boot. |
 
-In the Render dashboard: **New + → Blueprint → connect this repo → review `render.yaml`**. Render parses `render.yaml` and proposes one `context-harness-mcp` web service. Approve it.
+When `MCP_AUTH=enabled`, the following are also required:
 
-During or right after the first deploy, fill in the `DATABASE_URL` env var manually in the service's **Environment** tab. It's declared `sync: false` in `render.yaml` — the Render idiom for "set this in the dashboard; never source from git."
+| Var | Notes |
+|---|---|
+| `MCP_JWT_SECRET` | Hex 32+ bytes. Sign/verify MCP JWTs. Generate via `openssl rand -hex 32`. |
+| `MCP_PUBLIC_URL` | Base public URL of the deployed server, e.g. `https://mcp.example.com`. Used in `auth_login_url` error responses. |
+| `SUPABASE_PROJECT_URL` | `https://<ref>.supabase.co` — used during `/auth/exchange`. |
+| `SUPABASE_ANON_KEY` | Anon JWT (public). Embedded in the callback HTML. |
+| `MCP_WEBHOOK_SECRET` | Hex 32+ chars. Verifies the Supabase Database Webhook header. |
 
-### 3. Copy the Render deploy hook URL
+Optional:
 
-In the Render service: **Settings → Deploy Hook → copy the URL**. It looks like `https://api.render.com/deploy/srv-<id>?key=<token>`. Treat it as a secret — the URL alone triggers a deploy.
+| Var | Notes |
+|---|---|
+| `SECRET_MODE` | `reject` (default) or `redact`. Garbage values fail fast at boot. See [`mcp-tools.md`](mcp-tools.md#secret-detection-modes). |
+| `MCP_JWT_ISSUER` | Default `context-harness-mcp`. |
+| `MCP_JWT_EXPIRY` | Default `8760h` (1 year). |
+| `MCP_STDIO_RATE_LIMIT` | Default `1000` writes/s for stdio. |
+| `MCP_SNIPPET_SERVER_NAME` | Default `context-harness`. Key used in the snippet rendered by `/auth/login`. |
 
-### 4. Generate a dump passphrase
+See [`auth.md`](auth.md) for the full auth runbook and the Database Webhook configuration steps (these are identical regardless of where the server is hosted).
+
+---
+
+## One-time setup (any platform)
+
+1. **Provision Postgres + pgvector.** Create a database on your provider of choice. Enable the `pgvector` extension (most managed providers expose this in their dashboard or via `CREATE EXTENSION vector`).
+2. **Apply migrations.** From a workstation with access to the DSN:
+   ```sh
+   docker compose --profile migrate run --rm migrate
+   ```
+   …or run `goose -dir migrations postgres "$DATABASE_URL" up` directly. Idempotent.
+3. **Decide on auth mode.** Set `MCP_AUTH=none` for a single-operator or fully-trusted deployment. Set `MCP_AUTH=enabled` for team-shared or any deployment reachable beyond localhost. If enabled, finish the Supabase Auth and Database Webhook configuration described in [`auth.md`](auth.md).
+4. **Configure your platform's secrets and env vars** with the values from the table above.
+5. **Deploy the container.** Either point the platform at this repo's `Dockerfile`, or push the prebuilt image to your registry of choice. The platform should expose port `7654`.
+6. **Verify**:
+   ```sh
+   curl https://<your-host>/healthz   # → {"status":"ok"}
+   ```
+
+---
+
+## Continuous deploy
+
+`.github/workflows/deploy.yml` is platform-agnostic: it runs `goose up` against `DATABASE_URL`, then optionally curls a deploy hook URL from `DEPLOY_HOOK_URL` (legacy name: `RENDER_DEPLOY_HOOK_URL` — still read as a fallback for one release).
+
+To wire CD on any host that exposes a webhook URL:
+
+1. Get the deploy-hook URL from your platform.
+2. Add a GitHub secret `DEPLOY_HOOK_URL` with that value.
+3. Add a GitHub secret `DATABASE_URL` with your DSN.
+4. Push to `main` — the workflow runs migrations and triggers the deploy.
+
+If your platform deploys on `git push` natively, you can disable the deploy-hook step and keep only the migrations job (or even skip both and let the platform run migrations as part of its own build pipeline).
+
+---
+
+## Verifying a deploy
 
 ```sh
-openssl rand -base64 32
+curl https://<your-host>/healthz
+# → {"status":"ok"}
+
+# 6 MCP tools round-trip
+MCP_URL=https://<your-host>/mcp bash scripts/smoke/happy_path.sh
+MCP_URL=https://<your-host>/mcp bash scripts/smoke/secret_rejected.sh
+MCP_URL=https://<your-host>/mcp bash scripts/smoke/size_rejected.sh
 ```
 
-Save the output in a password manager. **Without this passphrase the encrypted `pg_dump` artifacts are unrecoverable.** There is no recovery path.
-
-### 5. Set the GitHub secrets
-
-At **https://github.com/valianx/context-harness-mcp/settings/secrets/actions**, add:
-
-| Secret | Value | Used by |
-|---|---|---|
-| `DATABASE_URL` | DSN from step 1 (with `sslmode=require`) | `deploy.yml`, `pg_dump_weekly.yml`, `supabase_keepalive.yml` |
-| `RENDER_DEPLOY_HOOK_URL` | URL from step 3 | `deploy.yml` |
-| `DUMP_PASSPHRASE` | Generated in step 4 | `pg_dump_weekly.yml` |
-| `SUPABASE_ACCESS_TOKEN` | Supabase personal access token | Not used by current workflows — reserved for future Supabase-CLI integration |
-
-> **Migration note:** If your GH secrets still use `SUPABASE_DB_URL` (set during the original one-time setup), the workflows read it automatically as a fallback. To complete the rename: add `DATABASE_URL` as a new secret with the same DSN value, then delete `SUPABASE_DB_URL`.
-
-### 6. Trigger the first deploy
-
-Push any commit to `main`, or use the **workflow_dispatch** button on the **Deploy** workflow in the GH Actions UI. `deploy.yml` runs `goose up` then curls the Render hook.
+Each script exits 0 and prints `PASS` on success. If `MCP_AUTH=enabled`, set `MCP_BEARER=<jwt>` in the env before running the smokes (see `scripts/smoke/README.md`).
 
 ---
 
-## What happens on each push to `main`
+## Pointing Claude Code at the server
 
-1. `deploy.yml` checks that `DATABASE_URL` (or the deprecated `SUPABASE_DB_URL` fallback) and `RENDER_DEPLOY_HOOK_URL` are set. If either is missing, the workflow emits a `::warning::` and exits 0 — no deploy.
-2. `goose -dir migrations postgres "$DATABASE_URL" up` runs. Idempotent — "no migrations to run" is a success.
-3. The Render deploy hook is called (`POST`). Render pulls the latest image and deploys it.
-
-Migrations run **before** the deploy hook. If migrations fail, the Render deploy is not triggered.
-
----
-
-## GH secrets reference
-
-| Secret | Workflow(s) | Missing → |
-|---|---|---|
-| `DATABASE_URL` | `deploy.yml`, `pg_dump_weekly.yml`, `supabase_keepalive.yml` | Deploy, backup, and keepalive all skip (or fall back to `SUPABASE_DB_URL` if set) |
-| `RENDER_DEPLOY_HOOK_URL` | `deploy.yml` | Deploy skipped even if migrations succeed |
-| `DUMP_PASSPHRASE` | `pg_dump_weekly.yml` | Weekly backup skipped |
-| `SUPABASE_ACCESS_TOKEN` | (none) | No effect — reserved |
-
-Every workflow has a guard step that exits 0 cleanly when its required secrets are absent. They show as ✓ in the UI with a yellow `::warning::`. This lets the workflows land in the repo before the operator finishes the one-time setup without producing noisy failures.
-
----
-
-## Verifying a deploy worked
-
-### Check the Render dashboard
-
-The latest deploy in the service should show **Live** (green). Render Free cold-starts after 15 min of inactivity; warm requests respond in 1–3 s (Go static binary).
-
-### Curl the health endpoint
-
-```sh
-curl https://<your-render-url>.onrender.com/healthz
-```
-
-After a successful deploy, `https://<your-render-url>.onrender.com/viewer/` shows the KG browser — all active nodes listed by default, with semantic search available via the search input.
-
-
-
-Expect HTTP 200 with `{"status":"ok"}`. A 502 or timeout usually means a cold start in progress — wait 15–30 s and retry.
-
-### Run the smoke tests against the live URL
-
-```sh
-MCP_URL=https://<your-render-url>.onrender.com/mcp bash scripts/smoke/happy_path.sh
-MCP_URL=https://<your-render-url>.onrender.com/mcp bash scripts/smoke/secret_rejected.sh
-MCP_URL=https://<your-render-url>.onrender.com/mcp bash scripts/smoke/size_rejected.sh
-```
-
-Each script exits 0 and prints `PASS` on success.
-
----
-
-## Pointing Claude Code at the Render URL
-
-Add the following to `~/.claude.json` under `mcpServers`, replacing `<your-render-url>` with the Render subdomain:
+Add to `~/.claude.json` under `mcpServers`:
 
 ```json
 {
   "mcpServers": {
     "memory": {
       "type": "http",
-      "url": "https://<your-render-url>.onrender.com/mcp"
+      "url": "https://<your-host>/mcp"
     }
   }
 }
 ```
 
-Restart Claude Code. All 6 MCP tools (`read_graph`, `search_nodes`, `open_nodes`, `create_nodes`, `add_observations`, `create_relations`) will route through the Render-hosted server. On the first call after a cold start, allow up to 30 s for the server to wake.
+With `MCP_AUTH=enabled`, the snippet returned by `/auth/login` also includes the `Authorization: Bearer …` header (see [`auth.md`](auth.md)).
 
-> The server uses the MCP **streamable-http** transport (`POST /mcp`). `type: "http"` is correct; `type: "sse"` is the legacy transport and is not supported.
+The transport is MCP **streamable-http** (`POST /mcp`). `type: "http"` is correct; `type: "sse"` is the legacy transport and is not supported.
 
 ---
 
-## Free-tier operational model
+## Examples per platform
+
+These examples are **equally-weighted**. The repo does not endorse one host over another — pick whichever fits your team's free-tier budget, region requirements, and operational comfort.
+
+### Railway
+
+1. **New project → Deploy from GitHub repo** → select this repo. Railway auto-detects the `Dockerfile`.
+2. **Provision Postgres** as a service in the same project → enable `pgvector` via the Railway shell: `CREATE EXTENSION vector;`. Railway exposes `DATABASE_URL` as a reference variable.
+3. **Set env vars** on the MCP service: `MCP_TRANSPORT=http`, `MCP_AUTH=none` (or `enabled` + the auth vars).
+4. **Expose** port 7654. Railway generates a `*.up.railway.app` URL.
+5. **Healthcheck path**: `/healthz`. **Deploy hook**: Settings → Triggers → Webhook.
+
+### Render
+
+1. **Blueprint** → connect this repo. Render parses the `Dockerfile` and proposes a web service.
+2. **Provision Supabase / Neon / Render Postgres** separately. Copy the DSN into the service's **Environment** tab as `DATABASE_URL`.
+3. **Auth env vars** (if enabled) go in the same Environment tab.
+4. **Deploy hook**: Settings → Deploy Hook → copy the URL. Wire it to `DEPLOY_HOOK_URL` GitHub secret.
+5. Free tier has 15-min cold starts; the Go binary cold-starts in 1–3 s once awake.
+
+### Fly.io
+
+1. `fly launch` from the repo root. Pick the region, accept the `Dockerfile`.
+2. `fly postgres create` (or attach an external Postgres). `fly postgres attach` injects `DATABASE_URL` automatically.
+3. `fly secrets set MCP_TRANSPORT=http MCP_AUTH=enabled MCP_JWT_SECRET=<hex> …` for the rest.
+4. **Healthcheck**: configured in `fly.toml` under `[[http_service.checks]]` with `path = "/healthz"`.
+5. `fly deploy` on every push, or wire `.github/workflows/deploy.yml` with a custom step calling `fly deploy`.
+
+### Coolify (self-hosted)
+
+1. **New Resource → Docker → Dockerfile** → point at this repo. Coolify clones and builds.
+2. **Add a Postgres resource** in the same project. Coolify wires the DSN; enable `pgvector` from the DB shell.
+3. **Environment** tab: set the same env vars as above.
+4. **Healthcheck**: built into the Coolify UI — path `/healthz`.
+5. **Auto-deploy on push** is built in via the Git integration; no separate hook needed.
+
+### Self-hosted Docker (any VPS)
+
+```sh
+# On the VPS:
+docker network create mcp-net
+docker run -d --name pg --network mcp-net \
+  -e POSTGRES_PASSWORD=… \
+  -v pgdata:/var/lib/postgresql/data \
+  pgvector/pgvector:pg16
+
+# Build or pull the image, then:
+docker run -d --name mcp --network mcp-net -p 7654:7654 \
+  -e DATABASE_URL="postgres://postgres:…@pg:5432/postgres?sslmode=disable" \
+  -e MCP_TRANSPORT=http \
+  -e MCP_AUTH=enabled \
+  -e MCP_JWT_SECRET=… \
+  ghcr.io/<your-org>/context-harness-mcp:<tag>
+```
+
+Front with Caddy/Nginx/Traefik for TLS. Pointing Claude Code at `https://<your-domain>/mcp` works identically to a managed host.
+
+---
+
+## Free-tier operational concerns
+
+These apply regardless of platform; the workflows in `.github/workflows/` cover them generically.
 
 ### Weekly backup
 
@@ -154,21 +200,13 @@ Restart Claude Code. All 6 MCP tools (`read_graph`, `search_nodes`, `open_nodes`
 
 The encrypted blob is safe to share; the passphrase is not. After 90 days the artifact auto-deletes — for long-term archival, download and copy to durable storage (S3, Glacier, etc.) manually.
 
-### 6-day keepalive
+### Provider-specific keepalive
 
-`supabase_keepalive.yml` runs every 6 days at 12:00 UTC, executes `SELECT 1`. Supabase Free auto-pauses after 7 days of DB inactivity; the 6-day cadence is a 1-day safety buffer.
+Some free-tier Postgres providers auto-pause after several days of inactivity. `.github/workflows/supabase_keepalive.yml` runs a 6-day `SELECT 1` cron — adapt the schedule to your provider's policy, or delete the workflow if your provider does not auto-pause.
 
 ### Rate limits and client IP
 
-Write tools (`create_nodes`, `add_observations`, `create_relations`) are rate-limited to **10 writes per 10 seconds per client IP**. Render's load balancer correctly forwards the original client IP in the `X-Forwarded-For` header, which the server reads to apply per-IP limits. Reads are unconstrained. See [`docs/mcp-tools.md`](mcp-tools.md#rate-limit) for the full policy.
-
-### Trade-offs (vs paid tier)
-
-- **No PITR.** Recovery window is up to 7 days (one backup cycle). For a tighter RPO, trigger a manual `workflow_dispatch` run of **Weekly pg_dump** before any risky operation.
-- **Cold starts of 15 min.** Render Free spins down idle services. First request after idle takes 15–30 s.
-- **No SLA.** Both Render Free and Supabase Free are best-effort. Real production deployments should sit on paid tiers.
-
-Captured as a `[decisión]` in [`docs/knowledge.md`](knowledge.md): "Costo mensual recurrente $0".
+Write tools are rate-limited to **10 writes per 10 seconds per client identity** (per `sub` claim when authed, per IP otherwise). HTTP hosts typically forward the real client IP via `X-Forwarded-For`; the server reads the leftmost entry. See [`mcp-tools.md`](mcp-tools.md#rate-limit) for the full policy.
 
 ---
 
@@ -185,6 +223,6 @@ Captured as a `[decisión]` in [`docs/knowledge.md`](knowledge.md): "Costo mensu
    psql "$DATABASE_URL" < dump.sql
    ```
 
-> **This OVERWRITES current data.** For partial recovery or when the target DB has diverged, restore into a separate Supabase project first, then selectively copy rows.
+> **This OVERWRITES current data.** For partial recovery or when the target DB has diverged, restore into a separate database first, then selectively copy rows.
 
-For incident-grade recovery procedures (rollback criteria, secret rotation, emergency local fallback), see [`docs/cutover-playbook.md`](cutover-playbook.md).
+For an offline cold-spare while cloud recovery is in progress, see the emergency-fallback procedure in [`local-stack.md`](local-stack.md#emergency-fallback) — run a local pgvector container, restore the latest weekly dump into it, and point team members at `http://localhost:7654/mcp` until the cloud DB is back.

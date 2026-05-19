@@ -5,8 +5,8 @@ import (
 )
 
 // TestEnvOrDefault locks the precedence: env var (non-empty) > fallback.
-// Regression test for the case where hosting platforms (Render, Railway,
-// etc.) set MCP_TRANSPORT / MCP_HTTP_ADDR in env but the binary ignored them.
+// Regression test for the case where container hosting providers set
+// MCP_TRANSPORT / MCP_HTTP_ADDR in env but the binary ignored them.
 func TestEnvOrDefault(t *testing.T) {
 	const key = "CONTEXT_HARNESS_TEST_VAR"
 

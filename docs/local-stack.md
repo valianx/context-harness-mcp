@@ -1,6 +1,8 @@
-# Local Stack — context-harness-mcp Phase 1
+# Local Stack — context-harness-mcp
 
 Runbook for running the MCP server locally via `docker compose`. Covers quick start, DB target configuration, migrations, smoke tests, Claude Code wiring, and troubleshooting.
+
+> **Local mode is a first-class deployment.** The exact same Docker image runs locally and on any container host you choose for cloud/team-shared deployments — see [`deployment.md`](deployment.md). Local mode is the right choice for single-developer setups, dev machines, and fully-trusted environments where `MCP_AUTH=none` is acceptable.
 
 ---
 
@@ -77,10 +79,10 @@ bash scripts/smoke/secret_rejected.sh   # AWS-key observation → policy/secret-
 bash scripts/smoke/size_rejected.sh     # 65KB observation → policy/size-exceeded
 ```
 
-To run against a non-default MCP URL (e.g., Render or a remote dev box):
+To run against a non-default MCP URL (e.g., a remote container host or a dev box):
 
 ```sh
-MCP_URL=https://your-render-url.onrender.com/mcp bash scripts/smoke/happy_path.sh
+MCP_URL=https://your-host.example.com/mcp bash scripts/smoke/happy_path.sh
 ```
 
 Each script exits 0 on success and prints a clear `PASS` or `FAIL` line at the end.
@@ -110,7 +112,7 @@ Restart Claude Code after editing. The `read_graph`, `search_nodes`, `open_nodes
 
 ## Emergency fallback
 
-`docker-compose.yml` does not include a local Postgres service by design (see CHANGELOG.md for the rationale). If your Supabase project is paused or unavailable, you can run a local pgvector container manually as a stop-gap:
+`docker-compose.yml` does not include a local Postgres service by design (see CHANGELOG.md for the rationale). If your remote Postgres provider is paused or unavailable, you can run a local pgvector container manually as a stop-gap:
 
 1. **Start a pgvector container:**
    ```sh
@@ -136,8 +138,6 @@ Restart Claude Code after editing. The `read_graph`, `search_nodes`, `open_nodes
    ```
 
 5. **Redirect team members** to `http://localhost:7654/mcp` while cloud recovery is in progress.
-
-> This procedure is cross-referenced in `docs/cutover-playbook.md` (PR-8), which contains the full emergency-fallback runbook with rollback criteria.
 
 ---
 

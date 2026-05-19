@@ -8,7 +8,7 @@
 
 ## Visión
 
-`context-harness-mcp` es un **producto open source**: cualquier team puede levantar su propia instancia privada (Supabase project + Render deploy, todo en free tier).
+`context-harness-mcp` es un **producto open source**: cualquier team puede levantar su propia instancia privada en cualquier hosting de containers (Railway / Render / Fly / Coolify / self-hosted / etc.) contra cualquier Postgres+pgvector (Supabase, Neon, RDS, propio, …).
 
 Hoy corre como Knowledge Graph compartido sin auth, optimizado para un único operador. La siguiente versión (`v0.2.0`) lo convierte en una **memoria de equipo**: cualquier dev del team que deployó la instancia puede leer/escribir al mismo grafo con su identidad atribuida, con revocación instantánea, y con herramientas que evitan la entropía típica de un KG compartido (conflictos, supersedes, project scoping, sessions).
 

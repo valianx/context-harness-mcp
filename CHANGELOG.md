@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Platform-agnostic positioning refactor**: removed all hosting-provider-specific assumptions from code, config, docs, and KG fixtures. Render is no longer a privileged target — the product is positioned as deployable to any container host (Railway / Render / Fly / Coolify / self-hosted Docker / etc.), with `docker compose up` for local mode as a first-class peer to cloud deployments. ChromaDB / `claude-dev-team`-as-source positioning also removed — `context-harness-mcp` is the standalone memory MCP, not a "replacement for". Concrete changes:
+  - `render.yaml` deleted (no longer needed; operators configure their own platform).
+  - `.github/workflows/deploy.yml` rewritten: `RENDER_DEPLOY_HOOK_URL` → generic `DEPLOY_HOOK_URL` (with backward-compat fallback for one release); deploy hook step skips with a notice when unset (platforms that auto-deploy from git push don't need it).
+  - `docs/deployment.md` rewritten from a Render-specific runbook to a platform-agnostic guide (principles + 5 platform examples at equal weight).
+  - `docs/cutover-playbook.md` deleted (one-time ChromaDB→Postgres migration runbook, obsolete now that the migration is done).
+  - `docs/knowledge.md` appended with `[decisión]` and `[stack]` bullets that supersede the original Render/ChromaDB-locked entries (existing bullets preserved per append-only convention).
+  - `CLAUDE.md` §1/§3/§4 rewritten: "Render Free" → "container hosting (any provider)"; Phase 2 framed as "remote container hosting (operator's choice)".
+  - `README.md` install section repositioned: "Cloud (Render Free + Supabase Free)" → "Cloud (any container hosting + any Postgres+pgvector)". Tagline updated.
+  - `docs/auth.md`, `docs/mcp-tools.md`, `docs/local-stack.md`, `docs/roadmap.md` edited to platform-agnostic prose.
+  - `internal/khctl/seed.go` KG fixtures rewritten: removed `claude-dev-team-kg-stack` and `one-shot-migration-not-dual-write` nodes (obsolete); renamed `render-mcp-service` → `mcp-server-deployment`, `supabase-postgres-service` → `postgres-pgvector-service`, `free-tier-hosting-strategy` → `containerized-deployment-strategy`, `go-over-python-for-mcp-server` → `go-for-mcp-server-runtime`; added new `two-deployment-modes-stack` and `auth-opt-in-via-mcp-auth-env` nodes positioning local + cloud as first-class equals. Relations updated accordingly.
+  - Code comments neutralized in `cmd/server/main.go`, `cmd/server/main_test.go`, `internal/ratelimit/limiter.go`.
 - BREAKING: env var `SUPABASE_DB_URL` renamed to `DATABASE_URL` (industry standard; the server works with any Postgres+pgvector, not specifically Supabase). The server reads `DATABASE_URL` primarily and falls back to `SUPABASE_DB_URL` with a stderr deprecation warning for one release. Operators should rename their secret in their hosting platform (Railway, Render, etc.) and any local `.env` file.
 - `internal/config/dbenv.go` — new shared helper `ResolveDatabaseURL()` used by both `cmd/server` and `cmd/khctl`; reads `DATABASE_URL` with fallback to deprecated `SUPABASE_DB_URL`.
 - `cmd/server/main.go`, `cmd/khctl/dsn.go` — updated to use `config.ResolveDatabaseURL()`; error messages reference `DATABASE_URL`.
