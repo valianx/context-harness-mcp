@@ -213,7 +213,11 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 
 	// /mcp is wrapped by auth.Middleware — when ModeNone it's a no-op pass-through.
 	// Ordering: auth.Middleware → httpServer (MCP handler → Content Filter → DB write).
-	mux.Handle("/mcp", auth.Middleware(authMode, revStore, revocationCache, baseURL, httpServer))
+	// Register both exact "/mcp" and subtree "/mcp/" — Go's ServeMux distinguishes
+	// trailing-slash paths and Claude Code's MCP HTTP transport calls "/mcp/".
+	mcpHandler := auth.Middleware(authMode, revStore, revocationCache, baseURL, httpServer)
+	mux.Handle("/mcp", mcpHandler)
+	mux.Handle("/mcp/", mcpHandler)
 	// Plain HTTP health check consumed by Render and docker-compose healthchecks.
 	// Intentionally returns "db":"not-configured" — a DB ping is not added here
 	// per the anti-scope contract in PR-4.
