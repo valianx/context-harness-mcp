@@ -1,0 +1,43 @@
+name: Users sync (Supabase reconciliation)
+
+on:
+  schedule:
+    # Every 6 hours. Runs as a fallback when webhooks are unavailable —
+    # catches revocations that the Database Webhook missed (e.g., during
+    # pg_net downtime). Max revocation latency in the worst case is 6h
+    # (cron interval) + 1h (cache TTL) ≈ 7h, documented in docs/auth.md.
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Reconcile public.users against Supabase
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build khctl
+        run: go build -o khctl ./cmd/khctl
+
+      - name: Run sync-users
+        # Exit 0 even when sync-users fails (cron resilience).
+        # A warning annotation is emitted but the workflow step succeeds so
+        # GitHub does not send failure emails for transient Supabase API errors.
+        run: |
+          ./khctl sync-users \
+            --dsn "$DATABASE_URL" \
+            --supabase-service-role-key "$SUPABASE_SERVICE_ROLE_KEY" \
+            --supabase-project-url "$SUPABASE_PROJECT_URL" \
+          || echo "::warning::sync-users encountered errors — check logs above for details"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_PROJECT_URL: ${{ secrets.SUPABASE_PROJECT_URL }}

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"expvar"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -199,11 +200,16 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	mux := http.NewServeMux()
 
 	// Unauthenticated routes — registered BEFORE /mcp so they are never gated
-	// by auth.Middleware. Order matters: these three must be reachable without
-	// a bearer token (they ARE the login flow).
+	// by auth.Middleware. Order matters: these must be reachable without a
+	// bearer token (login flow + HMAC-verified webhook).
 	web.RegisterCallback(mux)
 	web.RegisterExchange(mux, pool)
 	web.RegisterLogin(mux)
+	// Webhook is HMAC-verified inside the handler; no bearer token required.
+	// The same revocationCache used by auth.Middleware is passed here so that
+	// a webhook event immediately invalidates the cached revocation state,
+	// reducing effective revocation latency from 1h (TTL) to ~1s.
+	web.RegisterWebhook(mux, pool, revocationCache)
 
 	// /mcp is wrapped by auth.Middleware — when ModeNone it's a no-op pass-through.
 	// Ordering: auth.Middleware → httpServer (MCP handler → Content Filter → DB write).
@@ -216,6 +222,14 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 		fmt.Fprint(w, `{"status":"ok","db":"not-configured"}`)
 	})
 	viewer.Register(mux, pool)
+
+	// /debug/vars exposes the in-memory expvar counters (e.g., webhook metrics).
+	// Disabled by default; enabled when MCP_EXPOSE_EXPVAR=1.
+	// Never expose this on public-facing servers without additional auth.
+	if os.Getenv("MCP_EXPOSE_EXPVAR") == "1" {
+		mux.Handle("/debug/vars", expvar.Handler())
+		slog.Info("expvar endpoint enabled", "path", "/debug/vars")
+	}
 
 	srv := &http.Server{
 		Addr:    addr,

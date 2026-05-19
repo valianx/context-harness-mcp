@@ -33,6 +33,8 @@ func main() {
 		exportCmd(args)
 	case "import":
 		importCmd(args)
+	case "sync-users":
+		syncUsersCmd(args)
 	case "help", "--help", "-h":
 		printUsage()
 		os.Exit(0)
@@ -55,11 +57,14 @@ Usage:
   khctl <subcommand> [flags]
 
 Subcommands:
-  seed   [--dsn URL] [--reset]    Insert deterministic dev fixtures (idempotent).
-                                   --reset truncates nodes/observations/relations first.
-  export [--dsn URL] [--out PATH] Export active KG to JSON. --out - or omit → stdout.
-  import [INPUT] [--dsn URL]      Import KG JSON into Postgres (idempotent merge).
-                                   INPUT is a file path; use - for stdin.
+  seed       [--dsn URL] [--reset]              Insert deterministic dev fixtures (idempotent).
+                                                --reset truncates nodes/observations/relations first.
+  export     [--dsn URL] [--out PATH]           Export active KG to JSON. --out - or omit → stdout.
+  import     [INPUT] [--dsn URL]                Import KG JSON into Postgres (idempotent merge).
+                                                INPUT is a file path; use - for stdin.
+  sync-users [--dsn URL]                        Reconcile public.users against Supabase Admin API.
+             [--supabase-service-role-key KEY]  Defaults to $SUPABASE_SERVICE_ROLE_KEY.
+             [--supabase-project-url URL]       Defaults to $SUPABASE_PROJECT_URL.
 
 Flags (shared):
   --dsn URL   Postgres DSN. Defaults to $DATABASE_URL (falls back to $SUPABASE_DB_URL for one release).
