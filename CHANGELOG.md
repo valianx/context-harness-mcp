@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `migrations/00004_auth_users.sql` + `migrations/00005_attribution.sql` — nueva tabla `users` (rastrea identidad de usuarios Supabase, `revoked_at` para revocación) y columnas UUID `created_by_user_id` + text `created_by_email` nullable en `nodes`/`observations`/`relations` (atribución; FK con `ON DELETE SET NULL` preserva el audit trail cuando se elimina un usuario). Índices parciales para el hot path de usuarios activos y lookups de atribución por tabla.
+
 - `docs/roadmap.md` — v0.2.0 roadmap covering team-features evolution: Supabase Auth + JWT-based bearer with webhook-driven revocation (Phase 0), `update_observations`/`stats`/`timeline`/`doctor` tools (Phase 1), optional `project_id` scoping (Phase 2), semantic conflict detection via pgvector with `supersedes`/`conflicts_with` relations (Phase 3), sessions + passive capture hooks (Phase 4), and operational polish (Phase 5). Framed as open-source product deployable as single-tenant private instance.
 - `cmd/khctl/` — Go binary (`khctl`) with three subcommands (`seed`, `export`, `import`) replacing the deleted Python migration scripts. Built with `CGO_ENABLED=0` (portable static binary, no ONNX dependency). `seed` populates ≥20 fixture nodes across ≥5 types with ≥3 observations each; `export` dumps active KG content to JSON; `import` loads JSON and accepts both `{"nodes":[...]}` and legacy `{"entities":[...]}` shapes. Baked into the Docker image at `/usr/local/bin/khctl`.
 - `internal/khctl/` — exported package containing the core logic for seed, export, and import operations, enabling direct function calls from integration tests without `os/exec`.
