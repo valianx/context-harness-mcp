@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	github.com/anush008/fastembed-go v1.0.0
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/mark3labs/mcp-go v0.47.1
 	github.com/pgvector/pgvector-go v0.2.2

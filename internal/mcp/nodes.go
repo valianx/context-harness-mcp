@@ -282,29 +282,48 @@ func (e *nodeNotFoundError) Error() string {
 	return fmt.Sprintf("node not found: %s", e.name)
 }
 
-// checkRateLimit reads the client IP from ctx and checks the write-tool rate
-// limit. Returns a non-nil *mcp.CallToolResult (IsError=true) when the IP is
-// over quota, or nil when the call is allowed to proceed.
+// checkRateLimit reads the rate-limit key from ctx and checks the write-tool
+// budget. Key selection priority:
+//  1. sub claim (JWT-authenticated HTTP request) — per-user bucket.
+//  2. IP address (unauthenticated HTTP request) — per-IP bucket.
+//  3. Neither present (stdio transport) — use the process-wide stdio bucket.
 //
-// When limiter is nil or the context carries no IP (stdio transport), rate
-// limiting is skipped and nil is returned.
+// Returns a non-nil *mcp.CallToolResult (IsError=true) when the caller is
+// over quota, or nil when the call is allowed to proceed.
 func checkRateLimit(ctx context.Context, limiter *ratelimit.Limiter) *mcplib.CallToolResult {
 	if limiter == nil {
 		return nil
 	}
-	ip := ratelimit.IPFromContext(ctx)
-	if ip == "" {
-		// stdio transport — no IP, no rate limit.
-		return nil
+
+	// Prefer sub over IP for HTTP requests so per-user budgets are independent
+	// of IP sharing (e.g. multiple users behind the same NAT gateway).
+	key := ratelimit.SubFromContext(ctx)
+	if key == "" {
+		key = ratelimit.IPFromContext(ctx)
 	}
-	allowed, retryAfter := limiter.Allow(ip)
+
+	if key == "" {
+		// stdio transport — check the process-wide stdio bucket instead.
+		bucket := ratelimit.InitStdio()
+		allowed, retryAfter := bucket.Allow()
+		if allowed {
+			return nil
+		}
+		return rateLimitResult(int(math.Ceil(retryAfter.Seconds())))
+	}
+
+	allowed, retryAfter := limiter.Allow(key)
 	if allowed {
 		return nil
 	}
-	retrySecs := int(math.Ceil(retryAfter.Seconds()))
+	return rateLimitResult(int(math.Ceil(retryAfter.Seconds())))
+}
+
+// rateLimitResult returns a structured rate-limit error result.
+func rateLimitResult(retrySecs int) *mcplib.CallToolResult {
 	payload, _ := json.Marshal(map[string]any{
 		"code":                validate.CodeRateLimited,
-		"message":             fmt.Sprintf("Demasiadas escrituras desde esta IP. Reintentar en %d segundos.", retrySecs),
+		"message":             fmt.Sprintf("Demasiadas escrituras. Reintentar en %d segundos.", retrySecs),
 		"layer":               validate.LayerRateLimit,
 		"retry_after_seconds": retrySecs,
 	})

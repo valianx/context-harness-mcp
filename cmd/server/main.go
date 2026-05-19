@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
 	"github.com/mariogutierrez/context-harness-mcp/internal/config"
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
@@ -61,6 +62,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Parse MCP_AUTH before doing any other work so a misconfigured value
+	// fails fast at boot with a clear message (AC-10).
+	authMode, err := auth.ParseMode()
+	if err != nil {
+		slog.Error("invalid MCP_AUTH value", "error", err)
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		os.Exit(1)
+	}
+
+	// Fail fast when MCP_AUTH=enabled but MCP_JWT_SECRET is absent.
+	// Never allow the server to boot in auth-enabled mode without a secret.
+	if authMode == auth.ModeEnabled {
+		if os.Getenv("MCP_JWT_SECRET") == "" {
+			slog.Error("MCP_JWT_SECRET must be set when MCP_AUTH=enabled")
+			fmt.Fprintln(os.Stderr, "error: MCP_JWT_SECRET is required when MCP_AUTH=enabled — generate a 32+ byte hex secret and set it")
+			os.Exit(1)
+		}
+	}
+
 	dsn := config.ResolveDatabaseURL()
 	if dsn == "" {
 		slog.Error("DATABASE_URL environment variable is required but not set")
@@ -78,9 +98,12 @@ func main() {
 	defer pool.Close()
 
 	// The rate limiter is shared across all write-tool registrations.
-	// It is non-nil for both stdio and http transports — tool handlers skip
-	// rate-limiting when the context carries no IP (stdio path).
+	// It is non-nil for both stdio and http transports.
 	limiter := ratelimit.New()
+
+	// Initialize the process-wide stdio token bucket from MCP_STDIO_RATE_LIMIT.
+	// Must happen before any tool handler runs so the bucket is ready on first call.
+	ratelimit.InitStdio()
 
 	s := internalmcp.New(pool, limiter)
 
@@ -88,7 +111,10 @@ func main() {
 	case "stdio":
 		runStdio(s)
 	case "http":
-		runHTTP(s, *addr, pool, limiter)
+		// Emit a soft-guard warning when running HTTP with auth disabled against
+		// a remote DB (R10 — makes it impossible to miss auth being off in prod).
+		auth.WarnIfDisabled(authMode, "http", dsn)
+		runHTTP(s, *addr, pool, limiter, authMode)
 	default:
 		slog.Error("unknown transport", "transport", *transport)
 		fmt.Fprintf(os.Stderr, "error: unknown transport %q — use stdio or http\n", *transport)
@@ -124,20 +150,55 @@ func configureSecretMode() error {
 	return nil
 }
 
-func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *ratelimit.Limiter) {
+// revocationStoreAdapter wraps *pgxpool.Pool to satisfy auth.RevocationStore.
+// It queries public.users for the revoked_at column using a parameterized query.
+type revocationStoreAdapter struct {
+	pool *pgxpool.Pool
+}
+
+// GetRevoked returns true when the user identified by sub has a non-null
+// revoked_at timestamp in the public.users table.
+func (a *revocationStoreAdapter) GetRevoked(sub string) (bool, error) {
+	var revoked bool
+	err := a.pool.QueryRow(
+		context.Background(),
+		"SELECT revoked_at IS NOT NULL FROM users WHERE supabase_user_id = $1",
+		sub,
+	).Scan(&revoked)
+	if err != nil {
+		// User not found in local users table → treat as not revoked.
+		// This can happen for valid tokens issued before the user row was created,
+		// which should not occur post-PR-3, but we fail open to avoid DOS.
+		return false, nil
+	}
+	return revoked, nil
+}
+
+func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *ratelimit.Limiter, authMode auth.Mode) {
 	// WithHTTPContextFunc extracts the client IP from each incoming HTTP request
 	// and injects it into the request context so tool handlers can read it for
 	// rate-limit decisions without importing net/http directly.
 	httpServer := mcpserver.NewStreamableHTTPServer(s,
 		mcpserver.WithHTTPContextFunc(func(ctx context.Context, r *http.Request) context.Context {
 			ip := ratelimit.ExtractClientIP(r)
-			return ratelimit.ContextWithIP(ctx, ip)
+			ctx = ratelimit.ContextWithIP(ctx, ip)
+			// Propagate authenticated sub into the MCP tool context so the
+			// rate limiter can key by sub rather than IP when auth is enabled.
+			if sub := auth.UserIDFromContext(r.Context()); sub != "" {
+				ctx = ratelimit.ContextWithSub(ctx, sub)
+			}
+			return ctx
 		}),
 	)
 
+	revocationCache := auth.NewRevocationCache()
+	revStore := &revocationStoreAdapter{pool: pool}
+	baseURL := os.Getenv("MCP_PUBLIC_URL")
+
 	mux := http.NewServeMux()
-	// MCP streamable-http endpoint
-	mux.Handle("/mcp", httpServer)
+	// /mcp is wrapped by auth.Middleware — when ModeNone it's a no-op pass-through.
+	// Ordering: auth.Middleware → httpServer (MCP handler → Content Filter → DB write).
+	mux.Handle("/mcp", auth.Middleware(authMode, revStore, revocationCache, baseURL, httpServer))
 	// Plain HTTP health check consumed by Render and docker-compose healthchecks.
 	// Intentionally returns "db":"not-configured" — a DB ping is not added here
 	// per the anti-scope contract in PR-4.
@@ -152,7 +213,7 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 		Handler: mux,
 	}
 
-	slog.Info("starting MCP server", "transport", "http", "addr", addr)
+	slog.Info("starting MCP server", "transport", "http", "addr", addr, "auth_mode", authMode)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("http server error", "error", err)
 		os.Exit(1)
