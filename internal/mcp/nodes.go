@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
+	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
 	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
@@ -78,7 +79,8 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			return verr.ToMCPResult(), nil
 		}
 
-		createdNodes, createdObs, err := execCreateNodes(ctx, pool, args.Nodes)
+		userID, email := attributionFromContext(ctx)
+		createdNodes, createdObs, err := execCreateNodes(ctx, pool, args.Nodes, userID, email)
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
@@ -90,7 +92,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 	}
 }
 
-func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNodeInput) (int, int, error) {
+func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNodeInput, userID, email *string) (int, int, error) {
 	// Collect all observation texts for batch embedding before opening any Tx.
 	// This ensures a model failure does not waste a DB transaction.
 	var allObs []obsRef
@@ -115,7 +117,7 @@ func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNode
 
 	createdNodes, createdObs := 0, 0
 	for ni, n := range nodes {
-		id, err := store.Create(ctx, tx, n.Name, n.NodeType)
+		id, err := store.Create(ctx, tx, n.Name, n.NodeType, userID, email)
 		if err != nil {
 			return 0, 0, fmt.Errorf("create node %q: %w", n.Name, err)
 		}
@@ -123,7 +125,7 @@ func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNode
 
 		for oi, obsText := range n.Observations {
 			vec := embeddingsByObs[[2]int{ni, oi}]
-			_, inserted, err := store.Insert(ctx, tx, id, obsText, vec)
+			_, inserted, err := store.Insert(ctx, tx, id, obsText, vec, userID, email)
 			if err != nil {
 				return 0, 0, fmt.Errorf("insert observation for %q: %w", n.Name, err)
 			}
@@ -213,7 +215,8 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			}
 		}
 
-		added, err := execAddObservations(ctx, pool, args.Observations)
+		userID, email := attributionFromContext(ctx)
+		added, err := execAddObservations(ctx, pool, args.Observations, userID, email)
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
@@ -222,7 +225,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 	}
 }
 
-func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObsInput) (int, error) {
+func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObsInput, userID, email *string) (int, error) {
 	// Collect and truncate all texts; batch-encode before opening any Tx.
 	var allObs []obsRef
 	for ii, item := range items {
@@ -256,7 +259,7 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 
 		for oi, text := range item.Contents {
 			vec := embeddingsByObs[[2]int{ii, oi}]
-			_, inserted, err := store.Insert(ctx, tx, id, text, vec)
+			_, inserted, err := store.Insert(ctx, tx, id, text, vec, userID, email)
 			if err != nil {
 				return 0, fmt.Errorf("insert observation for %q: %w", item.NodeName, err)
 			}
@@ -270,6 +273,19 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────
+
+// attributionFromContext extracts the optional user attribution from ctx.
+// Returns (nil, nil) when no user is authenticated (stdio path, MCP_AUTH=none),
+// which maps directly to SQL NULL on the nullable attribution columns.
+func attributionFromContext(ctx context.Context) (userID, email *string) {
+	if sub := auth.UserIDFromContext(ctx); sub != "" {
+		userID = &sub
+	}
+	if em := auth.EmailFromContext(ctx); em != "" {
+		email = &em
+	}
+	return userID, email
+}
 
 // nodeNotFoundError is returned by add_observations when a node name cannot be
 // resolved. It is treated as a non-policy error (no Content Filter involvement)
