@@ -10,11 +10,11 @@
 #
 # Usage:
 #   bash scripts/smoke/happy_path.sh
-#   MCP_URL=http://localhost:8080/mcp bash scripts/smoke/happy_path.sh
+#   MCP_URL=http://localhost:7654/mcp bash scripts/smoke/happy_path.sh
 
 set -e
 
-MCP_URL="${MCP_URL:-http://localhost:8080/mcp}"
+MCP_URL="${MCP_URL:-http://localhost:7654/mcp}"
 NODE_NAME="smoke-test-node-$(date +%s)"
 
 fail() {

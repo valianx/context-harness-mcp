@@ -7,9 +7,11 @@ Render deployment of `context-harness-mcp`.
 An operator who has this repo cloned and the relevant secrets at hand should
 be able to execute the flag-day cutover end-to-end from this document alone.
 
-**Prerequisites:** `uv` installed, `gh` CLI authenticated, `psql` reachable,
+**Prerequisites:** `gh` CLI authenticated, `psql` reachable,
 `docker` reachable (for the emergency fallback), `SUPABASE_DB_URL` exported in
-your shell.
+your shell. The `khctl` binary is available inside the Docker image —
+invoke it via `docker compose exec mcp khctl <subcommand>` or from the
+host if built locally with `go build ./cmd/khctl`.
 
 ---
 
@@ -23,14 +25,14 @@ your shell.
    full sprint (CI runs against the docker-compose stack; smoke tests pass;
    team members have used the local stack for daily work). Deploy
    `context-harness-mcp` to the Render service URL (Phase 2). Run
-   `scripts/import_to_supabase.py` against a recent export. Smoke-test the 6
-   tools from a scratch `~/.claude.json` pointing at the URL.
+   `docker compose exec mcp khctl import <file>` against a recent export.
+   Smoke-test the 6 tools from a scratch `~/.claude.json` pointing at the URL.
 
 2. **Freeze (T-0, ~10 min):** Each team member exports their local Chroma via
    `uv run --directory ~/.claude/knowledge-graph python export.py --out /tmp/pre-cutover-$(hostname).json`
    and shares to `claude-dev-team/shared-knowledge/`.
 
-3. **Merge & seed:** Designated operator runs `scripts/import_to_supabase.py`
+3. **Merge & seed:** Designated operator runs `docker compose exec mcp khctl import`
    on each pre-cutover JSON in chronological order against prod Supabase.
    Idempotent merge: existing node → observations appended with dedup; new
    node → created.
@@ -75,9 +77,9 @@ Run through every item. Do not proceed to flag day if any item fails.
   - `pg_dump_weekly.yml` — last Sunday run green, artifact available.
   - `supabase_keepalive.yml` — last 6-day run green.
 
-- [ ] `uv` is installed on the operator machine:
+- [ ] `khctl` is reachable via Docker (the binary is baked into the image):
   ```bash
-  uv --version   # expect 0.x.y
+  docker compose exec mcp khctl help   # expect usage output
   ```
 
 - [ ] All team members have been notified of the upcoming cutover window.
@@ -121,13 +123,14 @@ uv run --directory ~/.claude/knowledge-graph python export.py \
 Each member drops their JSON into `claude-dev-team/shared-knowledge/` and
 pushes / shares it with the designated operator.
 
-The operator runs `import_to_supabase.py` once per JSON, in chronological
-order (oldest export first):
+The operator runs `khctl import` once per JSON, in chronological order
+(oldest export first). The import accepts both `{"nodes":[...]}` and the
+legacy `{"entities":[...]}` shape produced by older ChromaDB exports:
 
 ```bash
 for f in /path/to/shared-knowledge/pre-cutover-*.json; do
   echo "=== Importing $f ==="
-  uv run scripts/import_to_supabase.py "$f" --dsn "$SUPABASE_DB_URL"
+  docker compose exec mcp khctl import "$f"
 done
 ```
 
@@ -141,9 +144,7 @@ Re-running the same file is safe — deduped counts absorb duplicates.
 ### Step 4 — Spot-check the import
 
 ```bash
-uv run scripts/export_from_supabase.py \
-  --dsn "$SUPABASE_DB_URL" \
-  --output /tmp/post-import.json
+docker compose exec mcp khctl export --output /tmp/post-import.json
 ```
 
 Eyeball the top-level counts:
@@ -393,7 +394,7 @@ used in production is used here — no code changes needed.
    docker compose up -d
    ```
 
-   The MCP server is now reachable at `http://localhost:8080/mcp` on the
+   The MCP server is now reachable at `http://localhost:7654/mcp` on the
    fallback host.
 
 6. **Redirect team members** to the fallback host's MCP URL. Each developer
@@ -404,7 +405,7 @@ used in production is used here — no code changes needed.
      "mcpServers": {
        "memory": {
          "type": "http",
-         "url": "http://<fallback-host-ip>:8080/mcp"
+         "url": "http://<fallback-host-ip>:7654/mcp"
        }
      }
    }
@@ -421,13 +422,12 @@ used in production is used here — no code changes needed.
 
    ```bash
    # Export from the local Postgres (captures writes made during the outage)
-   uv run scripts/export_from_supabase.py \
-     --dsn "postgres://postgres:devpw@localhost:5433/postgres?sslmode=disable" \
-     --output /tmp/outage-export.json
+   SUPABASE_DB_URL="postgres://postgres:devpw@localhost:5433/postgres?sslmode=disable" \
+   docker compose exec mcp khctl export --output /tmp/outage-export.json
 
-   # Import back into Supabase
-   uv run scripts/import_to_supabase.py /tmp/outage-export.json \
-     --dsn "$SUPABASE_DB_URL"
+   # Import back into production Supabase
+   SUPABASE_DB_URL="$SUPABASE_DB_URL" \
+   docker compose exec mcp khctl import /tmp/outage-export.json
    ```
 
    Flip team members back to the Render URL and tear down the local stack:

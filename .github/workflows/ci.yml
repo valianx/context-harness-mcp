@@ -95,7 +95,7 @@ jobs:
             > docker-compose.override.yml
 
       - name: Start mcp service and wait for healthy
-        # The healthcheck in docker-compose.yml (curl -fsSL http://localhost:8080/healthz)
+        # The healthcheck in docker-compose.yml (curl -fsSL http://localhost:7654/healthz)
         # must pass before --wait returns. SUPABASE_DB_URL points the mcp container at
         # the host's service-container Postgres via host.docker.internal.
         env:
@@ -104,17 +104,17 @@ jobs:
 
       - name: Smoke test — happy path
         env:
-          MCP_URL: http://localhost:8080/mcp
+          MCP_URL: http://localhost:7654/mcp
         run: bash scripts/smoke/happy_path.sh
 
       - name: Smoke test — secret rejected
         env:
-          MCP_URL: http://localhost:8080/mcp
+          MCP_URL: http://localhost:7654/mcp
         run: bash scripts/smoke/secret_rejected.sh
 
       - name: Smoke test — size rejected
         env:
-          MCP_URL: http://localhost:8080/mcp
+          MCP_URL: http://localhost:7654/mcp
         run: bash scripts/smoke/size_rejected.sh
 
       - name: Tear down

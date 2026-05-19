@@ -12,16 +12,16 @@
 services:
   mcp:
     build: .
-    command: ["-transport=http", "-addr=:8080"]
+    command: ["-transport=http", "-addr=:7654"]
     ports:
-      - "8080:8080"
+      - "7654:7654"
     environment:
       SUPABASE_DB_URL: "${SUPABASE_DB_URL:?SUPABASE_DB_URL is required — copy .env.example to .env and set it}"
       MCP_TRANSPORT: http
-      MCP_HTTP_ADDR: ":8080"
+      MCP_HTTP_ADDR: ":7654"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
     healthcheck:
-      test: ["CMD", "curl", "-fsSL", "http://localhost:8080/healthz"]
+      test: ["CMD", "curl", "-fsSL", "http://localhost:7654/healthz"]
       interval: 10s
       timeout: 3s
       retries: 5

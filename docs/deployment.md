@@ -6,7 +6,7 @@ Phase 2 of the deployment model: the same Docker image validated by Phase 1 (`do
 
 | Component | Where | Purpose |
 |---|---|---|
-| `mcp` container | Render Free (web service, Oregon region) | Runs the Go server, listens on `:8080`, serves `/mcp` (MCP streamable-http) and `/healthz`. |
+| `mcp` container | Render Free (web service, Oregon region) | Runs the Go server, listens on `:7654`, serves `/mcp` (MCP streamable-http) and `/healthz`. |
 | Postgres + pgvector | Supabase Free | The actual KG storage. Schema lives in `migrations/`, applied by goose. |
 | Continuous Deploy | `.github/workflows/deploy.yml` | On every push to `main`: `goose -dir migrations postgres "$SUPABASE_DB_URL" up`, then curl the Render deploy hook. |
 | Weekly backup | `.github/workflows/pg_dump_weekly.yml` | Sundays 03:00 UTC: `pg_dump` → `gpg --symmetric` (AES-256) → upload as GH Actions artifact, 90-day retention. |

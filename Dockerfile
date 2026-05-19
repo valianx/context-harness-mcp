@@ -10,6 +10,8 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=1 go build -ldflags="-s -w" -o /out/server ./cmd/server
+# khctl does not need CGO (no ONNX bindings) — build as a portable static binary.
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/khctl ./cmd/khctl
 
 # Stage 2: build the goose migration binary.
 # Runs as a separate stage so the goose download is cached independently of
@@ -51,6 +53,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy binaries from builder stages.
 COPY --from=builder /out/server /usr/local/bin/server
+COPY --from=builder /out/khctl /usr/local/bin/khctl
 COPY --from=goose-builder /go/bin/goose /usr/local/bin/goose
 
 # Bake the migrations directory so the `migrate` compose profile can run
@@ -79,6 +82,6 @@ RUN curl -fsSL \
 
 # Default to stdio transport; docker-compose and Render override via CMD or
 # environment variables passed at run time.
-EXPOSE 8080
+EXPOSE 7654
 ENTRYPOINT ["/usr/local/bin/server"]
 CMD ["-transport=stdio"]

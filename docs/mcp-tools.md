@@ -202,7 +202,7 @@ Hard deletes are operator-only via Supabase Studio. All rows retain `deleted_at`
 Plain HTTP health check. Returned by `GET /healthz` (not over the MCP protocol).
 
 ```sh
-curl http://localhost:8080/healthz
+curl http://localhost:7654/healthz
 ```
 
 ```json
