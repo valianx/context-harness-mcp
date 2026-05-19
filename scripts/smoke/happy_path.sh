@@ -6,7 +6,7 @@
 #
 # Note: delete_nodes is not exposed as an MCP tool (admin-script only).
 # Clean up test nodes with:
-#   psql $SUPABASE_DB_URL -c "UPDATE nodes SET deleted_at=now() WHERE name LIKE 'smoke-test-%'"
+#   psql $DATABASE_URL -c "UPDATE nodes SET deleted_at=now() WHERE name LIKE 'smoke-test-%'"
 #
 # Usage:
 #   bash scripts/smoke/happy_path.sh

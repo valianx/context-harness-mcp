@@ -1,5 +1,5 @@
 # Phase 1 local stack — runs ONLY the mcp service against any reachable Postgres.
-# No local Postgres: dev, CI, and prod all share a DSN via SUPABASE_DB_URL.
+# No local Postgres: dev, CI, and prod all share a DSN via DATABASE_URL.
 # Migrations are an opt-in profile (one-shot sidecar; runs goose against the DB).
 #
 # Usage:
@@ -7,7 +7,8 @@
 #   docker compose --profile migrate run --rm migrate         # apply goose migrations
 #
 # Required env var (set in .env from .env.example):
-#   SUPABASE_DB_URL — full Postgres connection string
+#   DATABASE_URL — full Postgres connection string
+#   (SUPABASE_DB_URL is accepted as a deprecated fallback for one release)
 
 services:
   mcp:
@@ -16,7 +17,7 @@ services:
     ports:
       - "7654:7654"
     environment:
-      SUPABASE_DB_URL: "${SUPABASE_DB_URL:?SUPABASE_DB_URL is required — copy .env.example to .env and set it}"
+      DATABASE_URL: "${DATABASE_URL:-${SUPABASE_DB_URL:?DATABASE_URL is required — copy .env.example to .env and set it}}"
       MCP_TRANSPORT: http
       MCP_HTTP_ADDR: ":7654"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
@@ -34,7 +35,7 @@ services:
     command:
       - "-dir=/migrations"
       - "postgres"
-      - "${SUPABASE_DB_URL:?SUPABASE_DB_URL is required for migrations}"
+      - "${DATABASE_URL:-${SUPABASE_DB_URL:?DATABASE_URL is required for migrations}}"
       - "up"
     # migrations/ is baked into the image at /migrations (see Dockerfile COPY --from=builder).
     # No host bind-mount needed — the same image works on Render and locally.

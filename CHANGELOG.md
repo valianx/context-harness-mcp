@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- BREAKING: env var `SUPABASE_DB_URL` renamed to `DATABASE_URL` (industry standard; the server works with any Postgres+pgvector, not specifically Supabase). The server reads `DATABASE_URL` primarily and falls back to `SUPABASE_DB_URL` with a stderr deprecation warning for one release. Operators should rename their secret in their hosting platform (Railway, Render, etc.) and any local `.env` file.
+- `internal/config/dbenv.go` — new shared helper `ResolveDatabaseURL()` used by both `cmd/server` and `cmd/khctl`; reads `DATABASE_URL` with fallback to deprecated `SUPABASE_DB_URL`.
+- `cmd/server/main.go`, `cmd/khctl/dsn.go` — updated to use `config.ResolveDatabaseURL()`; error messages reference `DATABASE_URL`.
+- `docker-compose.yml` — env var pass-through updated to `DATABASE_URL` with backward-compat fallback to `SUPABASE_DB_URL` for one release.
+- `render.yaml` — `SUPABASE_DB_URL` env var key renamed to `DATABASE_URL`.
+- `.env.example` — `SUPABASE_DB_URL` renamed to `DATABASE_URL`; comment block updated to explain provider-agnostic scope and backward-compat.
+- `.github/workflows/deploy.yml`, `pg_dump_weekly.yml`, `supabase_keepalive.yml` — secrets fallback expression `${{ secrets.DATABASE_URL != '' && secrets.DATABASE_URL || secrets.SUPABASE_DB_URL }}` so existing GH secrets keep working until operators rename them.
+- `.github/workflows/ci.yml` — `SUPABASE_DB_URL` test env renamed to `DATABASE_URL`.
+- `docs/deployment.md`, `docs/local-stack.md`, `docs/cutover-playbook.md`, `docs/knowledge.md` — all references updated; backward-compat notes and migration guidance added.
+- `README.md`, `CLAUDE.md` §1/§3/§4 — `SUPABASE_DB_URL` references renamed.
+
+### Deprecated
+
+- `SUPABASE_DB_URL` env var. Accepted as fallback with stderr warning for one release; will be removed in v2.0. Use `DATABASE_URL` instead.
+
 ### Added
 
 - `cmd/khctl/` — Go binary (`khctl`) with three subcommands (`seed`, `export`, `import`) replacing the deleted Python migration scripts. Built with `CGO_ENABLED=0` (portable static binary, no ONNX dependency). `seed` populates ≥20 fixture nodes across ≥5 types with ≥3 observations each; `export` dumps active KG content to JSON; `import` loads JSON and accepts both `{"nodes":[...]}` and legacy `{"entities":[...]}` shapes. Baked into the Docker image at `/usr/local/bin/khctl`.

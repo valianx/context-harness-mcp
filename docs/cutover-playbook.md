@@ -8,10 +8,11 @@ An operator who has this repo cloned and the relevant secrets at hand should
 be able to execute the flag-day cutover end-to-end from this document alone.
 
 **Prerequisites:** `gh` CLI authenticated, `psql` reachable,
-`docker` reachable (for the emergency fallback), `SUPABASE_DB_URL` exported in
-your shell. The `khctl` binary is available inside the Docker image —
-invoke it via `docker compose exec mcp khctl <subcommand>` or from the
-host if built locally with `go build ./cmd/khctl`.
+`docker` reachable (for the emergency fallback), `DATABASE_URL` exported in
+your shell (or `SUPABASE_DB_URL` as a deprecated fallback for one release). The
+`khctl` binary is available inside the Docker image — invoke it via
+`docker compose exec mcp khctl <subcommand>` or from the host if built locally
+with `go build ./cmd/khctl`.
 
 ---
 
@@ -263,7 +264,7 @@ This step is optional because the next import attempt will be idempotent.
 Run it only if you want a clean target for the next attempt:
 
 ```bash
-psql "$SUPABASE_DB_URL" -c "
+psql "$DATABASE_URL" -c "
   TRUNCATE TABLE relations, observations, nodes RESTART IDENTITY CASCADE;
 "
 ```
@@ -277,9 +278,9 @@ estimated timeline for a re-attempt.
 
 ## §5 Secret Rotation Runbook
 
-### Rotating `SUPABASE_DB_URL`
+### Rotating `DATABASE_URL`
 
-The `SUPABASE_DB_URL` contains the Postgres password. Rotate when the
+The `DATABASE_URL` contains the Postgres password. Rotate when the
 password is compromised or as part of a scheduled rotation.
 
 1. In the Supabase dashboard: **Project Settings → Database → Reset database password**.
@@ -287,13 +288,17 @@ password is compromised or as part of a scheduled rotation.
 2. Construct the new DSN: `postgres://postgres:<new-password>@<host>:5432/postgres`.
 3. Update the GitHub secret:
    ```bash
-   gh secret set SUPABASE_DB_URL --body "postgres://postgres:<new-password>@..." \
+   gh secret set DATABASE_URL --body "postgres://postgres:<new-password>@..." \
      --repo valianx/context-harness-mcp
    ```
 4. Update the Render environment variable: **Render dashboard → Service → Environment →
-   `SUPABASE_DB_URL`** → Edit → Save. Render auto-redeploys on env-var change.
+   `DATABASE_URL`** → Edit → Save. Render auto-redeploys on env-var change.
 5. Verify the next `deploy.yml` run succeeds (goose up + deploy hook).
 6. Verify the next `pg_dump_weekly.yml` run produces a valid artifact.
+
+> **Legacy note:** If you still have `SUPABASE_DB_URL` as a GH secret and Render env var,
+> update those too. The server reads `DATABASE_URL` first; `SUPABASE_DB_URL` is a deprecated
+> fallback (removed in v2.0).
 
 ### Rotating `DUMP_PASSPHRASE`
 
@@ -390,7 +395,7 @@ used in production is used here — no code changes needed.
 5. **Start the MCP server** against the local Postgres:
 
    ```bash
-   SUPABASE_DB_URL="postgres://postgres:devpw@localhost:5433/postgres?sslmode=disable" \
+   DATABASE_URL="postgres://postgres:devpw@localhost:5433/postgres?sslmode=disable" \
    docker compose up -d
    ```
 
@@ -422,11 +427,11 @@ used in production is used here — no code changes needed.
 
    ```bash
    # Export from the local Postgres (captures writes made during the outage)
-   SUPABASE_DB_URL="postgres://postgres:devpw@localhost:5433/postgres?sslmode=disable" \
+   DATABASE_URL="postgres://postgres:devpw@localhost:5433/postgres?sslmode=disable" \
    docker compose exec mcp khctl export --output /tmp/outage-export.json
 
    # Import back into production Supabase
-   SUPABASE_DB_URL="$SUPABASE_DB_URL" \
+   DATABASE_URL="$DATABASE_URL" \
    docker compose exec mcp khctl import /tmp/outage-export.json
    ```
 

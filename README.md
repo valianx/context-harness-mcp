@@ -19,7 +19,7 @@ You need Docker and a reachable Postgres with the `pgvector` extension. The easi
 git clone https://github.com/valianx/context-harness-mcp
 cd context-harness-mcp
 cp .env.example .env
-# Edit .env and set SUPABASE_DB_URL to your Postgres DSN.
+# Edit .env and set DATABASE_URL to your Postgres DSN.
 
 docker compose --profile migrate run --rm migrate   # apply schema (one-time)
 docker compose up                                    # start the server

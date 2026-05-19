@@ -13,7 +13,7 @@ import (
 // exportCmd implements the `khctl export` subcommand.
 func exportCmd(args []string) {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
-	dsnFlag := fs.String("dsn", "", "Postgres DSN (defaults to $SUPABASE_DB_URL)")
+	dsnFlag := fs.String("dsn", "", "Postgres DSN (defaults to $DATABASE_URL)")
 	outFlag := fs.String("out", "-", "Output file path (- or omit → stdout)")
 	_ = fs.Parse(args)
 

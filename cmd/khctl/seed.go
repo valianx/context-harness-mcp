@@ -13,7 +13,7 @@ import (
 // seedCmd implements the `khctl seed` subcommand.
 func seedCmd(args []string) {
 	fs := flag.NewFlagSet("seed", flag.ExitOnError)
-	dsnFlag := fs.String("dsn", "", "Postgres DSN (defaults to $SUPABASE_DB_URL)")
+	dsnFlag := fs.String("dsn", "", "Postgres DSN (defaults to $DATABASE_URL)")
 	resetFlag := fs.Bool("reset", false, "TRUNCATE nodes, observations, and relations before seeding (dev only)")
 	_ = fs.Parse(args)
 

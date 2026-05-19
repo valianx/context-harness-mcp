@@ -9,32 +9,34 @@ on:
 
 jobs:
   ping:
-    name: SELECT 1 against Supabase
+    name: SELECT 1 against database
     runs-on: ubuntu-latest
 
     env:
-      # Bound at job scope so the if: expression on subsequent steps can read it.
-      # An unset GH secret resolves to an empty string, not an error.
-      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      # Prefer DATABASE_URL if the operator has already renamed the secret;
+      # fall back to SUPABASE_DB_URL so existing deployments keep working until
+      # the operator renames their GH secret. An unset GH secret resolves to an
+      # empty string, not an error.
+      DATABASE_URL: ${{ secrets.DATABASE_URL != '' && secrets.DATABASE_URL || secrets.SUPABASE_DB_URL }}
 
     steps:
       - name: Guard — secret must be set
         run: |
-          if [ -z "$SUPABASE_DB_URL" ]; then
-            echo "::warning::keepalive skipped — SUPABASE_DB_URL not yet configured."
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::warning::keepalive skipped — DATABASE_URL not yet configured."
             exit 0
           fi
 
       - name: Install psql
-        if: ${{ env.SUPABASE_DB_URL != '' }}
+        if: ${{ env.DATABASE_URL != '' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client-16
 
       - name: Run SELECT 1
-        if: ${{ env.SUPABASE_DB_URL != '' }}
+        if: ${{ env.DATABASE_URL != '' }}
         run: |
-          output=$(psql "$SUPABASE_DB_URL" -tAc 'select 1')
+          output=$(psql "$DATABASE_URL" -tAc 'select 1')
           if [ "$output" != "1" ]; then
             echo "::error::keepalive query did not return 1; got '$output'"
             exit 1
