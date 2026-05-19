@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `internal/mcp/query.go` + `internal/store/nodes.go` — `stats` tool: server-side aggregated counts (`node_count`, `observation_count`, `relation_count`, `by_type`, `oldest_node`/`newest_node`) replacing client-side `read_graph` counting. Read-only, no rate-limit, no content filter.
+
 - `docs/auth.md` (nuevo, 5 secciones) + ADR en `docs/knowledge.md` + actualización de `CLAUDE.md` §3/§4/§5 — runbook completo de auth: admin setup (Supabase + Database Webhook con bug #38848 gotcha), dev flow walkthrough, revocation paths (primary webhook + fallback cron), nuclear secret rotation procedure, y FAQ con troubleshooting de cada error code. Cierre de docs para v0.2.0 Phase 0 Auth/Security.
 
 - `internal/mcp/{nodes,relations}.go` + `internal/store/{nodes,observations,relations}.go` — wire de atribución: `execCreate*` y `execAdd*` leen `auth.UserIDFromContext(ctx)` + `auth.EmailFromContext(ctx)` y los persisten en las columnas `created_by_user_id` + `created_by_email` agregadas por PR-1. Cuando el ctx no tiene user (stdio o `MCP_AUTH=none`), persiste NULL — comportamiento idéntico a pre-PR-5. SQL queda parameterized (no `fmt.Sprintf` en strings SQL).

@@ -13,8 +13,15 @@ import (
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
 
-// RegisterQuery registers the search_nodes, open_nodes, and read_graph tools.
+// RegisterQuery registers the search_nodes, open_nodes, read_graph, and stats tools.
 func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
+	s.AddTool(
+		mcplib.NewTool("stats",
+			mcplib.WithDescription("Return aggregated counts for the active knowledge graph: node_count, observation_count, relation_count, by_type breakdown, and oldest/newest node. Read-only — no arguments required."),
+		),
+		statsHandler(pool),
+	)
+
 	s.AddTool(
 		mcplib.NewTool("search_nodes",
 			mcplib.WithDescription("Search nodes by semantic similarity of observation text. Returns matching nodes and the relations between them."),
@@ -156,6 +163,20 @@ func openNodes(ctx context.Context, pool *pgxpool.Pool, names []string) ([]nodeJ
 	}
 
 	return buildNodeRelationResult(ctx, pool, nodeRows)
+}
+
+// ── stats ─────────────────────────────────────────────────────────────────────
+
+// statsHandler returns aggregated KG counts. Read-only: no rate-limit, no
+// content-filter, no arguments. Mirrors the read_graph pattern.
+func statsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		result, err := store.Stats(ctx, pool)
+		if err != nil {
+			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+		}
+		return jsonResult(result), nil
+	}
 }
 
 // ── read_graph ───────────────────────────────────────────────────────────────
