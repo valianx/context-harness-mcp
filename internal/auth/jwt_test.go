@@ -145,30 +145,36 @@ func TestValidateMCPToken_Expired(t *testing.T) {
 
 // ── AC-4: tampered signature returns auth/invalid-token ───────────────────────
 
-// TestValidateMCPToken_TamperedSignature verifies that a token with its last
-// signature byte flipped is rejected as auth/invalid-token.
+// TestValidateMCPToken_TamperedSignature verifies that a token whose signed
+// content (payload) is mutated post-signature is rejected as auth/invalid-token.
 //
-// AC-4: Given JWT with signature tampered (last byte flipped), When ValidateMCPToken runs,
+// AC-4: Given JWT with signed content tampered, When ValidateMCPToken runs,
 // Then returns auth/invalid-token.
+//
+// Note: we mutate the payload's first byte (not the signature's trailing byte),
+// because the last char of a base64url-encoded HS256 signature carries padding
+// bits — flipping bit 0 there can decode to the same raw signature bytes.
+// Mutating the payload guarantees the signature no longer matches the content.
 func TestValidateMCPToken_TamperedSignature(t *testing.T) {
 	setupJWTEnv(t)
 
 	tokenStr, err := IssueMCPToken(testSub, testEmail)
 	require.NoError(t, err)
 
-	// The compact JWT is header.payload.signature. Flip the last byte of the
-	// base64-encoded signature segment.
+	// JWT compact form: header.payload.signature. Flip bit 0 of the first
+	// base64url char of the payload — guaranteed to corrupt the signed content
+	// without depending on base64 padding-bit positions.
 	parts := strings.Split(tokenStr, ".")
 	require.Len(t, parts, 3, "JWT must have 3 parts")
 
-	sig := []byte(parts[2])
-	sig[len(sig)-1] ^= 0x01 // flip last bit
-	tampered := parts[0] + "." + parts[1] + "." + string(sig)
+	payload := []byte(parts[1])
+	payload[0] ^= 0x01
+	tampered := parts[0] + "." + string(payload) + "." + parts[2]
 
 	_, err = ValidateMCPToken(tampered)
-	require.Error(t, err, "tampered-signature token must be rejected")
+	require.Error(t, err, "token with tampered payload must be rejected")
 	assert.Equal(t, CodeInvalidToken, ClassifyJWTError(err),
-		"tampered signature must classify as auth/invalid-token")
+		"tampered content must classify as auth/invalid-token")
 }
 
 // ── helper: custom expiry via env ──────────────────────────────────────────────
