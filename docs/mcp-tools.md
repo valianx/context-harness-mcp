@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The server exposes six knowledge-graph tools plus a `healthz` probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes seven knowledge-graph tools plus a `healthz` probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
 JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
@@ -106,7 +106,41 @@ Create relations between existing nodes. Each relation triple `(from, to, relati
 
 ## Read tools
 
-### 4. `search_nodes`
+### 4. `stats`
+
+Return aggregated counts for the active knowledge graph. Use this instead of `read_graph` when you only need counts — it is significantly cheaper because it runs a single aggregated SQL query rather than fetching every node, observation, and relation.
+
+**Arguments**: none.
+
+**Success response**
+
+```json
+{
+  "node_count": 42,
+  "observation_count": 137,
+  "relation_count": 23,
+  "by_type": {
+    "pattern": 18,
+    "error": 5,
+    "constraint": 4,
+    "decision": 7,
+    "tool-gotcha": 3,
+    "process-insight": 2,
+    "project": 1,
+    "service": 1,
+    "stack-profile": 1
+  },
+  "oldest_node": { "name": "supabase-postgres", "created_at": "2026-04-01T10:14:22Z" },
+  "newest_node": { "name": "policy-rate-limited", "created_at": "2026-05-19T09:30:00Z" }
+}
+```
+
+- `by_type` only includes `nodeType` values with at least one active node — types with zero active nodes are omitted (callers can infer the missing types are at zero).
+- `oldest_node` / `newest_node` are JSON `null` when `node_count == 0` (empty graph).
+- Soft-deleted nodes (`deleted_at IS NOT NULL`) are excluded from all counts.
+- No rate-limit, no content filter — read-only.
+
+### 5. `search_nodes`
 
 Semantic search over observations. The query string is embedded via `all-MiniLM-L6-v2` (384 dims) and matched against `observations.embedding` using pgvector cosine (`<=>`). Results aggregate per node (`MIN(distance)`) and are returned with the relations between nodes in the result set.
 
@@ -138,7 +172,7 @@ Semantic search over observations. The query string is embedded via `all-MiniLM-
 
 Returns up to 10 nodes ordered by cosine distance. If the embedder is unavailable (ONNX init failed, model file missing) the call fails loudly with an MCP error — `search_nodes` never silently degrades to substring matching.
 
-### 5. `open_nodes`
+### 6. `open_nodes`
 
 Retrieve specific nodes by name plus the relations between them. Names not found are silently skipped (no error).
 
@@ -150,7 +184,7 @@ Retrieve specific nodes by name plus the relations between them. Names not found
 
 **Success response** — same shape as `search_nodes`, restricted to the requested names.
 
-### 6. `read_graph`
+### 7. `read_graph`
 
 Read the entire active knowledge graph. Use sparingly — prefer `search_nodes` or `open_nodes` for targeted queries.
 

@@ -9,11 +9,109 @@ package store
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
 )
+
+// NodeSummary is the wire-shape for oldest_node / newest_node in StatsResult.
+// A nil pointer means the graph is empty (zero active nodes).
+type NodeSummary struct {
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// StatsResult holds the aggregated counts returned by the stats MCP tool.
+type StatsResult struct {
+	NodeCount        int             `json:"node_count"`
+	ObservationCount int             `json:"observation_count"`
+	RelationCount    int             `json:"relation_count"`
+	ByType           map[string]int  `json:"by_type"`
+	OldestNode       *NodeSummary    `json:"oldest_node"`
+	NewestNode       *NodeSummary    `json:"newest_node"`
+}
+
+// Stats returns aggregated counts for the active knowledge graph in a single
+// round-trip using a CTE query. Soft-deleted rows (deleted_at IS NOT NULL) are
+// excluded from all counts. When the graph is empty, OldestNode and NewestNode
+// are nil (marshalled as JSON null) and ByType is an empty map.
+func Stats(ctx context.Context, pool *pgxpool.Pool) (StatsResult, error) {
+	result := StatsResult{ByType: map[string]int{}}
+
+	// Single CTE round-trip: counts + by_type + extremes.
+	// The outer SELECT returns one row even when nodes is empty (counts are
+	// correlated subqueries and always return a value; the extremes subqueries
+	// return NULL when the table is empty).
+	const q = `
+WITH counts AS (
+  SELECT
+    (SELECT count(*)::int FROM nodes       WHERE deleted_at IS NULL) AS node_count,
+    (SELECT count(*)::int FROM observations WHERE deleted_at IS NULL) AS observation_count,
+    (SELECT count(*)::int FROM relations    WHERE deleted_at IS NULL) AS relation_count
+),
+extremes AS (
+  SELECT
+    (SELECT name       FROM nodes WHERE deleted_at IS NULL ORDER BY created_at ASC  NULLS LAST LIMIT 1) AS oldest_name,
+    (SELECT created_at FROM nodes WHERE deleted_at IS NULL ORDER BY created_at ASC  NULLS LAST LIMIT 1) AS oldest_at,
+    (SELECT name       FROM nodes WHERE deleted_at IS NULL ORDER BY created_at DESC NULLS LAST LIMIT 1) AS newest_name,
+    (SELECT created_at FROM nodes WHERE deleted_at IS NULL ORDER BY created_at DESC NULLS LAST LIMIT 1) AS newest_at
+)
+SELECT
+  c.node_count, c.observation_count, c.relation_count,
+  e.oldest_name, e.oldest_at, e.newest_name, e.newest_at
+FROM counts c, extremes e`
+
+	var (
+		oldestName *string
+		oldestAt   *time.Time
+		newestName *string
+		newestAt   *time.Time
+	)
+
+	err := pool.QueryRow(ctx, q).Scan(
+		&result.NodeCount,
+		&result.ObservationCount,
+		&result.RelationCount,
+		&oldestName, &oldestAt,
+		&newestName, &newestAt,
+	)
+	if err != nil {
+		return StatsResult{}, err
+	}
+
+	if oldestName != nil && oldestAt != nil {
+		result.OldestNode = &NodeSummary{Name: *oldestName, CreatedAt: *oldestAt}
+	}
+	if newestName != nil && newestAt != nil {
+		result.NewestNode = &NodeSummary{Name: *newestName, CreatedAt: *newestAt}
+	}
+
+	// Fetch per-type counts in a second query (cannot be combined with the
+	// scalar CTE above without a GROUP BY that breaks the extremes subqueries).
+	byTypeRows, err := pool.Query(ctx,
+		`SELECT node_type, count(*)::int FROM nodes WHERE deleted_at IS NULL GROUP BY node_type`,
+	)
+	if err != nil {
+		return StatsResult{}, err
+	}
+	defer byTypeRows.Close()
+
+	for byTypeRows.Next() {
+		var nodeType string
+		var cnt int
+		if err := byTypeRows.Scan(&nodeType, &cnt); err != nil {
+			return StatsResult{}, err
+		}
+		result.ByType[nodeType] = cnt
+	}
+	if err := byTypeRows.Err(); err != nil {
+		return StatsResult{}, err
+	}
+
+	return result, nil
+}
 
 // NodeRow is a read-projection of an active nodes row.
 type NodeRow struct {
