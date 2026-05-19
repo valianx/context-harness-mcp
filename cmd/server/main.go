@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/mariogutierrez/context-harness-mcp/internal/config"
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
@@ -60,10 +61,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	dsn := os.Getenv("SUPABASE_DB_URL")
+	dsn := config.ResolveDatabaseURL()
 	if dsn == "" {
-		slog.Error("SUPABASE_DB_URL environment variable is required but not set")
-		fmt.Fprintln(os.Stderr, "error: SUPABASE_DB_URL must be set — cannot start without DB access")
+		slog.Error("DATABASE_URL environment variable is required but not set")
+		fmt.Fprintln(os.Stderr, "error: DATABASE_URL must be set — cannot start without DB access")
 		os.Exit(1)
 	}
 

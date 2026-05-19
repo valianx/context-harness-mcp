@@ -17,18 +17,18 @@ There are two paths for applying migrations against **Supabase**. Tests use a th
 ### 1. Manual dev — docker compose migrate profile
 
 ```bash
-# from the repo root (requires SUPABASE_DB_URL in .env)
+# from the repo root (requires DATABASE_URL in .env)
 docker compose --profile migrate run --rm migrate
 ```
 
-This runs the `migrate` sidecar container (defined in `docker-compose.yml`) against Supabase Free via `SUPABASE_DB_URL`. Use this when you add a new migration file and want to verify it applies cleanly before opening a PR.
+This runs the `migrate` sidecar container (defined in `docker-compose.yml`) against Supabase Free via `DATABASE_URL`. Use this when you add a new migration file and want to verify it applies cleanly before opening a PR.
 
 ### 2. Automated CI/CD — deploy.yml (lands in PR-7)
 
 On every push to `main`, `.github/workflows/deploy.yml` runs:
 
 ```bash
-goose -dir migrations postgres "$SUPABASE_DB_URL" up
+goose -dir migrations postgres "$DATABASE_URL" up
 ```
 
 using the goose binary baked into the Docker image. This is the production migration path. No manual intervention is required after merging to `main`.

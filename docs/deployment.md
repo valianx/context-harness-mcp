@@ -8,11 +8,11 @@ Phase 2 of the deployment model: the same Docker image validated by Phase 1 (`do
 |---|---|---|
 | `mcp` container | Render Free (web service, Oregon region) | Runs the Go server, listens on `:7654`, serves `/mcp` (MCP streamable-http) and `/healthz`. |
 | Postgres + pgvector | Supabase Free | The actual KG storage. Schema lives in `migrations/`, applied by goose. |
-| Continuous Deploy | `.github/workflows/deploy.yml` | On every push to `main`: `goose -dir migrations postgres "$SUPABASE_DB_URL" up`, then curl the Render deploy hook. |
+| Continuous Deploy | `.github/workflows/deploy.yml` | On every push to `main`: `goose -dir migrations postgres "$DATABASE_URL" up`, then curl the Render deploy hook. |
 | Weekly backup | `.github/workflows/pg_dump_weekly.yml` | Sundays 03:00 UTC: `pg_dump` → `gpg --symmetric` (AES-256) → upload as GH Actions artifact, 90-day retention. |
 | Keepalive | `.github/workflows/supabase_keepalive.yml` | Every 6 days: `psql -c 'SELECT 1'` against Supabase to dodge the 7-day auto-pause on Free tier. |
 
-The Docker image, the `migrations/` directory, and the `goose` binary are byte-identical across Phase 1 and Phase 2. Only `SUPABASE_DB_URL` differs.
+The Docker image, the `migrations/` directory, and the `goose` binary are byte-identical across Phase 1 and Phase 2. Only `DATABASE_URL` differs.
 
 ---
 
@@ -36,7 +36,7 @@ By default, the server rejects calls that contain detected credentials (`SECRET_
 
 In the Render dashboard: **New + → Blueprint → connect this repo → review `render.yaml`**. Render parses `render.yaml` and proposes one `context-harness-mcp` web service. Approve it.
 
-During or right after the first deploy, fill in the `SUPABASE_DB_URL` env var manually in the service's **Environment** tab. It's declared `sync: false` in `render.yaml` — the Render idiom for "set this in the dashboard; never source from git."
+During or right after the first deploy, fill in the `DATABASE_URL` env var manually in the service's **Environment** tab. It's declared `sync: false` in `render.yaml` — the Render idiom for "set this in the dashboard; never source from git."
 
 ### 3. Copy the Render deploy hook URL
 
@@ -56,10 +56,12 @@ At **https://github.com/valianx/context-harness-mcp/settings/secrets/actions**, 
 
 | Secret | Value | Used by |
 |---|---|---|
-| `SUPABASE_DB_URL` | DSN from step 1 (with `sslmode=require`) | `deploy.yml`, `pg_dump_weekly.yml`, `supabase_keepalive.yml` |
+| `DATABASE_URL` | DSN from step 1 (with `sslmode=require`) | `deploy.yml`, `pg_dump_weekly.yml`, `supabase_keepalive.yml` |
 | `RENDER_DEPLOY_HOOK_URL` | URL from step 3 | `deploy.yml` |
 | `DUMP_PASSPHRASE` | Generated in step 4 | `pg_dump_weekly.yml` |
 | `SUPABASE_ACCESS_TOKEN` | Supabase personal access token | Not used by current workflows — reserved for future Supabase-CLI integration |
+
+> **Migration note:** If your GH secrets still use `SUPABASE_DB_URL` (set during the original one-time setup), the workflows read it automatically as a fallback. To complete the rename: add `DATABASE_URL` as a new secret with the same DSN value, then delete `SUPABASE_DB_URL`.
 
 ### 6. Trigger the first deploy
 
@@ -69,8 +71,8 @@ Push any commit to `main`, or use the **workflow_dispatch** button on the **Depl
 
 ## What happens on each push to `main`
 
-1. `deploy.yml` checks that `SUPABASE_DB_URL` and `RENDER_DEPLOY_HOOK_URL` are set. If either is missing, the workflow emits a `::warning::` and exits 0 — no deploy.
-2. `goose -dir migrations postgres "$SUPABASE_DB_URL" up` runs. Idempotent — "no migrations to run" is a success.
+1. `deploy.yml` checks that `DATABASE_URL` (or the deprecated `SUPABASE_DB_URL` fallback) and `RENDER_DEPLOY_HOOK_URL` are set. If either is missing, the workflow emits a `::warning::` and exits 0 — no deploy.
+2. `goose -dir migrations postgres "$DATABASE_URL" up` runs. Idempotent — "no migrations to run" is a success.
 3. The Render deploy hook is called (`POST`). Render pulls the latest image and deploys it.
 
 Migrations run **before** the deploy hook. If migrations fail, the Render deploy is not triggered.
@@ -81,7 +83,7 @@ Migrations run **before** the deploy hook. If migrations fail, the Render deploy
 
 | Secret | Workflow(s) | Missing → |
 |---|---|---|
-| `SUPABASE_DB_URL` | `deploy.yml`, `pg_dump_weekly.yml`, `supabase_keepalive.yml` | Deploy, backup, and keepalive all skip |
+| `DATABASE_URL` | `deploy.yml`, `pg_dump_weekly.yml`, `supabase_keepalive.yml` | Deploy, backup, and keepalive all skip (or fall back to `SUPABASE_DB_URL` if set) |
 | `RENDER_DEPLOY_HOOK_URL` | `deploy.yml` | Deploy skipped even if migrations succeed |
 | `DUMP_PASSPHRASE` | `pg_dump_weekly.yml` | Weekly backup skipped |
 | `SUPABASE_ACCESS_TOKEN` | (none) | No effect — reserved |
@@ -146,7 +148,7 @@ Restart Claude Code. All 6 MCP tools (`read_graph`, `search_nodes`, `open_nodes`
 ### Weekly backup
 
 `pg_dump_weekly.yml` runs every Sunday 03:00 UTC. Steps:
-1. `pg_dump --no-owner --no-privileges --format=plain "$SUPABASE_DB_URL"` produces a plain-SQL dump.
+1. `pg_dump --no-owner --no-privileges --format=plain "$DATABASE_URL"` produces a plain-SQL dump.
 2. `gpg --symmetric --cipher-algo AES256 --passphrase "$DUMP_PASSPHRASE"` encrypts it.
 3. Upload as a GH Actions artifact with **90-day retention**.
 
@@ -180,7 +182,7 @@ Captured as a `[decisión]` in [`docs/knowledge.md`](knowledge.md): "Costo mensu
    Enter the `DUMP_PASSPHRASE` when prompted (or pass `--passphrase` for scripted recovery).
 3. Restore:
    ```sh
-   psql "$SUPABASE_DB_URL" < dump.sql
+   psql "$DATABASE_URL" < dump.sql
    ```
 
 > **This OVERWRITES current data.** For partial recovery or when the target DB has diverged, restore into a separate Supabase project first, then selectively copy rows.

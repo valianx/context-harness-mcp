@@ -25,10 +25,10 @@ jobs:
 
     env:
       # testcontainers-go spins its own ephemeral Postgres inside Docker, so
-      # SUPABASE_DB_URL is needed only when a test explicitly reads it. The
+      # DATABASE_URL is needed only when a test explicitly reads it. The
       # service container above is present for any future tests that prefer
       # a pre-migrated DB over testcontainers.
-      SUPABASE_DB_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 
     steps:
       - uses: actions/checkout@v4
@@ -96,10 +96,10 @@ jobs:
 
       - name: Start mcp service and wait for healthy
         # The healthcheck in docker-compose.yml (curl -fsSL http://localhost:7654/healthz)
-        # must pass before --wait returns. SUPABASE_DB_URL points the mcp container at
+        # must pass before --wait returns. DATABASE_URL points the mcp container at
         # the host's service-container Postgres via host.docker.internal.
         env:
-          SUPABASE_DB_URL: postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable
+          DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable
         run: docker compose up -d --wait mcp
 
       - name: Smoke test — happy path
@@ -120,5 +120,5 @@ jobs:
       - name: Tear down
         if: always()
         env:
-          SUPABASE_DB_URL: postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable
+          DATABASE_URL: postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable
         run: docker compose down

@@ -9,7 +9,7 @@ Runbook for running the MCP server locally via `docker compose`. Covers quick st
 ```sh
 git clone https://github.com/valianx/context-harness-mcp
 cd context-harness-mcp
-cp .env.example .env          # then fill in SUPABASE_DB_URL (see §Configuring your DB target)
+cp .env.example .env          # then fill in DATABASE_URL (see §Configuring your DB target)
 docker compose up -d --wait   # builds the image, starts the mcp service, waits for healthy
 curl http://localhost:7654/healthz
 # → {"status":"ok","db":"not-configured"}
@@ -21,7 +21,7 @@ The server is now reachable at `http://localhost:7654/mcp`.
 
 ## Configuring your DB target
 
-`SUPABASE_DB_URL` is the only required env var. Point it at any Postgres instance with the `pgvector` extension enabled.
+`DATABASE_URL` is the only required env var. Point it at any Postgres instance with the `pgvector` extension enabled.
 
 ### Option A — Supabase Free (recommended)
 
@@ -29,7 +29,7 @@ The server is now reachable at `http://localhost:7654/mcp`.
 2. Navigate to **Project Settings → Database → Connection string** and copy the URI.
 3. Paste it into `.env`:
    ```
-   SUPABASE_DB_URL=postgres://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require
+   DATABASE_URL=postgres://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require
    ```
 
 ### Option B — Local pgvector container
@@ -46,7 +46,7 @@ docker run --name pg-local \
 Then set `.env`:
 
 ```
-SUPABASE_DB_URL=postgres://postgres:devpw@host.docker.internal:5432/postgres?sslmode=disable
+DATABASE_URL=postgres://postgres:devpw@host.docker.internal:5432/postgres?sslmode=disable
 ```
 
 > **Linux note:** `host.docker.internal` resolves on Docker Desktop for Mac/Windows. On Linux, use the host bridge IP (`172.17.0.1` by default) or add `--network host` to the `mcp` service. Alternatively, add `extra_hosts: ["host.docker.internal:host-gateway"]` to the mcp service in a local `docker-compose.override.yml`.
@@ -61,7 +61,7 @@ Run goose migrations against your DB target before starting the server for the f
 docker compose --profile migrate run --rm migrate
 ```
 
-This executes `goose -dir /migrations postgres "$SUPABASE_DB_URL" up` inside the same image as the server — the `migrations/` directory is baked into the image at `/migrations` (see `Dockerfile`).
+This executes `goose -dir /migrations postgres "$DATABASE_URL" up` inside the same image as the server — the `migrations/` directory is baked into the image at `/migrations` (see `Dockerfile`).
 
 Migrations are idempotent: running the command again when already up-to-date prints "no migrations to run" and exits 0.
 
@@ -127,7 +127,7 @@ Restart Claude Code after editing. The `read_graph`, `search_nodes`, `open_nodes
 
 3. **Update `.env`** to point at the local container:
    ```
-   SUPABASE_DB_URL=postgres://postgres:fallbackpw@host.docker.internal:5432/postgres?sslmode=disable
+   DATABASE_URL=postgres://postgres:fallbackpw@host.docker.internal:5432/postgres?sslmode=disable
    ```
 
 4. **Restart the stack:**
@@ -146,8 +146,8 @@ Restart Claude Code after editing. The `read_graph`, `search_nodes`, `open_nodes
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `docker compose build` fails | Stale build cache or dependency change | `docker compose build --no-cache mcp` |
-| Container starts then exits immediately | `SUPABASE_DB_URL` not set or malformed | Check `.env` file; confirm DSN is reachable with `psql "$SUPABASE_DB_URL" -c 'select 1'` |
+| Container starts then exits immediately | `DATABASE_URL` not set or malformed | Check `.env` file; confirm DSN is reachable with `psql "$DATABASE_URL" -c 'select 1'` |
 | `Error response from daemon: ... port 7654 already in use` | Another process bound to port 7654 | `docker compose down` and check `lsof -i :7654` (or `netstat -ano` on Windows) |
-| `healthcheck` fails repeatedly, service stays `unhealthy` | DB connection refused | Apply migrations first (`docker compose --profile migrate run --rm migrate`) and verify `SUPABASE_DB_URL` |
+| `healthcheck` fails repeatedly, service stays `unhealthy` | DB connection refused | Apply migrations first (`docker compose --profile migrate run --rm migrate`) and verify `DATABASE_URL` |
 | `libonnxruntime.so: cannot open shared object file` | Missing ONNX library | Ensure `LD_LIBRARY_PATH=/usr/local/lib` in the container env (it is set in the Dockerfile; this error usually means the image was not rebuilt after a `Dockerfile` change) |
 | `model download failed: 403 Forbidden` | GCS model archive removed | Rebuild the image — the model is now baked in via `sentence-transformers-all-MiniLM-L6-v2.tar.gz` (PR-6). If the container was built before this change, run `docker compose build --no-cache mcp`. |

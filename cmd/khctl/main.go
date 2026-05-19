@@ -5,7 +5,8 @@
 //	export — export active KG rows to JSON
 //	import — import a KG JSON file into Postgres (idempotent merge)
 //
-// Each subcommand reads --dsn or falls back to the SUPABASE_DB_URL env var.
+// Each subcommand reads --dsn or falls back to the DATABASE_URL env var
+// (with a backward-compat fallback to SUPABASE_DB_URL for one release).
 // khctl is compiled with CGO_ENABLED=0 (no ONNX bindings needed) and ships
 // as a static binary alongside `server` in the Docker image.
 package main
@@ -61,7 +62,7 @@ Subcommands:
                                    INPUT is a file path; use - for stdin.
 
 Flags (shared):
-  --dsn URL   Postgres DSN. Defaults to $SUPABASE_DB_URL.
+  --dsn URL   Postgres DSN. Defaults to $DATABASE_URL (falls back to $SUPABASE_DB_URL for one release).
 
 Exit codes:
   0  success

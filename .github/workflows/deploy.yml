@@ -15,40 +15,42 @@ jobs:
       cancel-in-progress: false
 
     env:
-      # Bound at job scope so the if: expressions on subsequent steps can read them.
-      # An unset GH secret resolves to an empty string, not an error.
-      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      # Prefer DATABASE_URL if the operator has already renamed the secret;
+      # fall back to SUPABASE_DB_URL so existing deployments keep working until
+      # the operator renames their GH secret. An unset GH secret resolves to an
+      # empty string, not an error.
+      DATABASE_URL: ${{ secrets.DATABASE_URL != '' && secrets.DATABASE_URL || secrets.SUPABASE_DB_URL }}
       RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
 
     steps:
       - name: Guard — secrets must be set
         run: |
-          if [ -z "$SUPABASE_DB_URL" ] || [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
+          if [ -z "$DATABASE_URL" ] || [ -z "$RENDER_DEPLOY_HOOK_URL" ]; then
             echo "::warning::Deploy skipped — GH secrets not yet configured. See README §Deployment for setup."
             exit 0
           fi
           echo "Secrets present; proceeding with deploy."
 
       - uses: actions/checkout@v4
-        if: ${{ env.SUPABASE_DB_URL != '' }}
+        if: ${{ env.DATABASE_URL != '' }}
 
       - uses: actions/setup-go@v5
-        if: ${{ env.SUPABASE_DB_URL != '' }}
+        if: ${{ env.DATABASE_URL != '' }}
         with:
           go-version: "1.23"
 
       - name: Install goose
-        if: ${{ env.SUPABASE_DB_URL != '' }}
+        if: ${{ env.DATABASE_URL != '' }}
         run: go install github.com/pressly/goose/v3/cmd/goose@v3.26.0
 
-      - name: Apply migrations to Supabase
+      - name: Apply migrations to database
         # Migrations run BEFORE the Render deploy hook: the new code must never
         # land against a schema that hasn't been migrated yet.
-        if: ${{ env.SUPABASE_DB_URL != '' }}
-        run: goose -dir migrations postgres "$SUPABASE_DB_URL" up
+        if: ${{ env.DATABASE_URL != '' }}
+        run: goose -dir migrations postgres "$DATABASE_URL" up
 
       - name: Trigger Render deploy hook
-        if: ${{ env.SUPABASE_DB_URL != '' }}
+        if: ${{ env.DATABASE_URL != '' }}
         run: |
           response=$(curl -fsSL -X POST -o /dev/null -w "%{http_code}" "$RENDER_DEPLOY_HOOK_URL")
           echo "Render deploy hook returned HTTP $response"

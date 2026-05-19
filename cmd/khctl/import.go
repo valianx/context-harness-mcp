@@ -12,7 +12,7 @@ import (
 // importCmd implements the `khctl import` subcommand.
 func importCmd(args []string) {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
-	dsnFlag := fs.String("dsn", "", "Postgres DSN (defaults to $SUPABASE_DB_URL)")
+	dsnFlag := fs.String("dsn", "", "Postgres DSN (defaults to $DATABASE_URL)")
 	_ = fs.Parse(args)
 
 	// Positional arg: input file path. "-" means stdin; default to stdin when absent.

@@ -178,7 +178,7 @@ var FixtureNodes = []SeedNode{
 		NodeType: "service",
 		Observations: []string{
 			"Supabase Free project: 500 MB DB ceiling, no PITR, auto-pauses after 7 days of DB inactivity.",
-			"Connection string exposed as SUPABASE_DB_URL in GH secrets and Render env vars.",
+			"Connection string exposed as DATABASE_URL in GH secrets and Render env vars (legacy: SUPABASE_DB_URL deprecated, removed in v2.0).",
 			"RLS enabled: service-role key only; anon and authenticated roles have no grants.",
 			"Weekly pg_dump artifact retained 90 days in GH Actions; restore via gpg --decrypt | psql.",
 		},
@@ -220,7 +220,7 @@ var FixtureNodes = []SeedNode{
 		Observations: []string{
 			"Private GitHub repo storing weekly encrypted pg_dump artifacts from the production Supabase.",
 			"Artifacts retained 90 days via GH Actions retention policy.",
-			"Restore: gpg --decrypt < dump.sql.gpg | psql $SUPABASE_DB_URL.",
+			"Restore: gpg --decrypt < dump.sql.gpg | psql $DATABASE_URL.",
 			"DUMP_PASSPHRASE stored in GH secrets; rotate via openssl rand -base64 32.",
 		},
 	},

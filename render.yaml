@@ -20,5 +20,5 @@ services:
         value: ":7654"
       - key: LOG_LEVEL
         value: info
-      - key: SUPABASE_DB_URL
+      - key: DATABASE_URL
         sync: false   # set manually in Render dashboard; never sourced from git
