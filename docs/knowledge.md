@@ -65,3 +65,13 @@
 - `[patrón]` El cutover playbook vive en `docs/cutover-playbook.md` (committed al repo), no en session-docs, porque los operadores en flag day pueden no tener session-docs disponibles.
 - `[decisión]` Delete tools (`delete_entities`, `delete_observations`, `delete_relations`) removidos del MCP public surface en PR3 — el endpoint MCP es público y sin auth, por lo que exponer destructive ops sin access controls crea un vector de borrado masivo no autenticado. Las funciones de soft-delete permanecen como store-level API (admin-script only, no MCP tool); operadores acceden via SQL directo o Supabase Studio.
 - `[restricción]` Vocabulario de grafo adoptado globalmente en PR3: `entity`→`node`, `entityType`→`nodeType`, `entity_id`→`node_id`, tabla `entities`→`nodes`, archivo `entities.go`→`nodes.go` (en store/ y mcp/), JSON keys `created_entities`→`created_nodes`, `entity_count`→`node_count`, `rejected_entity_index`→`rejected_node_index`. Los 9 valores del enum (`pattern`, `service`, etc.) y el schema de `relations` no cambian. Cualquier re-uso de "entity" en nuevo código es un bug.
+
+- `[decisión]` Auth en MCP endpoint vía Supabase Auth + JWT HS256 server-issued (v0.2.0 Phase 0). Supersede de la decisión "sin auth" porque el threat model cambió a uso compartido por equipo. Mecanismo: magic link → callback HTML → /auth/exchange (validation via GET /auth/v1/user, algorithm-agnostic) → MCP JWT 1y → middleware HS256 + revocation cache (TTL 1h + cache-aside via Database Webhook). Alternatives rejected: Auth0 (vendor extra), per-user keys (no SSO), Cloudflare Access (conflicto con free tier), two-secret rotation slot (complexity sin valor). Ver `session-docs/v0.2.0-team-features/01-architecture.md`.
+
+- `[restricción]` MCP_AUTH env var = closed enum {none, enabled}. Garbage value → server falla fast en boot.
+- `[restricción]` MCP_JWT_SECRET = single slot (no _OLD). Rotation = nuclear: todos los users re-auth via magic link. Cadencia anual.
+- `[restricción]` SUPABASE_WEBHOOK_SECRET via header X-Webhook-Secret (NO Authorization — Supabase bug #38848 lo dropea). Verificación constant-time con hmac.Equal.
+- `[restricción]` MCP_PUBLIC_URL usado para construir auth_login_url en error responses (fallback a r.Host).
+
+- `[patrón]` Cache-aside revocation: LRU cache TTL 1h sobre users.revoked_at + Invalidate(sub) llamado por webhook handler → revocation latency E2E ≤2s en lugar de ≤1h. Sin webhook (fallback cron 6h): ≤7h worst case.
+- `[patrón]` Structured auth error JSON shape: {code: "auth/X", message: <Spanish>, auth_login_url: <url|absent>, layer: "auth"}. auth_login_url presente para 4 re-auth codes; ausente para webhook-invalid-signature. Mensajes en español.

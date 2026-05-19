@@ -21,7 +21,7 @@ repository. The orchestrator pipeline reads this file before touching any code.
 **What this repo is NOT.**
 - Not a general-purpose MCP framework — it encodes one specific KG schema.
 - Not a Python service — the server is Go only. Operator tooling (`khctl`) is also Go.
-- Not multi-tenant in v1 — single schema, no `tenant_id`, no auth on the MCP endpoint.
+- Not multi-tenant in v1 — single schema, no `tenant_id`.
 
 **External dependencies (required).**
 - `go` 1.23+ — runtime and build. Install via `mise install go` or from https://go.dev/dl/.
@@ -111,6 +111,7 @@ context-harness-mcp/
 | Embeddings | `github.com/Anush008/fastembed-go` — `all-MiniLM-L6-v2` ONNX, 384 dims, lazy `sync.Once` init (PR-5) |
 | Content Filter | `github.com/go-playground/validator/v10` (struct tags) + `github.com/zricethezav/gitleaks/v8` (secrets, PR-3) |
 | Migrations | `github.com/pressly/goose/v3` — forward-only SQL in `migrations/`; same binary for Phase 1 and Phase 2 |
+| Auth | `github.com/golang-jwt/jwt/v5` (HS256 issue + validate) + Supabase Auth (user identity) + LRU revocation cache (custom) |
 | Logging | stdlib `log/slog` JSON handler to stdout |
 | Testing | stdlib `testing` + `github.com/stretchr/testify` + `github.com/testcontainers/testcontainers-go/modules/postgres` (PR-2+); ephemeral pg+pgvector per test run |
 | Operator tooling | `cmd/khctl/` — Go binary with `seed`, `export`, `import` subcommands. Shipped in the Docker image at `/usr/local/bin/khctl`. No Python/uv required. |
@@ -142,6 +143,9 @@ All commands run from the repo root unless noted.
 | Export local KG to JSON | `khctl export --dsn "$DATABASE_URL" --out shared-knowledge/<name>-$(date +%F).json` |
 | Seed dev fixtures | `khctl seed --dsn "$DATABASE_URL"` |
 | Import KG JSON | `khctl import <file.json> --dsn "$DATABASE_URL"` |
+| Run server with auth enabled | `MCP_AUTH=enabled MCP_JWT_SECRET=<hex> MCP_PUBLIC_URL=https://your-host go run ./cmd/server -transport=http -addr=:7654` |
+| Sync users with Supabase (admin only) | `khctl sync-users --dsn "$DATABASE_URL" --supabase-service-role-key "$SUPABASE_SERVICE_ROLE_KEY"` |
+| Generate JWT secret for rotation | `openssl rand -hex 32` |
 
 **Not applicable to this repo:** `npm`, `pip install`, `python -m`, `uvicorn`, `uv`. The server is Go only; operator tooling is `khctl` (Go binary in the Docker image).
 
@@ -149,7 +153,10 @@ All commands run from the repo root unless noted.
 
 ## 5. Architectural Conventions
 
-- **No auth on the MCP endpoint.** Intentional — locked in intake. Do not add auth middleware without an architecture review + human sign-off.
+- **Auth via Supabase + JWT HS256.** `auth.Middleware` wraps `/mcp` when `MCP_AUTH=enabled`. Bearer-only header. JWT issued by server, 1-year expiry. See `docs/auth.md`.
+- **Revocation.** Supabase Database Webhook + LRU cache TTL 1h with cache-aside invalidation. GH Action cron 6h as fallback (`khctl sync-users`).
+- **Attribution.** `created_by_user_id` (uuid) + `created_by_email` (text) nullable on `nodes`/`observations`/`relations`. Stdio + `MCP_AUTH=none` paths persist NULL.
+- **Viewer queda público read-only.** `/viewer/*` is unauthenticated by design — locked decision; no cookie auth.
 - **Transport selection at boot.** `cmd/server/main.go` parses `-transport` and boots either `ServeStdio` (no network) or a stdlib mux with `StreamableHTTPServer` + a plain `/healthz` handler (HTTP). No other transports.
 - **Tool registration in `internal/mcp/server.go`.** Every tool is registered via `RegisterXxx(s *server.MCPServer)` helpers. `main.go` only calls `internalmcp.New()` — it does not import tool packages directly.
 - **Content Filter before every write.** Any handler that writes to the DB calls `internal/validate/Run(payload)` first. A rejected payload aborts the whole call — no partial writes. The `pgx.Tx` opens only after `Run` returns `nil`.
