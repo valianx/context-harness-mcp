@@ -7,7 +7,7 @@
 #
 # Usage:
 #   bash scripts/smoke/secret_rejected.sh
-#   MCP_URL=http://localhost:8080/mcp bash scripts/smoke/secret_rejected.sh
+#   MCP_URL=http://localhost:7654/mcp bash scripts/smoke/secret_rejected.sh
 #
 # Note on the test credential: the string AKIAIOSFODNN7EXAMPLE is the canonical
 # AWS access key ID example from AWS's own documentation. It matches the inline
@@ -16,7 +16,7 @@
 
 set -e
 
-MCP_URL="${MCP_URL:-http://localhost:8080/mcp}"
+MCP_URL="${MCP_URL:-http://localhost:7654/mcp}"
 SEED_NODE="smoke-secret-seed-$(date +%s)"
 
 fail() {

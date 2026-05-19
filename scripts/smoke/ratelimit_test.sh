@@ -12,7 +12,7 @@
 # Requires: curl, jq
 
 set -e
-MCP_URL="${MCP_URL:-http://localhost:8080/mcp}"
+MCP_URL="${MCP_URL:-http://localhost:7654/mcp}"
 TMPDIR="${TMPDIR:-/tmp}"
 
 echo "=== ratelimit_test.sh: MCP_URL=$MCP_URL ==="

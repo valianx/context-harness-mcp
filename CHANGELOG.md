@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `cmd/khctl/` — Go binary (`khctl`) with three subcommands (`seed`, `export`, `import`) replacing the deleted Python migration scripts. Built with `CGO_ENABLED=0` (portable static binary, no ONNX dependency). `seed` populates ≥20 fixture nodes across ≥5 types with ≥3 observations each; `export` dumps active KG content to JSON; `import` loads JSON and accepts both `{"nodes":[...]}` and legacy `{"entities":[...]}` shapes. Baked into the Docker image at `/usr/local/bin/khctl`.
+- `internal/khctl/` — exported package containing the core logic for seed, export, and import operations, enabling direct function calls from integration tests without `os/exec`.
+- `cmd/khctl/import_test.go`, `cmd/khctl/export_test.go`, `cmd/khctl/seed_test.go` — integration tests for all three subcommands using testcontainers-go (`pgvector/pgvector:pg16`); cover idempotency, round-trip fidelity, legacy shape acceptance, embedding validation, and minimum-count guarantees.
+
+### Changed
+
+- Default HTTP port changed from `:8080` to `:7654` across `cmd/server/main.go`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `render.yaml`, `.github/workflows/ci.yml`, all smoke scripts, and all documentation.
+- `Dockerfile` — added `khctl` binary build (`CGO_ENABLED=0`) in the builder stage and `COPY` into the runtime image; updated `EXPOSE` from `8080` to `7654`.
+- `tests/migration_test.go` — rewritten to call `internal/khctl` Go functions directly (`ParseImportPayload`, `RunImport`, `BuildExportPayload`) instead of shelling out to `uv run scripts/*.py`; removes the `uv` runtime dependency from the test suite.
+- `docs/cutover-playbook.md` — replaced all `uv run scripts/import_to_supabase.py` / `uv run scripts/export_from_supabase.py` references with `docker compose exec mcp khctl import` / `khctl export`; pre-flight checklist updated to verify `khctl` availability instead of `uv`.
+- `README.md` — Tech stack entry updated: "Operator scripts in Python via uv" → "Operator tooling (khctl) is also Go — no Python/uv runtime required."
+
+### Removed
+
+- `scripts/import_to_supabase.py`, `scripts/export_from_supabase.py`, `scripts/seed_dev.py`, `scripts/import_from_chromadb.py` — superseded by `cmd/khctl/`.
+- `scripts/pyproject.toml`, `scripts/uv.lock` — Python scripts project removed with the scripts.
+
 - `internal/viewer/`: public single-page web viewer at `/viewer/` (HTML + JS embedded via go:embed). Search box with semantic-search via embed.Default + pgvector cosine. Default view lists all active nodes. Same exposure level as the MCP read tools — public/unauthenticated, served on port 8080 alongside `/mcp` and `/healthz`.
 
 ### Changed

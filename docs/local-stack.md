@@ -11,11 +11,11 @@ git clone https://github.com/valianx/context-harness-mcp
 cd context-harness-mcp
 cp .env.example .env          # then fill in SUPABASE_DB_URL (see §Configuring your DB target)
 docker compose up -d --wait   # builds the image, starts the mcp service, waits for healthy
-curl http://localhost:8080/healthz
+curl http://localhost:7654/healthz
 # → {"status":"ok","db":"not-configured"}
 ```
 
-The server is now reachable at `http://localhost:8080/mcp`.
+The server is now reachable at `http://localhost:7654/mcp`.
 
 ---
 
@@ -96,7 +96,7 @@ Add the following entry to `~/.claude.json` under `mcpServers`:
   "mcpServers": {
     "memory": {
       "type": "http",
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:7654/mcp"
     }
   }
 }
@@ -135,7 +135,7 @@ Restart Claude Code after editing. The `read_graph`, `search_nodes`, `open_nodes
    docker compose up -d --wait
    ```
 
-5. **Redirect team members** to `http://localhost:8080/mcp` while cloud recovery is in progress.
+5. **Redirect team members** to `http://localhost:7654/mcp` while cloud recovery is in progress.
 
 > This procedure is cross-referenced in `docs/cutover-playbook.md` (PR-8), which contains the full emergency-fallback runbook with rollback criteria.
 
@@ -147,7 +147,7 @@ Restart Claude Code after editing. The `read_graph`, `search_nodes`, `open_nodes
 |---------|-------|-----|
 | `docker compose build` fails | Stale build cache or dependency change | `docker compose build --no-cache mcp` |
 | Container starts then exits immediately | `SUPABASE_DB_URL` not set or malformed | Check `.env` file; confirm DSN is reachable with `psql "$SUPABASE_DB_URL" -c 'select 1'` |
-| `Error response from daemon: ... port 8080 already in use` | Another process bound to port 8080 | `docker compose down` and check `lsof -i :8080` (or `netstat -ano` on Windows) |
+| `Error response from daemon: ... port 7654 already in use` | Another process bound to port 7654 | `docker compose down` and check `lsof -i :7654` (or `netstat -ano` on Windows) |
 | `healthcheck` fails repeatedly, service stays `unhealthy` | DB connection refused | Apply migrations first (`docker compose --profile migrate run --rm migrate`) and verify `SUPABASE_DB_URL` |
 | `libonnxruntime.so: cannot open shared object file` | Missing ONNX library | Ensure `LD_LIBRARY_PATH=/usr/local/lib` in the container env (it is set in the Dockerfile; this error usually means the image was not rebuilt after a `Dockerfile` change) |
 | `model download failed: 403 Forbidden` | GCS model archive removed | Rebuild the image — the model is now baked in via `sentence-transformers-all-MiniLM-L6-v2.tar.gz` (PR-6). If the container was built before this change, run `docker compose build --no-cache mcp`. |

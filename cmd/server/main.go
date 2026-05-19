@@ -22,7 +22,7 @@ import (
 
 func main() {
 	transport := flag.String("transport", "stdio", "MCP transport: stdio or http")
-	addr := flag.String("addr", ":8080", "Listen address for http transport")
+	addr := flag.String("addr", ":7654", "Listen address for http transport")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))

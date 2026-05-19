@@ -5,103 +5,83 @@ import (
 	"encoding/json"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mariogutierrez/context-harness-mcp/internal/khctl"
 )
 
-// TestMigrationRoundTrip verifies that import_to_supabase.py → export_from_supabase.py
-// produces a structurally identical KG: same node names and types, same observation
-// texts grouped by node, same relation triples.
-// Embeddings (zero-vectors in the fixture) must survive the round-trip with at most
-// ε = 1e-6 error per component — they are stored and retrieved as-is, not recomputed.
+// TestMigrationRoundTrip verifies that khctl import → khctl export produces a
+// structurally identical KG: same node names and types, same observation texts
+// grouped by node, same relation triples.
+// Embeddings (zero-vectors in the fixture) must survive the round-trip with at
+// most ε = 1e-6 error per component — they are stored and retrieved as-is.
 //
-// The test shells out to `uv run scripts/<name>.py` so it covers the actual CLI
-// surface that operators will use on flag day. It is skipped gracefully when:
-//   - Docker is unavailable (testPool is nil — Docker check happened in TestMain)
-//   - `uv` is not on PATH
+// The test calls the internal khctl Go functions directly (no os/exec, no
+// Python/uv dependency). It skips gracefully when Docker is unavailable.
 func TestMigrationRoundTrip(t *testing.T) {
-	// Skip gracefully when Docker daemon was not available at suite startup.
 	if testPool == nil {
 		t.Skip("testPool is nil — Docker daemon was not available when the suite started")
 	}
-
-	// Skip gracefully when uv is not installed on this machine.
-	if _, err := exec.LookPath("uv"); err != nil {
-		t.Skipf("uv not installed; skipping migration round-trip test: %v", err)
-	}
-
 	t.Cleanup(func() { CleanDB(t) })
 
-	// go test runs with cwd=package directory (tests/); parent dir is the repo root.
-	// migrationsDir = "../migrations" (see setup_test.go) confirms this layout.
-	repoRoot := ".."
 	fixtureInput := filepath.Join("fixtures", "migration_input.json")
-	importScript := filepath.Join(repoRoot, "scripts", "import_to_supabase.py")
-	exportScript := filepath.Join(repoRoot, "scripts", "export_from_supabase.py")
-	scriptsPyproject := filepath.Join(repoRoot, "scripts")
-	exportedOutput := filepath.Join(t.TempDir(), "exported.json")
+	inputData, err := os.ReadFile(fixtureInput)
+	require.NoError(t, err, "reading fixture input")
 
 	// Step 1 — import the fixture into the testcontainer Postgres.
-	// Use `uv run --project <dir> python <script>` to work cross-platform:
-	// on Windows, `uv run script.py` tries to exec the .py file directly.
-	importCmd := exec.Command("uv", "run", "--project", scriptsPyproject,
-		"python", importScript, fixtureInput, "--dsn", testDSN)
-	importCmd.Stdout = os.Stdout
-	importCmd.Stderr = os.Stderr
-	require.NoError(t, importCmd.Run(), "import_to_supabase.py failed")
+	nodes, relations, err := khctl.ParseImportPayload(inputData)
+	require.NoError(t, err, "parse import payload")
 
-	// Step 2 — export back from the testcontainer Postgres to a temp file.
-	exportCmd := exec.Command("uv", "run", "--project", scriptsPyproject,
-		"python", exportScript, "--dsn", testDSN, "--output", exportedOutput)
-	exportCmd.Stdout = os.Stdout
-	exportCmd.Stderr = os.Stderr
-	require.NoError(t, exportCmd.Run(), "export_from_supabase.py failed")
+	_, _, _, _, _, err = khctl.RunImport(context.Background(), testPool, nodes, relations)
+	require.NoError(t, err, "import fixture into testcontainer Postgres")
 
-	// Step 3 — load and compare both JSONs at the structural level.
+	// Step 2 — export back from the testcontainer Postgres.
+	payload, err := khctl.BuildExportPayload(context.Background(), testPool)
+	require.NoError(t, err, "export from testcontainer Postgres")
+
+	exportedData, err := json.Marshal(payload)
+	require.NoError(t, err, "marshal exported payload")
+
+	// Step 3 — compare both JSONs at the structural level.
 	inputPayload := loadJSON(t, fixtureInput)
-	outputPayload := loadJSON(t, exportedOutput)
+	var outputPayload map[string]any
+	require.NoError(t, json.Unmarshal(exportedData, &outputPayload), "unmarshal exported payload")
 
 	assertNodesMatch(t, inputPayload, outputPayload)
 	assertRelationsMatch(t, inputPayload, outputPayload)
 }
 
-// TestMigrationRoundTrip_LegacyEntitiesShape verifies that import_to_supabase.py
-// accepts the old {"entities": [...]} shape (defensive fallback for legacy archives)
+// TestMigrationRoundTrip_LegacyEntitiesShape verifies that khctl import accepts
+// the old {"entities": [...]} shape (defensive fallback for legacy archives)
 // and that the data is correctly imported.
 func TestMigrationRoundTrip_LegacyEntitiesShape(t *testing.T) {
 	if testPool == nil {
 		t.Skip("testPool is nil — Docker daemon was not available when the suite started")
 	}
-	if _, err := exec.LookPath("uv"); err != nil {
-		t.Skipf("uv not installed; skipping legacy shape test: %v", err)
-	}
-
 	t.Cleanup(func() { CleanDB(t) })
 
-	repoRoot := ".."
 	fixtureInput := filepath.Join("fixtures", "migration_input_legacy_entities.json")
-	importScript := filepath.Join(repoRoot, "scripts", "import_to_supabase.py")
-	scriptsPyproject := filepath.Join(repoRoot, "scripts")
+	inputData, err := os.ReadFile(fixtureInput)
+	require.NoError(t, err, "reading legacy fixture input")
 
-	importCmd := exec.Command("uv", "run", "--project", scriptsPyproject,
-		"python", importScript, fixtureInput, "--dsn", testDSN)
-	importCmd.Stdout = os.Stdout
-	importCmd.Stderr = os.Stderr
-	require.NoError(t, importCmd.Run(), "import_to_supabase.py with legacy shape failed")
+	nodes, relations, err := khctl.ParseImportPayload(inputData)
+	require.NoError(t, err, "parse legacy import payload")
+
+	_, _, _, _, _, err = khctl.RunImport(context.Background(), testPool, nodes, relations)
+	require.NoError(t, err, "import legacy fixture into testcontainer Postgres")
 
 	// Verify at least one node was imported.
 	var count int
-	err := testPool.QueryRow(
+	err = testPool.QueryRow(
 		context.Background(), "SELECT COUNT(*) FROM nodes WHERE deleted_at IS NULL",
 	).Scan(&count)
 	require.NoError(t, err)
 	assert.Greater(t, count, 0, "legacy entities shape must import at least one node")
 }
-
 
 // loadJSON reads a JSON file and returns the parsed structure.
 func loadJSON(t *testing.T, path string) map[string]any {
@@ -206,10 +186,9 @@ func assertRelationsMatch(t *testing.T, input, output map[string]any) {
 }
 
 // toNodeMap converts the "nodes" array to a map keyed by node name.
-// It also accepts the legacy "entities" key for backwards compatibility.
+// Also accepts the legacy "entities" key for backwards compatibility.
 func toNodeMap(t *testing.T, payload map[string]any) map[string]map[string]any {
 	t.Helper()
-	// Prefer "nodes" key; fall back to "entities" for legacy fixture support.
 	raw, ok := payload["nodes"]
 	if !ok {
 		raw = payload["entities"]

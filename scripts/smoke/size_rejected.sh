@@ -7,11 +7,11 @@
 #
 # Usage:
 #   bash scripts/smoke/size_rejected.sh
-#   MCP_URL=http://localhost:8080/mcp bash scripts/smoke/size_rejected.sh
+#   MCP_URL=http://localhost:7654/mcp bash scripts/smoke/size_rejected.sh
 
 set -e
 
-MCP_URL="${MCP_URL:-http://localhost:8080/mcp}"
+MCP_URL="${MCP_URL:-http://localhost:7654/mcp}"
 SEED_NODE="smoke-size-seed-$(date +%s)"
 
 fail() {

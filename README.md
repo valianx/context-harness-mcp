@@ -25,7 +25,7 @@ docker compose --profile migrate run --rm migrate   # apply schema (one-time)
 docker compose up                                    # start the server
 ```
 
-The server listens on `http://localhost:8080/mcp`. First build takes ~5 minutes (ONNX runtime + model download); subsequent ups are instant.
+The server listens on `http://localhost:7654/mcp`. First build takes ~5 minutes (ONNX runtime + model download); subsequent ups are instant.
 
 To use it from Claude Code, add to `~/.claude.json`:
 
@@ -34,7 +34,7 @@ To use it from Claude Code, add to `~/.claude.json`:
   "mcpServers": {
     "memory": {
       "type": "http",
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:7654/mcp"
     }
   }
 }
@@ -62,7 +62,7 @@ One-time setup runbook in [docs/deployment.md](docs/deployment.md).
 
 ## Tech stack
 
-Go 1.23 + [`mcp-go`](https://github.com/mark3labs/mcp-go) + [`pgx/v5`](https://github.com/jackc/pgx) + [`pgvector-go`](https://github.com/pgvector/pgvector-go) + [`fastembed-go`](https://github.com/Anush008/fastembed-go) (ONNX). Migrations via [`goose`](https://github.com/pressly/goose). Tests via [`testcontainers-go`](https://golang.testcontainers.org/). Operator scripts in Python via [`uv`](https://docs.astral.sh/uv/).
+Go 1.23 + [`mcp-go`](https://github.com/mark3labs/mcp-go) + [`pgx/v5`](https://github.com/jackc/pgx) + [`pgvector-go`](https://github.com/pgvector/pgvector-go) + [`fastembed-go`](https://github.com/Anush008/fastembed-go) (ONNX). Migrations via [`goose`](https://github.com/pressly/goose). Tests via [`testcontainers-go`](https://golang.testcontainers.org/). Operator tooling (`khctl`) is also Go — no Python/uv runtime required.
 
 ## Repo conventions
 

@@ -20,15 +20,12 @@ repository. The orchestrator pipeline reads this file before touching any code.
 
 **What this repo is NOT.**
 - Not a general-purpose MCP framework — it encodes one specific KG schema.
-- Not a Python service — the server is Go only. Python lives exclusively in `scripts/`
-  (one-shot migration tools) and is never part of the runtime.
+- Not a Python service — the server is Go only. Operator tooling (`khctl`) is also Go.
 - Not multi-tenant in v1 — single schema, no `tenant_id`, no auth on the MCP endpoint.
 
 **External dependencies (required).**
 - `go` 1.23+ — runtime and build. Install via `mise install go` or from https://go.dev/dl/.
 - `docker` + `docker compose` — required for Phase 1 local stack and CI integration tests.
-- `uv` — Python toolchain for `scripts/` migration tools only.
-  Install: https://docs.astral.sh/uv/getting-started/installation/
 
 **External dependencies (optional / future).**
 - `goose` CLI — baked into the Docker image; not needed on the host for normal development.
@@ -47,8 +44,14 @@ repository. The orchestrator pipeline reads this file before touching any code.
 ```
 context-harness-mcp/
 ├── cmd/
-│   └── server/
-│       └── main.go               Entry point: flag parsing, transport selection, server boot
+│   ├── server/
+│   │   └── main.go               Entry point: flag parsing, transport selection, server boot
+│   └── khctl/                    Operator CLI: seed, export, import subcommands (Go, no Python/uv)
+│       ├── main.go               Subcommand dispatcher
+│       ├── dsn.go                DSN resolution (--dsn flag or SUPABASE_DB_URL env)
+│       ├── seed.go               khctl seed — inserts deterministic dev fixtures
+│       ├── export.go             khctl export — SELECTs active rows → JSON
+│       └── import.go             khctl import — JSON → Supabase (idempotent merge)
 ├── internal/                     Go internal packages — not importable by other modules
 │   ├── mcp/
 │   │   ├── server.go             mcp-go server factory + tool registration scaffold
@@ -72,7 +75,8 @@ context-harness-mcp/
 │   └── healthz/
 │       └── healthz.go            healthz MCP tool handler
 ├── migrations/                   Sequenced SQL migrations applied by goose (PR-2)
-├── scripts/                      One-shot Python migration tools — NOT part of the runtime (PR-8)
+├── scripts/
+│   └── smoke/                    Operator smoke tests (bash, stay)
 ├── tests/                        Go integration tests with testcontainers-go ephemeral pg+pgvector (PR-2+)
 ├── .github/workflows/
 │   ├── ci.yml                    On PR: go vet + staticcheck + go build (+ go test from PR-2)
@@ -109,6 +113,7 @@ context-harness-mcp/
 | Migrations | `github.com/pressly/goose/v3` — forward-only SQL in `migrations/`; same binary for Phase 1 and Phase 2 |
 | Logging | stdlib `log/slog` JSON handler to stdout |
 | Testing | stdlib `testing` + `github.com/stretchr/testify` + `github.com/testcontainers/testcontainers-go/modules/postgres` (PR-2+); ephemeral pg+pgvector per test run |
+| Operator tooling | `cmd/khctl/` — Go binary with `seed`, `export`, `import` subcommands. Shipped in the Docker image at `/usr/local/bin/khctl`. No Python/uv required. |
 | Container base | `debian:bookworm-slim` — glibc required for ONNX Runtime Linux x64 |
 | Hosting (Phase 1) | `docker compose up` — local mcp server connecting to Supabase via `SUPABASE_DB_URL` |
 | Hosting (Phase 2) | Render Free (Docker deploy) connecting to the same Supabase Free target |
@@ -125,7 +130,7 @@ All commands run from the repo root unless noted.
 |---|---|
 | Build the server binary | `go build ./cmd/server` |
 | Run the server (stdio — local Claude Code) | `go run ./cmd/server -transport=stdio` |
-| Run the server (http — local browser/test) | `go run ./cmd/server -transport=http -addr=:8080` |
+| Run the server (http — local browser/test) | `go run ./cmd/server -transport=http -addr=:7654` |
 | Run all Go checks | `go vet ./...` |
 | Run staticcheck | `go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 && staticcheck ./...` |
 | Build and verify | `go build ./... && go vet ./...` |
@@ -134,9 +139,11 @@ All commands run from the repo root unless noted.
 | Apply migrations to Supabase (local) | `docker compose --profile migrate run --rm migrate` |
 | Apply migrations to Supabase (CI) | runs automatically via `.github/workflows/deploy.yml` on push to `main` (PR-7) |
 | Run integration tests | `go test ./...  # requires Docker daemon (testcontainers spins ephemeral pg)` |
-| Export local KG to JSON | `cd scripts && uv run export_from_supabase.py --out ../shared-knowledge/<name>-$(date +%F).json` |
+| Export local KG to JSON | `khctl export --dsn "$SUPABASE_DB_URL" --out shared-knowledge/<name>-$(date +%F).json` |
+| Seed dev fixtures | `khctl seed --dsn "$SUPABASE_DB_URL"` |
+| Import KG JSON | `khctl import <file.json> --dsn "$SUPABASE_DB_URL"` |
 
-**Not applicable to this repo:** `npm`, `pip install`, `python -m`, `uvicorn`. The server is Go only.
+**Not applicable to this repo:** `npm`, `pip install`, `python -m`, `uvicorn`, `uv`. The server is Go only; operator tooling is `khctl` (Go binary in the Docker image).
 
 ---
 
