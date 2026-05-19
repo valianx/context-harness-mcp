@@ -20,9 +20,35 @@ import (
 	"github.com/mariogutierrez/context-harness-mcp/internal/viewer"
 )
 
+// envOrDefault returns the value of env var key when non-empty, otherwise
+// the fallback. Used to seed flag defaults so CLI flags > env var > hard
+// default precedence holds. Without this, the binary ignored MCP_TRANSPORT
+// and MCP_HTTP_ADDR set in hosting platforms (Render, Railway, etc.) — the
+// flag defaults always won, forcing operators to override the Dockerfile
+// CMD just to change the transport.
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
 func main() {
-	transport := flag.String("transport", "stdio", "MCP transport: stdio or http")
-	addr := flag.String("addr", ":7654", "Listen address for http transport")
+	transport := flag.String("transport", envOrDefault("MCP_TRANSPORT", "stdio"),
+		"MCP transport: stdio or http (env: MCP_TRANSPORT)")
+	// Fallback chain: MCP_HTTP_ADDR > PORT (Railway / Heroku convention) > :7654.
+	// Railway sets PORT to its assigned port; honoring it lets the app deploy
+	// without an explicit Target Port override in the Railway UI.
+	rawAddr := envOrDefault("MCP_HTTP_ADDR", "")
+	if rawAddr == "" {
+		if port := os.Getenv("PORT"); port != "" {
+			rawAddr = ":" + port
+		} else {
+			rawAddr = ":7654"
+		}
+	}
+	addr := flag.String("addr", rawAddr,
+		"Listen address for http transport (env: MCP_HTTP_ADDR, or PORT for hosting platforms)")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
