@@ -61,7 +61,8 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			return verr.ToMCPResult(), nil
 		}
 
-		created, err := execCreateRelations(ctx, pool, args.Relations)
+		userID, email := attributionFromContext(ctx)
+		created, err := execCreateRelations(ctx, pool, args.Relations, userID, email)
 		if err != nil {
 			if isNodeNotFound(err) {
 				return errorResult(err.Error()), nil
@@ -73,7 +74,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 	}
 }
 
-func execCreateRelations(ctx context.Context, pool *pgxpool.Pool, relations []relationInput) (int, error) {
+func execCreateRelations(ctx context.Context, pool *pgxpool.Pool, relations []relationInput, userID, email *string) (int, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -98,7 +99,7 @@ func execCreateRelations(ctx context.Context, pool *pgxpool.Pool, relations []re
 			return 0, &nodeNotFoundError{name: rel.To}
 		}
 
-		_, inserted, err := store.InsertRelation(ctx, tx, fromID, toID, rel.RelationType)
+		_, inserted, err := store.InsertRelation(ctx, tx, fromID, toID, rel.RelationType, userID, email)
 		if err != nil {
 			return 0, fmt.Errorf("insert relation %q→%q: %w", rel.From, rel.To, err)
 		}

@@ -25,14 +25,18 @@ type NodeRow struct {
 // Create inserts a new node row and returns its UUID. On a unique-name
 // conflict it fetches and returns the existing active row's id, making the
 // operation idempotent.
-func Create(ctx context.Context, tx pgx.Tx, name, nodeType string) (string, error) {
+//
+// userID and email carry optional attribution from the authenticated request
+// context. Pass nil for both when the caller has no auth context (stdio path,
+// MCP_AUTH=none) — the nullable columns accept NULL safely.
+func Create(ctx context.Context, tx pgx.Tx, name, nodeType string, userID, email *string) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx,
-		`INSERT INTO nodes (name, node_type)
-		 VALUES ($1, $2)
+		`INSERT INTO nodes (name, node_type, created_by_user_id, created_by_email)
+		 VALUES ($1, $2, $3::uuid, $4)
 		 ON CONFLICT (name) DO NOTHING
 		 RETURNING id`,
-		name, nodeType,
+		name, nodeType, userID, email,
 	).Scan(&id)
 
 	if err == nil {

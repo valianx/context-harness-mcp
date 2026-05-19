@@ -19,13 +19,17 @@ type RelationRow struct {
 // InsertRelation inserts a new relation. On a (from_node_id, to_node_id,
 // relation_type) unique conflict the row is silently skipped and
 // inserted=false is returned.
-func InsertRelation(ctx context.Context, tx pgx.Tx, fromID, toID, relType string) (relationID string, inserted bool, err error) {
+//
+// userID and email carry optional attribution from the authenticated request
+// context. Pass nil for both when the caller has no auth context (stdio path,
+// MCP_AUTH=none) — the nullable columns accept NULL safely.
+func InsertRelation(ctx context.Context, tx pgx.Tx, fromID, toID, relType string, userID, email *string) (relationID string, inserted bool, err error) {
 	err = tx.QueryRow(ctx,
-		`INSERT INTO relations (from_node_id, to_node_id, relation_type)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO relations (from_node_id, to_node_id, relation_type, created_by_user_id, created_by_email)
+		 VALUES ($1, $2, $3, $4::uuid, $5)
 		 ON CONFLICT (from_node_id, to_node_id, relation_type) DO NOTHING
 		 RETURNING id`,
-		fromID, toID, relType,
+		fromID, toID, relType, userID, email,
 	).Scan(&relationID)
 
 	if err == nil {

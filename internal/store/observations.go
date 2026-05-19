@@ -14,7 +14,11 @@ import (
 // zero-length pgvector.Vector{} — this is stored as SQL NULL (degraded mode).
 // A non-zero vector must have exactly 384 dimensions. On a (node_id, text)
 // unique conflict the row is silently skipped and inserted=false is returned.
-func Insert(ctx context.Context, tx pgx.Tx, nodeID, text string, embedding pgvector.Vector) (observationID string, inserted bool, err error) {
+//
+// userID and email carry optional attribution from the authenticated request
+// context. Pass nil for both when the caller has no auth context (stdio path,
+// MCP_AUTH=none) — the nullable columns accept NULL safely.
+func Insert(ctx context.Context, tx pgx.Tx, nodeID, text string, embedding pgvector.Vector, userID, email *string) (observationID string, inserted bool, err error) {
 	// Use a typed nil interface so pgx encodes a SQL NULL when no embedding is
 	// available, rather than sending an invalid empty vector to Postgres.
 	var embParam any
@@ -23,11 +27,11 @@ func Insert(ctx context.Context, tx pgx.Tx, nodeID, text string, embedding pgvec
 	}
 
 	err = tx.QueryRow(ctx,
-		`INSERT INTO observations (node_id, text, embedding)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO observations (node_id, text, embedding, created_by_user_id, created_by_email)
+		 VALUES ($1, $2, $3, $4::uuid, $5)
 		 ON CONFLICT (node_id, text) DO NOTHING
 		 RETURNING id`,
-		nodeID, text, embParam,
+		nodeID, text, embParam, userID, email,
 	).Scan(&observationID)
 
 	if err == nil {
