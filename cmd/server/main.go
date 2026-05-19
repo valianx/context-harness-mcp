@@ -20,6 +20,7 @@ import (
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 	"github.com/mariogutierrez/context-harness-mcp/internal/viewer"
+	"github.com/mariogutierrez/context-harness-mcp/internal/web"
 )
 
 // envOrDefault returns the value of env var key when non-empty, otherwise
@@ -196,6 +197,14 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	baseURL := os.Getenv("MCP_PUBLIC_URL")
 
 	mux := http.NewServeMux()
+
+	// Unauthenticated routes — registered BEFORE /mcp so they are never gated
+	// by auth.Middleware. Order matters: these three must be reachable without
+	// a bearer token (they ARE the login flow).
+	web.RegisterCallback(mux)
+	web.RegisterExchange(mux, pool)
+	web.RegisterLogin(mux)
+
 	// /mcp is wrapped by auth.Middleware — when ModeNone it's a no-op pass-through.
 	// Ordering: auth.Middleware → httpServer (MCP handler → Content Filter → DB write).
 	mux.Handle("/mcp", auth.Middleware(authMode, revStore, revocationCache, baseURL, httpServer))
