@@ -10,10 +10,11 @@
 
 **What this repo is.** `context-harness-mcp` is a **Go MCP server** that exposes a
 6-tool Knowledge-Graph surface (`create_nodes`, `add_observations`, `create_relations`,
-`search_nodes`, `open_nodes`, `read_graph`) backed by **Postgres + pgvector** (Supabase
-in production) and deployable as a static Docker binary to **Render Free**. Delete
-operations are intentionally not exposed as MCP tools — only via store-level SQL for
-operators (see `docs/mcp-tools.md §Administrative deletions`).
+`search_nodes`, `open_nodes`, `read_graph`) backed by **Postgres + pgvector** and
+deployable as a static Docker binary to **any container hosting (free or paid) — local
+Docker, Railway, Render, Fly, Coolify, self-hosted VPS, etc.** Delete operations are
+intentionally not exposed as MCP tools — only via store-level SQL for operators
+(see `docs/mcp-tools.md §Administrative deletions`).
 
 **Primary audience:** agents and developers who work in the `context-harness-mcp`
 repository. The orchestrator pipeline reads this file before touching any code.
@@ -25,17 +26,17 @@ repository. The orchestrator pipeline reads this file before touching any code.
 
 **External dependencies (required).**
 - `go` 1.23+ — runtime and build. Install via `mise install go` or from https://go.dev/dl/.
-- `docker` + `docker compose` — required for Phase 1 local stack and CI integration tests.
+- `docker` + `docker compose` — required for the local stack and CI integration tests.
 
 **External dependencies (optional / future).**
 - `goose` CLI — baked into the Docker image; not needed on the host for normal development.
 - `supabase` CLI — used in PR-7/PR-8 for cloud deployment workflows.
 - `gh` — GitHub CLI for the delivery agent's PR workflow.
 
-**Hosting.**
-- Phase 1: `docker compose up` — local mcp server connecting to Supabase via `DATABASE_URL`.
-- Phase 2: Render Free (Docker deploy) connecting to the **same Supabase Free** target.
-- Both phases share one DB — only the runtime location of the binary differs.
+**Hosting modes — both first-class.**
+- **Local mode:** `docker compose up` against any Postgres+pgvector reachable from the host. Default `MCP_AUTH=none` (no headers needed in `~/.claude.json`). Use for single-developer setups, dev machines, or fully-trusted environments.
+- **Cloud/shared mode:** the same image deployed to any container host (Railway / Render / Fly / Coolify / self-hosted Docker / etc.) with `MCP_AUTH=enabled` and a bearer JWT in `~/.claude.json`. Use for team-shared memory or any deployment exposed beyond localhost.
+- The image is byte-identical across both modes. Runtime differences live exclusively in env vars (`DATABASE_URL`, `MCP_TRANSPORT`, `MCP_AUTH`, log level).
 
 ---
 
@@ -80,17 +81,16 @@ context-harness-mcp/
 ├── tests/                        Go integration tests with testcontainers-go ephemeral pg+pgvector (PR-2+)
 ├── .github/workflows/
 │   ├── ci.yml                    On PR: go vet + staticcheck + go build (+ go test from PR-2)
-│   ├── deploy.yml                On push to main: goose up + Render deploy hook (PR-7)
+│   ├── deploy.yml                On push to main: goose up + optional deploy hook (platform-agnostic)
 │   ├── pg_dump_weekly.yml        Weekly encrypted pg_dump backup (PR-7)
-│   └── supabase_keepalive.yml    Every 6 days SELECT 1 (PR-7)
+│   └── supabase_keepalive.yml    Every 6 days SELECT 1 (adjust to your provider's auto-pause policy)
 ├── Dockerfile                    Multi-stage: golang:1.23 builder → debian:bookworm-slim runtime
-├── docker-compose.yml            Phase 1 stack: mcp server only, connects to Supabase via DATABASE_URL
+├── docker-compose.yml            Local stack: mcp server only, connects to any Postgres+pgvector via DATABASE_URL
 ├── go.mod / go.sum               Go module manifest
-├── render.yaml                   Render IaC manifest for Phase 2
 ├── docs/
 │   ├── knowledge.md              Durable decisions/patterns/restrictions/stack notes
-│   ├── local-stack.md            Phase 1 runbook (PR-6)
-│   └── cutover-playbook.md       Phase 2 cutover operator runbook (PR-8)
+│   ├── local-stack.md            Local mode runbook
+│   └── deployment.md             Cloud / remote container hosting runbook (platform-agnostic)
 ├── .env.example                  Documented env vars with placeholder values
 ├── .gitignore
 ├── CHANGELOG.md
@@ -110,14 +110,14 @@ context-harness-mcp/
 | Vector | `github.com/pgvector/pgvector-go` — `pgxvec.RegisterTypes` in pool `AfterConnect`; cosine via `<=>` |
 | Embeddings | `github.com/Anush008/fastembed-go` — `all-MiniLM-L6-v2` ONNX, 384 dims, lazy `sync.Once` init (PR-5) |
 | Content Filter | `github.com/go-playground/validator/v10` (struct tags) + `github.com/zricethezav/gitleaks/v8` (secrets, PR-3) |
-| Migrations | `github.com/pressly/goose/v3` — forward-only SQL in `migrations/`; same binary for Phase 1 and Phase 2 |
+| Migrations | `github.com/pressly/goose/v3` — forward-only SQL in `migrations/`; same binary for local mode and cloud mode |
 | Auth | `github.com/golang-jwt/jwt/v5` (HS256 issue + validate) + Supabase Auth (user identity) + LRU revocation cache (custom) |
 | Logging | stdlib `log/slog` JSON handler to stdout |
 | Testing | stdlib `testing` + `github.com/stretchr/testify` + `github.com/testcontainers/testcontainers-go/modules/postgres` (PR-2+); ephemeral pg+pgvector per test run |
 | Operator tooling | `cmd/khctl/` — Go binary with `seed`, `export`, `import` subcommands. Shipped in the Docker image at `/usr/local/bin/khctl`. No Python/uv required. |
 | Container base | `debian:bookworm-slim` — glibc required for ONNX Runtime Linux x64 |
-| Hosting (Phase 1) | `docker compose up` — local mcp server connecting to Supabase via `DATABASE_URL` |
-| Hosting (Phase 2) | Render Free (Docker deploy) connecting to the same Supabase Free target |
+| Hosting (local mode) | `docker compose up` — local mcp server connecting to any Postgres+pgvector via `DATABASE_URL` |
+| Hosting (cloud mode) | Any container host (Railway / Render / Fly / Coolify / self-hosted Docker / …) using the same image |
 
 **Current version:** `0.1.0-dev` (skeleton, PR-1).
 
@@ -136,9 +136,9 @@ All commands run from the repo root unless noted.
 | Run staticcheck | `go install honnef.co/go/tools/cmd/staticcheck@v0.6.1 && staticcheck ./...` |
 | Build and verify | `go build ./... && go vet ./...` |
 | Fetch / tidy deps | `GOTOOLCHAIN=local go mod tidy` |
-| Start Phase 1 local stack | `docker compose up --build` (requires `DATABASE_URL` in `.env`) |
-| Apply migrations to Supabase (local) | `docker compose --profile migrate run --rm migrate` |
-| Apply migrations to Supabase (CI) | runs automatically via `.github/workflows/deploy.yml` on push to `main` (PR-7) |
+| Start local stack | `docker compose up --build` (requires `DATABASE_URL` in `.env`) |
+| Apply migrations (local) | `docker compose --profile migrate run --rm migrate` |
+| Apply migrations (CI) | runs automatically via `.github/workflows/deploy.yml` on push to `main` (PR-7) |
 | Run integration tests | `go test ./...  # requires Docker daemon (testcontainers spins ephemeral pg)` |
 | Export local KG to JSON | `khctl export --dsn "$DATABASE_URL" --out shared-knowledge/<name>-$(date +%F).json` |
 | Seed dev fixtures | `khctl seed --dsn "$DATABASE_URL"` |
@@ -164,8 +164,8 @@ All commands run from the repo root unless noted.
 - **All SQL is parameterized.** No `fmt.Sprintf` inside SQL strings, ever — even next to the validator.
 - **Migrations are forward-only in prod.** `goose Down` annotations exist for dev/CI (`goose reset` between tests) but are never invoked in production.
 - **ONNX session and gitleaks detector are lazy-loaded.** Both use `sync.Once` — initialized on first embedding / first write request, not at startup. Non-embedding tools (`read_graph`, `open_nodes`) pay no model-load cost.
-- **Same Docker image AND same Supabase target for Phase 1 and Phase 2.** Runtime differences live exclusively in `DATABASE_URL`, `MCP_TRANSPORT`, log level. Build artifact drift between phases is a bug.
-- **`log/slog` JSON handler only.** No `fmt.Println`, no `log.Printf`, no third-party logging. Structured JSON to stdout; Render and `docker compose` capture stdout.
+- **Same Docker image across local mode and cloud mode.** Runtime differences live exclusively in env vars (`DATABASE_URL`, `MCP_TRANSPORT`, `MCP_AUTH`, log level). Build artifact drift between hosts is a bug.
+- **`log/slog` JSON handler only.** No `fmt.Println`, no `log.Printf`, no third-party logging. Structured JSON to stdout; every container host and `docker compose` captures stdout.
 
 ---
 

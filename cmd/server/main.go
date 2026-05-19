@@ -27,9 +27,9 @@ import (
 // envOrDefault returns the value of env var key when non-empty, otherwise
 // the fallback. Used to seed flag defaults so CLI flags > env var > hard
 // default precedence holds. Without this, the binary ignored MCP_TRANSPORT
-// and MCP_HTTP_ADDR set in hosting platforms (Render, Railway, etc.) — the
-// flag defaults always won, forcing operators to override the Dockerfile
-// CMD just to change the transport.
+// and MCP_HTTP_ADDR set by container hosting providers — the flag defaults
+// always won, forcing operators to override the Dockerfile CMD just to change
+// the transport.
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -218,7 +218,7 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	mcpHandler := auth.Middleware(authMode, revStore, revocationCache, baseURL, httpServer)
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
-	// Plain HTTP health check consumed by Render and docker-compose healthchecks.
+	// Plain HTTP health check consumed by container-host healthchecks (any platform).
 	// Intentionally returns "db":"not-configured" — a DB ping is not added here
 	// per the anti-scope contract in PR-4.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {

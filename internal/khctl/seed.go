@@ -24,8 +24,9 @@ type SeedRelation struct {
 }
 
 // FixtureNodes defines the deterministic dev fixtures: ≥20 nodes across ≥5
-// node types, ≥3 observations each. These mirror the Python seed_dev.py
-// fixtures for consistency.
+// node types, ≥3 observations each. Used by `khctl seed` to populate a fresh
+// KG with reference content. Platform-agnostic: no specific hosting provider
+// is privileged.
 var FixtureNodes = []SeedNode{
 	// pattern (5 nodes)
 	{
@@ -80,43 +81,43 @@ var FixtureNodes = []SeedNode{
 	},
 	// decision (4 nodes)
 	{
-		Name:     "go-over-python-for-mcp-server",
+		Name:     "go-for-mcp-server-runtime",
 		NodeType: "decision",
 		Observations: []string{
-			"Go static binary starts in 1-3 s on Render Free; Python equivalent is 15-30 s — kills free-tier UX.",
-			"fastembed-go provides the same all-MiniLM-L6-v2 ONNX model as Python sentence-transformers.",
-			"Trade-off: no code reuse with claude-dev-team knowledge-graph Python server; accepted as one-time cost.",
-			"Revisit if the team needs Python-specific libraries that have no Go equivalent.",
+			"Go static binary starts in 1-3 s, keeping cold-starts viable on free-tier container hosting.",
+			"fastembed-go provides all-MiniLM-L6-v2 ONNX inference natively — no Python sidecar needed.",
+			"Single-binary deployment: no interpreter, no virtualenv, no language runtime mismatch between dev and prod.",
+			"Trade-off: smaller ecosystem of MCP examples in Go vs Python; offset by simpler ops surface.",
 		},
 	},
 	{
 		Name:     "single-tenant-schema-v1",
 		NodeType: "decision",
 		Observations: []string{
-			"No tenant_id column in v1 — single team, single shared KG, YAGNI for multi-tenancy.",
+			"No tenant_id column in v1 — single team or single deployer per instance, YAGNI for multi-tenancy.",
 			"Adding tenant_id later is an additive migration: add column → backfill → switch queries → drop old default.",
-			"RLS on Supabase Free pins access to the service-role key only — anon role gets no grants.",
+			"Postgres-level access control (role grants) pins write access to the configured DATABASE_URL only.",
 			"Single-tenant keeps the query surface minimal and the indexes tight.",
 		},
 	},
 	{
-		Name:     "one-shot-migration-not-dual-write",
+		Name:     "auth-opt-in-via-mcp-auth-env",
 		NodeType: "decision",
 		Observations: []string{
-			"Dual-write doubles the failure surface (two backends, sync drift, partial-write reconciliation).",
-			"Flag-day cutover is acceptable for a single-team deployment whose writes are idempotent.",
-			"ChromaDB kept cold for 30 days post-cutover as a rollback path.",
-			"khctl import is the migration workhorse; accepts both nodes and legacy entities shapes.",
+			"Single env var MCP_AUTH=none|enabled toggles between fully-open (local-trusted) and bearer-required (shared/remote) modes.",
+			"Default `none` keeps single-developer local deployments friction-free — no JWT, no setup, just docker compose up.",
+			"`enabled` mode plugs in an identity provider (Supabase Auth, Auth0, custom JWT issuer) via standard JWT validation.",
+			"Same image and binary across both modes — runtime config decides; no separate builds for trusted vs untrusted environments.",
 		},
 	},
 	{
-		Name:     "free-tier-hosting-strategy",
+		Name:     "containerized-deployment-strategy",
 		NodeType: "decision",
 		Observations: []string{
-			"Render Free + Supabase Free = $0/mo recurring; adequate for a single team's KG at low-MB data sizes.",
-			"Weekly pg_dump replaces PITR (Supabase Free has no PITR); 7-day recovery window.",
-			"Supabase auto-pause after 7 days of DB inactivity mitigated by 6-day SELECT 1 keepalive cron.",
-			"If team SLA tightens, upgrading to paid Render tier is a one-click change.",
+			"Single Docker image deploys identically to local (docker compose), cloud container hosts, and self-hosted servers.",
+			"Free-tier viable: Postgres+pgvector + container host on free plans serves a single team at low-MB data sizes.",
+			"Operator-controlled backups: weekly pg_dump via CI replaces managed PITR when not available.",
+			"Idle-pause mitigation when present: 6-day SELECT 1 keepalive cron via CI prevents free-tier auto-pause.",
 		},
 	},
 	// stack-profile (4 nodes)
@@ -127,19 +128,19 @@ var FixtureNodes = []SeedNode{
 		NodeType: "stack-profile",
 		Observations: []string{
 			"Go 1.23 + mcp-go (mark3labs) + pgx/v5 + pgvector-go + fastembed-go (ONNX all-MiniLM-L6-v2 384 dims).",
-			"Deployed as a multi-stage Docker image on Render Free; DB is Supabase Free (pgvector).",
+			"Deployed as a multi-stage Docker image; runs anywhere Docker + Postgres+pgvector is available (local laptop, container hosts, self-hosted).",
 			"MCP transport: streamable-http (March 2025 spec revision); local dev uses stdio.",
 			"Content Filter: three layers — syntactic (size + junk denylist), secrets (gitleaks + regex), taxonomy (enum + path rejection).",
 		},
 	},
 	{
-		Name:     "claude-dev-team-kg-stack",
+		Name:     "two-deployment-modes-stack",
 		NodeType: "stack-profile",
 		Observations: []string{
-			"Python + FastMCP + ChromaDB (PersistentClient at ~/.claude/chromadb/).",
-			"Embeddings computed by sentence-transformers all-MiniLM-L6-v2 (384 dims, same model as context-harness-mcp).",
-			"Local-only; team sync via manual export.py → import.py JSON files in shared-knowledge/.",
-			"Sunset planned after KG_BACKEND switch lands in claude-dev-team PR-9.",
+			"Local mode: docker compose up + MCP_AUTH=none (default). Same image, no JWT, ideal for single-developer use.",
+			"Cloud/shared mode: any container host + Postgres+pgvector + MCP_AUTH=enabled + JWT bearer in ~/.claude.json.",
+			"Both modes are first-class — neither is a degraded version of the other. Mode is chosen per-deployment via env var.",
+			"The MCP wire protocol, the tools surface, and the DB schema are identical across modes.",
 		},
 	},
 	{
@@ -147,9 +148,9 @@ var FixtureNodes = []SeedNode{
 		NodeType: "stack-profile",
 		Observations: []string{
 			"ci.yml: go build + go vet + staticcheck + go test (testcontainers, ubuntu-latest, Docker available).",
-			"deploy.yml: goose up against Supabase then curl Render deploy hook on push to main.",
+			"deploy.yml: goose up against the configured DATABASE_URL, then optional DEPLOY_HOOK_URL trigger (works with Railway/Render/Fly/Coolify/custom CI).",
 			"pg_dump_weekly.yml: Sunday 03:00 UTC encrypted dump (gpg --symmetric AES-256) retained 90 days.",
-			"supabase_keepalive.yml: SELECT 1 every 6 days to prevent Supabase Free auto-pause.",
+			"keepalive workflow: SELECT 1 every 6 days for hosting providers that auto-pause idle databases (no-op when not needed).",
 		},
 	},
 	{
@@ -164,31 +165,31 @@ var FixtureNodes = []SeedNode{
 	},
 	// service (4 nodes)
 	{
-		Name:     "render-mcp-service",
+		Name:     "mcp-server-deployment",
 		NodeType: "service",
 		Observations: []string{
-			"Render Free web service; auto-deploys on push to main via deploy hook URL stored in GH secrets.",
-			"Sleeps after 15 min of inactivity; Go binary cold starts in 1-3 s (non-embedding tools are sub-second).",
-			"Healthcheck at /healthz: returns 200 once pgxpool SELECT 1 succeeds.",
-			"region: oregon; dockerfilePath: Dockerfile; healthCheckPath: /healthz.",
+			"Container running the Go binary, listening on $MCP_HTTP_ADDR (default :7654) with /mcp/ + /auth/* + /viewer/* endpoints.",
+			"Cold-start budget 1-3 s — viable on platforms that idle/sleep containers (most free tiers).",
+			"Healthcheck at /healthz: returns 200 with {status:ok, db:...} once the DB pool is ready.",
+			"Same Dockerfile across all deployments — runtime configuration is via env vars only (no per-platform image variants).",
 		},
 	},
 	{
-		Name:     "supabase-postgres-service",
+		Name:     "postgres-pgvector-service",
 		NodeType: "service",
 		Observations: []string{
-			"Supabase Free project: 500 MB DB ceiling, no PITR, auto-pauses after 7 days of DB inactivity.",
-			"Connection string exposed as DATABASE_URL in GH secrets and Render env vars (legacy: SUPABASE_DB_URL deprecated, removed in v2.0).",
-			"RLS enabled: service-role key only; anon and authenticated roles have no grants.",
-			"Weekly pg_dump artifact retained 90 days in GH Actions; restore via gpg --decrypt | psql.",
+			"Postgres 16+ with the pgvector extension. Supabase/Neon/AWS RDS/self-hosted — all work; the schema is portable.",
+			"Connection exposed as DATABASE_URL; the server fails fast at boot if unset.",
+			"Free-tier providers typically cap DB size and may auto-pause; keepalive cron mitigates the latter.",
+			"Weekly pg_dump artifact retained via CI; restore via gpg --decrypt | psql when needed.",
 		},
 	},
 	{
 		Name:     "mcp-server-healthz-endpoint",
 		NodeType: "service",
 		Observations: []string{
-			"GET /healthz returns 200 {status:ok, db:ok} when pgxpool SELECT 1 succeeds.",
-			"Returns 503 if DB is unreachable — used by Render health check and smoke scripts.",
+			"GET /healthz returns 200 {status:ok, db:ok} when the DB pool's SELECT 1 succeeds.",
+			"Returns 503 if DB is unreachable — used by container host healthchecks and smoke scripts.",
 			"Does not load the ONNX model; embedding health is inferred from the first successful search_nodes.",
 			"Smoke test happy_path.sh calls /healthz first and aborts if it returns non-200.",
 		},
@@ -197,29 +198,29 @@ var FixtureNodes = []SeedNode{
 		Name:     "claude-code-mcp-client",
 		NodeType: "service",
 		Observations: []string{
-			"Claude Code reads ~/.claude.json for MCP server registration under mcpServers.memory.",
-			"Local dev: type http, url http://localhost:7654/mcp.",
-			"Production: type http, url https://<render-service>.onrender.com/mcp.",
-			"KG_BACKEND env var (PR-9) will let the installer choose the URL automatically.",
+			"Claude Code (and any MCP-compatible client) reads ~/.claude.json for MCP server registration under mcpServers.",
+			"Local mode: type http, url http://localhost:7654/mcp/ — no headers needed (MCP_AUTH=none).",
+			"Cloud/shared mode: type http, url https://<your-host>/mcp/ + headers.Authorization Bearer <jwt> (MCP_AUTH=enabled).",
+			"The snippet that lands the bearer in ~/.claude.json is generated by the /auth/exchange endpoint after a magic-link login.",
 		},
 	},
 	// project (2 unique names)
 	{
-		Name:     "claude-dev-team",
+		Name:     "mcp-compatible-clients",
 		NodeType: "project",
 		Observations: []string{
-			"Distribution of Claude Code agent system: agents, skills, hooks, KG MCP server, cross-platform installer.",
-			"Installer targets ~/.claude/ + ~/.claude.json; ChromaDB KG at ~/.claude/chromadb/.",
-			"PR-9 will add KG_BACKEND=chromadb|supabase switch; default chromadb in v1.2.0, supabase in v1.3.0.",
-			"After 30-day coexistence window, ChromaDB code is sunset in v2.0.0.",
+			"Any client speaking the MCP HTTP transport (Claude Code, Cursor, custom integrations) can consume the server.",
+			"The client config sits in the client's own settings file — typically a JSON entry with {type:http, url, headers?} shape.",
+			"Headers carry an optional bearer JWT when MCP_AUTH=enabled; omitted when MCP_AUTH=none.",
+			"No client-side library required — the server speaks plain HTTP + JSON-RPC over a single endpoint.",
 		},
 	},
 	{
-		Name:     "context-harness-mcp-backups",
+		Name:     "operator-backups",
 		NodeType: "project",
 		Observations: []string{
-			"Private GitHub repo storing weekly encrypted pg_dump artifacts from the production Supabase.",
-			"Artifacts retained 90 days via GH Actions retention policy.",
+			"Operator-controlled: GH Actions workflow stores weekly encrypted pg_dump artifacts.",
+			"Artifacts retained 90 days via GH Actions retention policy (operator can lengthen via dedicated artifact storage).",
 			"Restore: gpg --decrypt < dump.sql.gpg | psql $DATABASE_URL.",
 			"DUMP_PASSPHRASE stored in GH secrets; rotate via openssl rand -base64 32.",
 		},
@@ -229,10 +230,10 @@ var FixtureNodes = []SeedNode{
 		Name:     "embedding-model-locked-at-384-dims",
 		NodeType: "constraint",
 		Observations: []string{
-			"all-MiniLM-L6-v2 produces 384-dim vectors; locked until ChromaDB migration is complete.",
-			"Changing the model after cutover requires a full re-embed of the entire KG — a separate PR.",
-			"Parity with ChromaDB's hnsw:space cosine is preserved; no semantic neighborhood shift on migration.",
-			"Fixture JSONs must use 384-dim float32 arrays; khctl import rejects any other dimensionality.",
+			"all-MiniLM-L6-v2 produces 384-dim vectors; locked for the lifetime of the deployment.",
+			"Changing the model later requires a full re-embed of the entire KG — a separate operation.",
+			"Cosine distance is the metric across both index and queries; switching metrics requires reindex.",
+			"Fixture JSONs and import payloads must use 384-dim float32 arrays; khctl import rejects any other dimensionality.",
 		},
 	},
 	{
@@ -251,24 +252,23 @@ var FixtureNodes = []SeedNode{
 var FixtureRelations = []SeedRelation{
 	{From: "context-harness-mcp", To: "pgvector-embedding-stack", RelationType: "uses-stack"},
 	{From: "context-harness-mcp", To: "github-actions-ci-cd-stack", RelationType: "uses-stack"},
-	{From: "context-harness-mcp", To: "render-mcp-service", RelationType: "belongs-to"},
-	{From: "context-harness-mcp", To: "supabase-postgres-service", RelationType: "depends-on"},
-	{From: "render-mcp-service", To: "supabase-postgres-service", RelationType: "depends-on"},
-	{From: "claude-code-mcp-client", To: "render-mcp-service", RelationType: "calls"},
-	{From: "claude-dev-team", To: "claude-dev-team-kg-stack", RelationType: "uses-stack"},
-	{From: "context-harness-mcp", To: "one-shot-migration-not-dual-write", RelationType: "relates_to"},
-	{From: "context-harness-mcp", To: "go-over-python-for-mcp-server", RelationType: "relates_to"},
-	{From: "context-harness-mcp", To: "free-tier-hosting-strategy", RelationType: "relates_to"},
+	{From: "context-harness-mcp", To: "two-deployment-modes-stack", RelationType: "uses-stack"},
+	{From: "context-harness-mcp", To: "mcp-server-deployment", RelationType: "belongs-to"},
+	{From: "context-harness-mcp", To: "postgres-pgvector-service", RelationType: "depends-on"},
+	{From: "mcp-server-deployment", To: "postgres-pgvector-service", RelationType: "depends-on"},
+	{From: "claude-code-mcp-client", To: "mcp-server-deployment", RelationType: "calls"},
+	{From: "context-harness-mcp", To: "go-for-mcp-server-runtime", RelationType: "relates_to"},
+	{From: "context-harness-mcp", To: "containerized-deployment-strategy", RelationType: "relates_to"},
 	{From: "context-harness-mcp", To: "single-tenant-schema-v1", RelationType: "relates_to"},
+	{From: "context-harness-mcp", To: "auth-opt-in-via-mcp-auth-env", RelationType: "relates_to"},
 	{From: "vector-search-pattern", To: "pgvector-embedding-stack", RelationType: "relates_to"},
 	{From: "jwt-auth-pattern", To: "rate-limiting-pattern", RelationType: "relates_to"},
 	{From: "soft-delete-pattern", To: "content-filter-three-layer-contract", RelationType: "relates_to"},
-	{From: "context-harness-mcp-backups", To: "supabase-postgres-service", RelationType: "belongs-to"},
+	{From: "operator-backups", To: "postgres-pgvector-service", RelationType: "belongs-to"},
 	{From: "embedding-model-locked-at-384-dims", To: "pgvector-embedding-stack", RelationType: "relates_to"},
-	{From: "idempotent-write-pattern", To: "one-shot-migration-not-dual-write", RelationType: "relates_to"},
-	{From: "mcp-server-healthz-endpoint", To: "render-mcp-service", RelationType: "belongs-to"},
+	{From: "mcp-server-healthz-endpoint", To: "mcp-server-deployment", RelationType: "belongs-to"},
 	{From: "context-harness-mcp", To: "content-filter-three-layer-contract", RelationType: "depends-on"},
-	{From: "claude-dev-team", To: "context-harness-mcp", RelationType: "depends-on"},
+	{From: "mcp-compatible-clients", To: "context-harness-mcp", RelationType: "calls"},
 }
 
 // RunSeed executes the full seed inside a single transaction. Returns counts of

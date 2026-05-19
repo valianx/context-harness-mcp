@@ -182,7 +182,7 @@ Supabase Auth Hooks solo cubren eventos de interceptación durante el flujo de l
 
 Después de configurar, banear un usuario de prueba desde **Authentication → Users** y verificar:
 
-1. En los logs del MCP server (`docker compose logs` o Render logs), debe aparecer una entrada con `auth_webhook_received`.
+1. En los logs del MCP server (`docker compose logs`, o los logs que exponga tu plataforma de hosting), debe aparecer una entrada con `auth_webhook_received`.
 2. En la DB, `SELECT revoked_at FROM users WHERE email = '<email-del-test>'` debe retornar un timestamp.
 
 Si no aparece nada en los logs en 30 segundos:
@@ -208,7 +208,7 @@ Si no aparece nada en los logs en 30 segundos:
 
 **Camino fallback — sin webhook (cron 6h):**
 
-Si el webhook está caído, mal configurado, o se perdió el evento (cold start de Render durante el firing del webhook):
+Si el webhook está caído, mal configurado, o se perdió el evento (por ejemplo, cold start del container host durante el firing del webhook):
 
 - El cron `khctl sync-users` corre cada 6 horas.
 - Consulta la Supabase Admin API y reconcilia `users.revoked_at` contra `banned_until` / `deleted_at` de `auth.users`.
@@ -248,14 +248,13 @@ Guardar el output — es el nuevo `MCP_JWT_SECRET`. No lo logueen, no lo peguen 
 
 **3. Actualizar la variable de entorno en el hosting:**
 
-- **Render:** Dashboard → Service → Environment → editar `MCP_JWT_SECRET` → guardar.
-- **Otro hosting:** actualizar según el mecanismo del proveedor.
+Actualizar `MCP_JWT_SECRET` en la sección de env vars / secrets de tu plataforma de hosting (Railway → Variables, Render → Environment, Fly → `fly secrets set`, Coolify → Environment, server propio → archivo `.env` o systemd unit, etc.).
 
 **4. Hacer deploy (trigger):**
 
 ```sh
-# Render: via el deploy hook o manual deploy en el dashboard
-# O empujar un commit vacío para triggear CI/CD
+# Via el deploy hook que use tu plataforma, manual deploy desde el dashboard,
+# o empujar un commit vacío para triggear CI/CD:
 git commit --allow-empty -m "chore: trigger deploy for JWT secret rotation"
 git push
 ```
