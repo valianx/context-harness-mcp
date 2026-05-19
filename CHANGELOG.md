@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `docs/roadmap.md` — v0.2.0 roadmap covering team-features evolution: Supabase Auth + JWT-based bearer with webhook-driven revocation (Phase 0), `update_observations`/`stats`/`timeline`/`doctor` tools (Phase 1), optional `project_id` scoping (Phase 2), semantic conflict detection via pgvector with `supersedes`/`conflicts_with` relations (Phase 3), sessions + passive capture hooks (Phase 4), and operational polish (Phase 5). Framed as open-source product deployable as single-tenant private instance.
 - `cmd/khctl/` — Go binary (`khctl`) with three subcommands (`seed`, `export`, `import`) replacing the deleted Python migration scripts. Built with `CGO_ENABLED=0` (portable static binary, no ONNX dependency). `seed` populates ≥20 fixture nodes across ≥5 types with ≥3 observations each; `export` dumps active KG content to JSON; `import` loads JSON and accepts both `{"nodes":[...]}` and legacy `{"entities":[...]}` shapes. Baked into the Docker image at `/usr/local/bin/khctl`.
 - `internal/khctl/` — exported package containing the core logic for seed, export, and import operations, enabling direct function calls from integration tests without `os/exec`.
 - `cmd/khctl/import_test.go`, `cmd/khctl/export_test.go`, `cmd/khctl/seed_test.go` — integration tests for all three subcommands using testcontainers-go (`pgvector/pgvector:pg16`); cover idempotency, round-trip fidelity, legacy shape acceptance, embedding validation, and minimum-count guarantees.
