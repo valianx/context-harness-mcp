@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/healthz"
 )
 
@@ -39,23 +38,21 @@ var expectedCheckNames = []string{
 	"row_counts",
 }
 
-// warmEmbedder pre-initialises the ONNX sync.Once so that subsequent calls to
-// the embedder check inside healthz.Run do not incur the 200–500 ms cold-start
-// penalty and trigger the 200 ms latency gate. Call this once at the top of any
-// test that invokes the doctor tool or healthz.Run with a live embedder.
+// warmEmbedder swaps the suite-wide mock to the real ONNX embedder and
+// pre-initialises the ONNX sync.Once so that subsequent calls to the embedder
+// check inside healthz.Run do not incur the 200–500 ms cold-start penalty and
+// trigger the 200 ms latency gate.
 //
 // Background: the embedder uses sync.Once to lazy-load the ONNX session. The
 // first Encode call can take 200–500 ms depending on the host. The doctor check
 // fails when latency exceeds 200 ms (embedderLatencyLimit in healthz.go). By
 // calling warmEmbedder before invoking doctor we ensure the cold-start cost is
 // paid outside the measured window, making the test deterministic.
+//
+// The mock is restored via t.Cleanup when the test exits.
 func warmEmbedder(t *testing.T) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if _, err := embed.Default().Encode(ctx, []string{"warmup"}); err != nil {
-		t.Skipf("embedder unavailable (CGO disabled or model missing) — skipping doctor test: %v", err)
-	}
+	requireRealEmbedder(t)
 }
 
 // newPoolForDSN creates a *pgxpool.Pool for the given DSN without the pgvector

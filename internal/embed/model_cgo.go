@@ -10,14 +10,9 @@ import (
 	fastembed "github.com/anush008/fastembed-go"
 )
 
-// defaultEmbedder is the package-level singleton.
+// defaultEmbedder is the package-level singleton used by encoder.go's Default()
+// and RealEmbedder(). The ONNX session is initialized lazily on first Encode.
 var defaultEmbedder = &FastEmbedder{}
-
-// Default returns the package-level *FastEmbedder singleton.
-// The ONNX session is initialized lazily on the first Encode call.
-func Default() *FastEmbedder {
-	return defaultEmbedder
-}
 
 // FastEmbedder wraps fastembed-go's FlagEmbedding configured for
 // all-MiniLM-L6-v2 (384 dims). Thread-safe: the ONNX session is
