@@ -4,6 +4,26 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>agent stack — Claude Dev Team + Context Harness MCP</title>
+<script>
+  // ── Defensive Supabase auth-hash redirect ────────────────────────────────
+  // Supabase magic-link / recovery emails sometimes deliver the token to the
+  // Site URL (root `/`) with the JWT in the URL hash fragment, instead of
+  // the configured /auth/callback. When that happens the user lands on this
+  // landing page and nothing processes the token. This script runs as early
+  // as possible (top of <head>, synchronous) and forwards the hash to the
+  // real callback page, preserving the fragment.
+  //
+  // We check for the canonical Supabase shape `#access_token=...` to avoid
+  // accidentally redirecting on unrelated client-side hashes (e.g. anchor
+  // navigation). The replace() variant is used so the back button doesn't
+  // bounce the user back into a redirect loop.
+  (function () {
+    var h = window.location.hash || "";
+    if (h.length > 1 && h.indexOf("access_token=") !== -1) {
+      window.location.replace("/auth/callback" + h);
+    }
+  })();
+</script>
 <style>
   :root{
     --ch-bg:#0a0a0d; --ch-bg-panel:#14141a; --ch-bg-code:#050507;
