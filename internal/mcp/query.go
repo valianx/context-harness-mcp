@@ -23,13 +23,15 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 			mcplib.WithString("until", mcplib.Description("Upper bound (inclusive) on created_at. RFC3339 format. Optional.")),
 			mcplib.WithNumber("limit", mcplib.Description("Page size. Default 50, max 200. Values outside [1,200] are silently clamped.")),
 			mcplib.WithNumber("offset", mcplib.Description("Row offset for pagination. Default 0, max 100000. Values outside [0,100000] are silently clamped.")),
+			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, only nodes in this project are returned.")),
 		),
 		timelineHandler(pool),
 	)
 
 	s.AddTool(
 		mcplib.NewTool("stats",
-			mcplib.WithDescription("Return aggregated counts for the active knowledge graph: node_count, observation_count, relation_count, by_type breakdown, and oldest/newest node. Read-only — no arguments required."),
+			mcplib.WithDescription("Return aggregated counts for the active knowledge graph: node_count, observation_count, relation_count, by_type breakdown, and oldest/newest node. Read-only."),
+			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, counts are restricted to this project.")),
 		),
 		statsHandler(pool),
 	)
@@ -38,6 +40,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 		mcplib.NewTool("search_nodes",
 			mcplib.WithDescription("Search nodes by semantic similarity of observation text. Returns matching nodes and the relations between them."),
 			mcplib.WithString("query", mcplib.Required()),
+			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, only nodes in this project are returned.")),
 		),
 		searchNodesHandler(pool),
 	)
@@ -46,6 +49,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 		mcplib.NewTool("open_nodes",
 			mcplib.WithDescription("Retrieve specific nodes by name, plus the relations between them."),
 			mcplib.WithArray("names", mcplib.Required()),
+			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, only nodes matching names in this project are returned.")),
 		),
 		openNodesHandler(pool),
 	)
@@ -53,6 +57,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 	s.AddTool(
 		mcplib.NewTool("read_graph",
 			mcplib.WithDescription("Read the entire active knowledge graph. Use sparingly — prefer search_nodes for targeted queries."),
+			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, only nodes in this project are returned.")),
 		),
 		readGraphHandler(pool),
 	)
@@ -76,10 +81,22 @@ type relationJSON struct {
 	RelationType string `json:"relationType"`
 }
 
+// projectFilterFrom converts an empty string to a nil pointer (no filter) and
+// a non-empty string to a pointer (project filter). This is the bridge between
+// the JSON input (empty string = absent) and the store API (*string = nil for
+// no filter, &project for filtered).
+func projectFilterFrom(project string) *string {
+	if project == "" {
+		return nil
+	}
+	return &project
+}
+
 // ── search_nodes ─────────────────────────────────────────────────────────────
 
 type searchNodesArgs struct {
-	Query string `json:"query"`
+	Query   string `json:"query"`
+	Project string `json:"project,omitempty"`
 }
 
 func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
@@ -89,7 +106,7 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
-		nodes, relations, err := searchNodes(ctx, pool, args.Query)
+		nodes, relations, err := searchNodes(ctx, pool, args.Query, projectFilterFrom(args.Project))
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
@@ -101,7 +118,7 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	}
 }
 
-func searchNodes(ctx context.Context, pool *pgxpool.Pool, query string) ([]nodeJSON, []relationJSON, error) {
+func searchNodes(ctx context.Context, pool *pgxpool.Pool, query string, projectFilter *string) ([]nodeJSON, []relationJSON, error) {
 	// Encode the query into a vector; fail loudly if the embedder is broken.
 	// The substring helper (store.SearchByTextSubstring) stays in the codebase
 	// but is no longer wired here — failure must be visible to operators.
@@ -111,7 +128,7 @@ func searchNodes(ctx context.Context, pool *pgxpool.Pool, query string) ([]nodeJ
 	}
 	queryVec := pgvector.NewVector(vecs[0])
 
-	nodeRows, err := store.SearchByCosine(ctx, pool, queryVec)
+	nodeRows, err := store.SearchByCosine(ctx, pool, queryVec, projectFilter)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -122,7 +139,8 @@ func searchNodes(ctx context.Context, pool *pgxpool.Pool, query string) ([]nodeJ
 // ── open_nodes ───────────────────────────────────────────────────────────────
 
 type openNodesArgs struct {
-	Names []string `json:"names"`
+	Names   []string `json:"names"`
+	Project string   `json:"project,omitempty"`
 }
 
 func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
@@ -132,7 +150,7 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
-		nodes, relations, err := openNodes(ctx, pool, args.Names)
+		nodes, relations, err := openNodes(ctx, pool, args.Names, projectFilterFrom(args.Project))
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
@@ -144,46 +162,92 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	}
 }
 
-func openNodes(ctx context.Context, pool *pgxpool.Pool, names []string) ([]nodeJSON, []relationJSON, error) {
+func openNodes(ctx context.Context, pool *pgxpool.Pool, names []string, projectFilter *string) ([]nodeJSON, []relationJSON, error) {
 	if len(names) == 0 {
 		return []nodeJSON{}, []relationJSON{}, nil
 	}
 
-	// Resolve each name to an active node row via a single pool query.
-	rows, err := pool.Query(ctx,
-		`SELECT id, name, node_type
-		 FROM nodes
-		 WHERE name = ANY($1) AND deleted_at IS NULL
-		 ORDER BY name`,
-		names,
-	)
+	// Resolve each name to active node rows. With project filter: scoped to
+	// one project. Without: returns all matches (including homonyms).
+	var rows []store.NodeRow
+	var err error
+
+	if projectFilter == nil {
+		rows, err = queryOpenNodesAllProjects(ctx, pool, names)
+	} else {
+		rows, err = queryOpenNodesInProject(ctx, pool, names, *projectFilter)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
 
-	var nodeRows []store.NodeRow
-	for rows.Next() {
+	return buildNodeRelationResult(ctx, pool, rows)
+}
+
+func queryOpenNodesAllProjects(ctx context.Context, pool *pgxpool.Pool, names []string) ([]store.NodeRow, error) {
+	dbRows, err := pool.Query(ctx,
+		`SELECT id, name, node_type, project_id
+		 FROM nodes
+		 WHERE name = ANY($1) AND deleted_at IS NULL
+		 ORDER BY name, project_id`,
+		names,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer dbRows.Close()
+
+	var result []store.NodeRow
+	for dbRows.Next() {
 		var r store.NodeRow
-		if err := rows.Scan(&r.ID, &r.Name, &r.NodeType); err != nil {
-			return nil, nil, err
+		if err := dbRows.Scan(&r.ID, &r.Name, &r.NodeType, &r.ProjectID); err != nil {
+			return nil, err
 		}
-		nodeRows = append(nodeRows, r)
+		result = append(result, r)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
+	return result, dbRows.Err()
+}
 
-	return buildNodeRelationResult(ctx, pool, nodeRows)
+func queryOpenNodesInProject(ctx context.Context, pool *pgxpool.Pool, names []string, projectID string) ([]store.NodeRow, error) {
+	dbRows, err := pool.Query(ctx,
+		`SELECT id, name, node_type, project_id
+		 FROM nodes
+		 WHERE name = ANY($1) AND project_id = $2 AND deleted_at IS NULL
+		 ORDER BY name`,
+		names, projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer dbRows.Close()
+
+	var result []store.NodeRow
+	for dbRows.Next() {
+		var r store.NodeRow
+		if err := dbRows.Scan(&r.ID, &r.Name, &r.NodeType, &r.ProjectID); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, dbRows.Err()
 }
 
 // ── stats ─────────────────────────────────────────────────────────────────────
 
 // statsHandler returns aggregated KG counts. Read-only: no rate-limit, no
-// content-filter, no arguments. Mirrors the read_graph pattern.
+// content-filter. Optional project filter scopes all counts to that project.
+type statsArgs struct {
+	Project string `json:"project,omitempty"`
+}
+
 func statsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-		result, err := store.Stats(ctx, pool)
+		var args statsArgs
+		if err := req.BindArguments(&args); err != nil {
+			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+		}
+
+		result, err := store.Stats(ctx, pool, projectFilterFrom(args.Project))
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
@@ -193,9 +257,18 @@ func statsHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 
 // ── read_graph ───────────────────────────────────────────────────────────────
 
+type readGraphArgs struct {
+	Project string `json:"project,omitempty"`
+}
+
 func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-		nodeRows, err := store.ListActive(ctx, pool)
+		var args readGraphArgs
+		if err := req.BindArguments(&args); err != nil {
+			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+		}
+
+		nodeRows, err := store.ListActive(ctx, pool, projectFilterFrom(args.Project))
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
@@ -217,16 +290,17 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 // ── timeline ──────────────────────────────────────────────────────────────────
 
 const (
-	timelineDefaultLimit  = 50
-	timelineMaxLimit      = 200
-	timelineMaxOffset     = 100_000
+	timelineDefaultLimit = 50
+	timelineMaxLimit     = 200
+	timelineMaxOffset    = 100_000
 )
 
 type timelineArgs struct {
-	Since  string `json:"since"`
-	Until  string `json:"until"`
-	Limit  int    `json:"limit"`
-	Offset int    `json:"offset"`
+	Since   string `json:"since"`
+	Until   string `json:"until"`
+	Limit   int    `json:"limit"`
+	Offset  int    `json:"offset"`
+	Project string `json:"project,omitempty"`
 }
 
 // timelineHandler lists active nodes in reverse-chronological order with
@@ -247,7 +321,7 @@ func timelineHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 
 		limit, offset := clampTimelinePagination(args.Limit, args.Offset)
 
-		nodeRows, hasMore, err := store.ListByCreatedAt(ctx, pool, since, until, limit, offset)
+		nodeRows, hasMore, err := store.ListByCreatedAt(ctx, pool, since, until, limit, offset, projectFilterFrom(args.Project))
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}

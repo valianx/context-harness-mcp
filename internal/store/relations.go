@@ -16,20 +16,22 @@ type RelationRow struct {
 	RelationType string
 }
 
-// InsertRelation inserts a new relation. On a (from_node_id, to_node_id,
-// relation_type) unique conflict the row is silently skipped and
-// inserted=false is returned.
+// InsertRelation inserts a new relation with the given projectID. On a
+// (from_node_id, to_node_id, relation_type) unique conflict the row is
+// silently skipped and inserted=false is returned.
 //
+// projectID must always be provided (handlers resolve it from the from-node's
+// project before calling — cross-project relations are rejected at handler level).
 // userID and email carry optional attribution from the authenticated request
 // context. Pass nil for both when the caller has no auth context (stdio path,
 // MCP_AUTH=none) — the nullable columns accept NULL safely.
-func InsertRelation(ctx context.Context, tx pgx.Tx, fromID, toID, relType string, userID, email *string) (relationID string, inserted bool, err error) {
+func InsertRelation(ctx context.Context, tx pgx.Tx, fromID, toID, relType, projectID string, userID, email *string) (relationID string, inserted bool, err error) {
 	err = tx.QueryRow(ctx,
-		`INSERT INTO relations (from_node_id, to_node_id, relation_type, created_by_user_id, created_by_email)
-		 VALUES ($1, $2, $3, $4::uuid, $5)
+		`INSERT INTO relations (from_node_id, to_node_id, relation_type, project_id, created_by_user_id, created_by_email)
+		 VALUES ($1, $2, $3, $4, $5::uuid, $6)
 		 ON CONFLICT (from_node_id, to_node_id, relation_type) DO NOTHING
 		 RETURNING id`,
-		fromID, toID, relType, userID, email,
+		fromID, toID, relType, projectID, userID, email,
 	).Scan(&relationID)
 
 	if err == nil {
@@ -47,7 +49,9 @@ func InsertRelation(ctx context.Context, tx pgx.Tx, fromID, toID, relType string
 //
 // Admin-script API only — not wired to any MCP tool.
 func MarkRelationDeleted(ctx context.Context, tx pgx.Tx, fromName, toName, relType string) (int, error) {
-	fromID, _, fromFound, err := FindByName(ctx, tx, fromName)
+	// nil projectFilter: resolve whichever project comes first alphabetically
+	// (admin-script context; cross-project relations are prohibited by construction).
+	fromID, _, _, fromFound, err := FindByName(ctx, tx, fromName, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -55,7 +59,7 @@ func MarkRelationDeleted(ctx context.Context, tx pgx.Tx, fromName, toName, relTy
 		return 0, nil // node already gone — nothing to delete
 	}
 
-	toID, _, toFound, err := FindByName(ctx, tx, toName)
+	toID, _, _, toFound, err := FindByName(ctx, tx, toName, nil)
 	if err != nil {
 		return 0, err
 	}

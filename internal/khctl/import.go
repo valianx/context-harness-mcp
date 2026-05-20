@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 
 	"github.com/jackc/pgx/v5"
@@ -83,6 +84,25 @@ func ParseImportPayload(data []byte) ([]ImportNode, []ImportRelation, error) {
 	nodes, err := decodeNodes(nodeRaws)
 	if err != nil {
 		return nil, nil, err
+	}
+	// Count nodes that landed on the 'global' default because the source JSON
+	// omitted project_id (typical for pre-Phase-2 exports). The structured log
+	// lets operators detect a stale dump silently importing into the wrong
+	// scope — they can re-export from the source with khctl export to
+	// retire the fallback path.
+	legacy := 0
+	for _, n := range nodes {
+		if n.ProjectID == "global" {
+			// Heuristic: nodes that explicitly set project_id="global" are
+			// indistinguishable from defaulted ones at this layer. We count
+			// the union; the warning is harmless when intentional.
+			legacy++
+		}
+	}
+	if legacy > 0 {
+		slog.Info("legacy export shape detected",
+			"nodes_with_default_project", legacy,
+			"hint", "re-export with khctl export to embed explicit project_id")
 	}
 	relations := defaultRelationProjectIDs(raw.Relations)
 	return nodes, relations, nil

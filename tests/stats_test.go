@@ -35,7 +35,7 @@ func insertNode(t *testing.T, name, nodeType string) string {
 
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err, "insertNode: begin tx")
-	id, err := store.Create(ctx, tx, name, nodeType, nil, nil)
+	id, err := store.Create(ctx, tx, name, nodeType, "global", nil, nil)
 	require.NoError(t, err, "insertNode: store.Create %q", name)
 	require.NoError(t, tx.Commit(ctx), "insertNode: commit")
 	return id
@@ -66,7 +66,7 @@ func insertRelationByIDs(t *testing.T, fromID, toID, relType string) {
 
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err, "insertRelationByIDs: begin tx")
-	_, _, err = store.InsertRelation(ctx, tx, fromID, toID, relType, nil, nil)
+	_, _, err = store.InsertRelation(ctx, tx, fromID, toID, relType, "global", nil, nil)
 	require.NoError(t, err, "insertRelationByIDs: store.InsertRelation %s→%s", fromID, toID)
 	require.NoError(t, tx.Commit(ctx), "insertRelationByIDs: commit")
 }

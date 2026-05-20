@@ -15,7 +15,7 @@ const ExportFormatVersion = "2"
 type ExportNode struct {
 	Name         string      `json:"name"`
 	NodeType     string      `json:"nodeType"`
-	ProjectID    string      `json:"project_id"`
+	ProjectID    string      `json:"project_id,omitempty"`
 	Observations []string    `json:"observations"`
 	Embeddings   [][]float32 `json:"embeddings,omitempty"`
 }
@@ -39,12 +39,14 @@ type ExportPayload struct {
 }
 
 // BuildExportPayload queries the DB and assembles the export JSON structure.
-func BuildExportPayload(ctx context.Context, pool *pgxpool.Pool) (*ExportPayload, error) {
-	nodes, err := fetchExportNodes(ctx, pool)
+// When projectFilter is non-empty only nodes and relations for that project
+// are included. Pass an empty string to export all projects.
+func BuildExportPayload(ctx context.Context, pool *pgxpool.Pool, projectFilter string) (*ExportPayload, error) {
+	nodes, err := fetchExportNodes(ctx, pool, projectFilter)
 	if err != nil {
 		return nil, fmt.Errorf("fetch nodes: %w", err)
 	}
-	relations, err := fetchExportRelations(ctx, pool)
+	relations, err := fetchExportRelations(ctx, pool, projectFilter)
 	if err != nil {
 		return nil, fmt.Errorf("fetch relations: %w", err)
 	}
@@ -59,13 +61,17 @@ func BuildExportPayload(ctx context.Context, pool *pgxpool.Pool) (*ExportPayload
 	}, nil
 }
 
-// fetchExportNodes returns all active nodes with their observations and embeddings.
-func fetchExportNodes(ctx context.Context, pool *pgxpool.Pool) ([]ExportNode, error) {
+// fetchExportNodes returns active nodes with their observations and embeddings.
+// When projectFilter is non-empty it scopes the query to that project.
+func fetchExportNodes(ctx context.Context, pool *pgxpool.Pool, projectFilter string) ([]ExportNode, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT id, name, node_type, project_id
 		 FROM nodes
 		 WHERE deleted_at IS NULL
-		 ORDER BY project_id, name`)
+		   AND ($1::text = '' OR project_id = $1)
+		 ORDER BY project_id, name`,
+		projectFilter,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -124,8 +130,9 @@ func fetchNodeObservations(ctx context.Context, pool *pgxpool.Pool, nodeID strin
 	return texts, embeddings, rows.Err()
 }
 
-// fetchExportRelations returns all active relations using node names.
-func fetchExportRelations(ctx context.Context, pool *pgxpool.Pool) ([]ExportRelation, error) {
+// fetchExportRelations returns active relations using node names.
+// When projectFilter is non-empty it scopes the query to that project.
+func fetchExportRelations(ctx context.Context, pool *pgxpool.Pool, projectFilter string) ([]ExportRelation, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT fn.name, tn.name, r.relation_type, r.project_id
 		 FROM relations r
@@ -134,7 +141,10 @@ func fetchExportRelations(ctx context.Context, pool *pgxpool.Pool) ([]ExportRela
 		 WHERE r.deleted_at IS NULL
 		   AND fn.deleted_at IS NULL
 		   AND tn.deleted_at IS NULL
-		 ORDER BY r.project_id, fn.name, tn.name, r.relation_type`)
+		   AND ($1::text = '' OR r.project_id = $1)
+		 ORDER BY r.project_id, fn.name, tn.name, r.relation_type`,
+		projectFilter,
+	)
 	if err != nil {
 		return nil, err
 	}

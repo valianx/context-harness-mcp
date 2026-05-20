@@ -15,6 +15,7 @@ func exportCmd(args []string) {
 	fs := flag.NewFlagSet("export", flag.ExitOnError)
 	dsnFlag := fs.String("dsn", "", "Postgres DSN (defaults to $DATABASE_URL)")
 	outFlag := fs.String("out", "-", "Output file path (- or omit → stdout)")
+	projectFlag := fs.String("project", "", "Restrict export to a single project (empty → all projects)")
 	_ = fs.Parse(args)
 
 	dsn, err := resolveDSN(*dsnFlag)
@@ -31,7 +32,7 @@ func exportCmd(args []string) {
 	}
 	defer pool.Close()
 
-	payload, err := khctl.BuildExportPayload(ctx, pool)
+	payload, err := khctl.BuildExportPayload(ctx, pool, *projectFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "export: %v\n", err)
 		os.Exit(2)
@@ -50,8 +51,12 @@ func exportCmd(args []string) {
 	}
 
 	if *outFlag != "-" && *outFlag != "" {
-		fmt.Fprintf(os.Stderr, "Exported %d nodes, %d relations → %s\n",
-			payload.NodeCount, payload.RelationCount, *outFlag)
+		scope := "all projects"
+		if *projectFlag != "" {
+			scope = "project=" + *projectFlag
+		}
+		fmt.Fprintf(os.Stderr, "Exported %d nodes, %d relations (%s) → %s\n",
+			payload.NodeCount, payload.RelationCount, scope, *outFlag)
 	}
 }
 

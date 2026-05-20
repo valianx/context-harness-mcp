@@ -18,7 +18,7 @@
   body{min-height:100vh;display:flex;flex-direction:column}
 
   /* ── header ─────────────────────────────────── */
-  .ch-topbar{position:sticky;top:0;z-index:5;background:rgba(10,10,13,.92);backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid var(--ch-border);display:flex;align-items:center;gap:18px;padding:14px 24px}
+  .ch-topbar{position:sticky;top:0;z-index:5;background:rgba(10,10,13,.92);backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid var(--ch-border);display:flex;align-items:center;gap:18px;padding:14px 24px;flex-wrap:wrap}
   .ch-mark{color:var(--ch-fg);height:22px;width:22px;display:block;flex:0 0 auto}
   .ch-wordmark{font-family:var(--ch-mono);font-size:12px;letter-spacing:.02em;color:var(--ch-fg-mute);flex:0 0 auto}
   .ch-sep{flex:0 0 auto;color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:11px;letter-spacing:.04em}
@@ -26,8 +26,29 @@
   .ch-stat-val{color:var(--ch-accent)}
   .ch-spacer{flex:1}
 
+  /* ── controls row ───────────────────────────── */
+  .ch-controls{display:flex;align-items:center;gap:10px;flex:0 1 auto}
+
+  /* ── project select ─────────────────────────── */
+  .ch-project-filter{
+    background:var(--ch-bg-panel);
+    color:var(--ch-fg);
+    border:1px solid var(--ch-border);
+    border-radius:6px;
+    padding:8px 10px;
+    font:400 12px/1.4 var(--ch-mono);
+    outline:none;
+    cursor:pointer;
+    /* WCAG AA: #8a8a96 on #14141a — contrast ratio ≈6.5:1 */
+    color:var(--ch-fg-mute);
+    transition:border-color 150ms ease;
+    height:36px;
+  }
+  .ch-project-filter:focus{border-color:var(--ch-accent);color:var(--ch-fg)}
+  .ch-project-filter option{background:var(--ch-bg-panel);color:var(--ch-fg)}
+
   /* ── search ─────────────────────────────────── */
-  .ch-search-wrap{position:relative;flex:0 1 380px;min-width:200px}
+  .ch-search-wrap{position:relative;flex:0 1 340px;min-width:180px}
   .ch-search{width:100%;background:var(--ch-bg-panel);color:var(--ch-fg);border:1px solid var(--ch-border);border-radius:6px;padding:8px 12px 8px 32px;font:400 13px/1.4 var(--ch-mono);outline:none;transition:border-color 150ms ease}
   .ch-search::placeholder{color:var(--ch-fg-mute)}
   .ch-search:focus{border-bottom-color:var(--ch-accent)}
@@ -46,7 +67,10 @@
   .ch-card:focus-visible{outline:2px solid var(--ch-accent);outline-offset:1px}
   .ch-card-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
   .ch-card-name{font-family:var(--ch-mono);font-size:14px;color:var(--ch-fg);font-weight:500;letter-spacing:-.005em}
+  /* nodeType badge — amber accent */
   .ch-badge{font-family:var(--ch-mono);font-size:10px;color:var(--ch-accent);background:var(--ch-accent-soft);padding:3px 7px;border-radius:4px;letter-spacing:.06em;text-transform:uppercase}
+  /* project badge — muted grey, WCAG AA (≥4.5:1): #c8c8d0 on #1a1a22 ≈8:1 */
+  .ch-badge-project{font-family:var(--ch-mono);font-size:10px;color:#c8c8d0;background:#1a1a22;border:1px solid var(--ch-border);padding:2px 6px;border-radius:4px;letter-spacing:.04em}
   .ch-card-meta{margin-left:auto;display:flex;gap:10px;font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-dim)}
   .ch-similarity{color:var(--ch-accent)}
   .ch-card-preview{color:var(--ch-fg-mute);font-size:13px;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
@@ -89,8 +113,8 @@
   footer{padding:24px;border-top:1px solid var(--ch-border);color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:11px;text-align:center;letter-spacing:.04em}
 
   @media (max-width:680px){
-    .ch-topbar{flex-wrap:wrap;gap:10px;padding:12px 16px}
-    .ch-search-wrap{flex:1 1 100%;order:99}
+    .ch-topbar{gap:10px;padding:12px 16px}
+    .ch-controls{flex:1 1 100%;order:99}
     .ch-stat{display:none}
     main{padding:16px}
   }
@@ -138,13 +162,19 @@
   <span class="ch-stat"><span class="ch-stat-val" id="stat-nodes">—</span>&nbsp;nodes</span>
   <span class="ch-stat"><span class="ch-stat-val" id="stat-obs">—</span>&nbsp;observations</span>
   <span class="ch-spacer"></span>
-  <div class="ch-search-wrap">
-    <svg class="ch-search-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/>
-      <path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-    </svg>
-    <input class="ch-search" type="search" id="search" placeholder="search nodes (semantic)…" autocomplete="off" aria-label="search nodes"/>
-    <span class="ch-kbd">/</span>
+  <div class="ch-controls">
+    <select class="ch-project-filter" id="project-filter" aria-label="filter by project">
+      <option value="">all projects</option>
+      <option value="global">global</option>
+    </select>
+    <div class="ch-search-wrap">
+      <svg class="ch-search-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/>
+        <path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <input class="ch-search" type="search" id="search" placeholder="search nodes (semantic)…" autocomplete="off" aria-label="search nodes"/>
+      <span class="ch-kbd">/</span>
+    </div>
   </div>
 </header>
 
@@ -193,125 +223,76 @@
 <script>
 (() => {
   // ── config ──────────────────────────────────────────────────
-  // The viewer talks to its own /viewer/api/search endpoint instead of /mcp/
-  // directly because /mcp/ is gated by the auth middleware when MCP_AUTH=enabled
-  // and the viewer is a locked public read-only surface (decision in
-  // session-docs/v0.2.0-team-features/01-architecture.md). The search endpoint
-  // already exists as part of the viewer package and bypasses auth by design.
-  const SEARCH_API = '/viewer/api/search';
+  const SEARCH_API   = '/viewer/api/search';
+  const PROJECTS_API = '/viewer/api/projects';
   const SEARCH_DEBOUNCE_MS = 250;
 
-  // ── mock data fallback (used when server unreachable, for preview) ──
-  const MOCK_NODES = [
-    {
-      name:'AuthMiddleware', nodeType:'pattern',
-      observations:[
-        'JWT verified against Supabase JWKS endpoint, cached 1h.',
-        'Bearer is read from Authorization header — never from query.',
-        'On 401 we never leak whether the token was expired vs malformed.',
-        'Refresh tokens are not handled here — clients hit /auth/recover.'
-      ],
-      relations:[
-        {to:'BearerToken',  relationType:'uses'},
-        {to:'SupabaseAuth', relationType:'depends-on'}
-      ]
-    },
-    {
-      name:'BearerToken', nodeType:'concept',
-      observations:[
-        'Opaque 32-byte token, base64url-encoded, prefixed `ch_`.',
-        'Stored hashed (argon2id) — never round-trip the cleartext after issuance.'
-      ],
-      relations:[ {to:'AuthMiddleware', relationType:'consumed-by'} ]
-    },
-    {
-      name:'SupabaseAuth', nodeType:'integration',
-      observations:[
-        'External IdP. We treat it as plumbing — no branding surfaces in product.',
-        'Templates: invite, recovery. Magic-link only, no OTP.'
-      ],
-      relations:[]
-    },
-    {
-      name:'pgvector_HNSW_index', nodeType:'storage',
-      observations:[
-        'm=16, ef_construction=64 — defaults are good for <1M rows.',
-        'Cosine ops on 384-dim embeddings from all-MiniLM-L6-v2.',
-        'Rebuild required after >20% churn; currently manual via khctl reindex.'
-      ],
-      relations:[ {to:'EmbeddingPipeline', relationType:'fed-by'} ]
-    },
-    {
-      name:'EmbeddingPipeline', nodeType:'pipeline',
-      observations:[
-        'fastembed-go ONNX, runs in-process — no separate model server.',
-        'Cold-start ~1.2s; warm calls <40ms p99.',
-        'Batches of 32 max — beyond that we OOM on low-memory targets.'
-      ],
-      relations:[ {to:'pgvector_HNSW_index', relationType:'writes-to'} ]
-    },
-    {
-      name:'ContentFilter', nodeType:'pattern',
-      observations:[
-        'Three layers: size/junk denylist → secrets scan (gitleaks) → taxonomy check.',
-        'Reject is atomic — never partial writes.',
-        'Whole payload rejected if ANY observation trips secrets scan.'
-      ],
-      relations:[
-        {to:'AuthMiddleware', relationType:'runs-after'},
-        {to:'pgvector_HNSW_index', relationType:'gates'}
-      ]
-    },
-    {
-      name:'khctl_cli', nodeType:'tool',
-      observations:[
-        'Operator CLI in Go — admin ops outside MCP surface.',
-        'Subcommands: reindex, backup, invite, prune.'
-      ],
-      relations:[]
-    },
-    {
-      name:'StreamableHTTP_transport', nodeType:'protocol',
-      observations:[
-        'Per MCP spec — server may upgrade to SSE on long calls.',
-        'Viewer uses plain fetch + JSON-RPC body, no streaming needed.'
-      ],
-      relations:[ {to:'AuthMiddleware', relationType:'wraps'} ]
-    }
-  ];
-
   // ── DOM refs ────────────────────────────────────────────────
-  const $search   = document.getElementById('search');
-  const $grid     = document.getElementById('grid');
-  const $empty    = document.getElementById('empty');
-  const $loading  = document.getElementById('loadingrow');
-  const $errorbox = document.getElementById('errorbox');
-  const $errortext= document.getElementById('errortext');
-  const $statN    = document.getElementById('stat-nodes');
-  const $statO    = document.getElementById('stat-obs');
-  const $meta     = document.getElementById('listmeta-text');
-  const $metaCt   = document.getElementById('listmeta-count');
+  const $search    = document.getElementById('search');
+  const $project   = document.getElementById('project-filter');
+  const $grid      = document.getElementById('grid');
+  const $empty     = document.getElementById('empty');
+  const $loading   = document.getElementById('loadingrow');
+  const $errorbox  = document.getElementById('errorbox');
+  const $errortext = document.getElementById('errortext');
+  const $statN     = document.getElementById('stat-nodes');
+  const $statO     = document.getElementById('stat-obs');
+  const $meta      = document.getElementById('listmeta-text');
+  const $metaCt    = document.getElementById('listmeta-count');
 
   let allNodes = [];
-  let mockMode = false;
+
+  // ── project dropdown ────────────────────────────────────────
+  // Fetch /viewer/api/projects on load and populate the <select>.
+  // The HTML already has "all projects" (value="") and "global" as static
+  // options so the page is usable even if the fetch fails.
+  async function loadProjects() {
+    try {
+      const r = await fetch(PROJECTS_API, { headers: { 'Accept': 'application/json' } });
+      if (!r.ok) return;
+      const j = await r.json();
+      const projects = j.projects || [];
+
+      // Rebuild options: keep "all projects" first, then dynamically populate.
+      // Remove all existing <option> elements beyond the first ("all projects").
+      while ($project.options.length > 1) {
+        $project.remove(1);
+      }
+
+      // "global" always comes first (after "all projects"), then others alpha.
+      for (const pid of projects) {
+        const opt = document.createElement('option');
+        opt.value = pid;
+        opt.textContent = pid;
+        $project.appendChild(opt);
+      }
+    } catch (_) {
+      // Silently ignore — static options (all projects / global) still work.
+    }
+  }
 
   // ── search API client ───────────────────────────────────────
-  // Calls the viewer's own /viewer/api/search?q=... endpoint and normalises
-  // the response shape into what the rest of this script expects (a flat
-  // array of nodes with `nodeType` camelCase + combined `relations`).
-  // Empty q lists all active nodes ordered by created_at DESC; non-empty q
-  // runs pgvector cosine search via the embedder.
-  async function searchAPI(query){
-    const url = SEARCH_API + (query ? '?q=' + encodeURIComponent(query) : '');
-    const r = await fetch(url, { headers: { 'Accept':'application/json' } });
-    if(!r.ok) throw new Error('search → ' + r.status);
+  // Builds the URL including ?project= when a project is selected.
+  function buildSearchURL(query) {
+    const parts = [];
+    if (query) parts.push('q=' + encodeURIComponent(query));
+    const p = $project.value;
+    if (p) parts.push('project=' + encodeURIComponent(p));
+    return SEARCH_API + (parts.length ? '?' + parts.join('&') : '');
+  }
+
+  async function searchAPI(query) {
+    const url = buildSearchURL(query);
+    const r = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!r.ok) throw new Error('search → ' + r.status);
     const j = await r.json();
-    // Server returns { query, node_count, nodes: [{name, node_type, observations,
-    // relations_out, relations_in}] }. Normalise to the legacy shape this UI was
-    // built against (nodeType + relations: [{to, relationType}]).
+    // Server returns { query, node_count, nodes: [{name, node_type, project_id,
+    // observations, relations_out, relations_in}] }. Normalise to the shape the
+    // rest of this script expects.
     return (j.nodes || []).map(n => ({
-      name: n.name,
-      nodeType: n.node_type,
+      name:      n.name,
+      nodeType:  n.node_type,
+      projectID: n.project_id || 'global',
       observations: n.observations || [],
       relations: [
         ...(n.relations_out || []).map(r => ({ to: r.to, relationType: r.type })),
@@ -321,11 +302,11 @@
   }
 
   // ── render ──────────────────────────────────────────────────
-  function render(nodes, opts={}){
+  function render(nodes, opts={}) {
     $loading.hidden = true;
     $grid.hidden = false;
     $empty.hidden = nodes.length > 0;
-    if(nodes.length === 0){ $grid.hidden = true; return; }
+    if (nodes.length === 0) { $grid.hidden = true; return; }
 
     $metaCt.textContent = nodes.length + (opts.search ? ' match' + (nodes.length===1?'':'es') : ' node' + (nodes.length===1?'':'s'));
     $meta.textContent = opts.search ? `search_nodes("${opts.search}")` : 'read_graph';
@@ -334,16 +315,18 @@
     nodes.forEach((n, i) => $grid.appendChild(card(n, i, opts)));
   }
 
-  function card(node, i, opts){
+  function card(node, i, opts) {
     const c = document.createElement('button');
     c.type = 'button'; c.className = 'ch-card ch-state';
-    c.style.animationDelay = Math.min(i*20, 200) + 'ms';
-    const obsCount = (node.observations||[]).length;
+    c.style.animationDelay = Math.min(i * 20, 200) + 'ms';
+    const obsCount    = (node.observations || []).length;
     const previewText = (node.observations && node.observations[0]) || '—';
+    const projectID   = node.projectID || 'global';
     c.innerHTML = `
       <div class="ch-card-head">
         <span class="ch-card-name">${esc(node.name)}</span>
-        <span class="ch-badge">${esc(node.nodeType||'node')}</span>
+        <span class="ch-badge">${esc(node.nodeType || 'node')}</span>
+        <span class="ch-badge-project">${esc(projectID)}</span>
         <span class="ch-card-meta">
           ${opts.search && typeof node._score === 'number' ? `<span class="ch-similarity">sim ${node._score.toFixed(2)}</span>` : ''}
           <span>${obsCount} obs</span>
@@ -355,23 +338,22 @@
     return c;
   }
 
-  function toggleExpand(cardEl, node){
-    if(cardEl.classList.contains('open')){
+  function toggleExpand(cardEl, node) {
+    if (cardEl.classList.contains('open')) {
       const exp = cardEl.querySelector('.ch-expand');
-      if(exp) exp.remove();
+      if (exp) exp.remove();
       cardEl.classList.remove('open');
       return;
     }
-    // close others
     document.querySelectorAll('.ch-card.open').forEach(c => {
       c.classList.remove('open');
-      const e = c.querySelector('.ch-expand'); if(e) e.remove();
+      const e = c.querySelector('.ch-expand'); if (e) e.remove();
     });
     cardEl.classList.add('open');
     const exp = document.createElement('div');
     exp.className = 'ch-expand';
 
-    const obs = node.observations || [];
+    const obs  = node.observations || [];
     const rels = node.relations || [];
 
     exp.innerHTML = `
@@ -382,7 +364,7 @@
       <p class="ch-section-label">relations · ${rels.length}</p>
       ${rels.length ? `<ul class="ch-rel-list">${rels.map(r => `
         <li><button class="ch-rel" data-target="${esc(r.to)}">
-          <span class="ch-rel-kind">${esc(r.relationType||'rel')}</span>
+          <span class="ch-rel-kind">${esc(r.relationType || 'rel')}</span>
           <span class="ch-rel-arrow">→</span>
           <span>${esc(r.to)}</span>
         </button></li>`).join('')}</ul>` : `<p style="color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:12px;margin:0">—</p>`}
@@ -393,46 +375,44 @@
         e.stopPropagation();
         const target = b.dataset.target;
         const t = allNodes.find(n => n.name === target);
-        if(t){
-          // find rendered card for target, scroll + open
+        if (t) {
           const cards = [...$grid.querySelectorAll('.ch-card')];
-          const idx = allNodes.indexOf(t);
-          const tc = cards[idx];
-          if(tc){
-            window.scrollTo({ top: tc.offsetTop - 80, behavior:'smooth' });
-            if(!tc.classList.contains('open')) toggleExpand(tc, t);
+          const idx   = allNodes.indexOf(t);
+          const tc    = cards[idx];
+          if (tc) {
+            window.scrollTo({ top: tc.offsetTop - 80, behavior: 'smooth' });
+            if (!tc.classList.contains('open')) toggleExpand(tc, t);
           }
         }
       });
     });
   }
 
-  function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+  }
 
-  function updateStats(nodes){
+  function updateStats(nodes) {
     $statN.textContent = nodes.length;
-    $statO.textContent = nodes.reduce((a,n) => a + (n.observations||[]).length, 0);
+    $statO.textContent = nodes.reduce((a, n) => a + (n.observations || []).length, 0);
   }
 
   // ── load ────────────────────────────────────────────────────
-  async function load(){
+  async function load() {
     $errorbox.hidden = true; $loading.hidden = false; $grid.hidden = true; $empty.hidden = true;
-    try{
-      const nodes = await searchAPI('');   // empty q → list all active nodes
+    try {
+      const nodes = await searchAPI('');
       allNodes = nodes;
       updateStats(allNodes);
       render(allNodes);
-    } catch(err){
-      // fall back to mock for static preview when the server is unreachable
-      mockMode = true;
-      allNodes = MOCK_NODES;
-      updateStats(allNodes);
-      render(allNodes);
-      showError(err.message + ' — showing local sample.');
+    } catch (err) {
+      showError(err.message + ' — server may be unreachable.');
+      $loading.hidden = true;
+      $empty.hidden   = false;
     }
   }
 
-  function showError(msg){
+  function showError(msg) {
     $errortext.textContent = msg || 'Server unreachable.';
     $errorbox.hidden = false;
   }
@@ -440,51 +420,49 @@
 
   // ── search ──────────────────────────────────────────────────
   let searchTimer = null;
-  $search.addEventListener('input', () => {
+
+  function scheduleSearch() {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
-  });
+  }
+
+  $search.addEventListener('input', scheduleSearch);
   $search.addEventListener('search', runSearch); // clear button
 
-  async function runSearch(){
+  $project.addEventListener('change', () => {
+    // Re-run the current search/list with the new project selection.
     const q = $search.value.trim();
-    if(!q){ render(allNodes); return; }
-
-    if(mockMode){
-      // mock semantic-ish: substring + simple score
-      const ql = q.toLowerCase();
-      const hits = allNodes
-        .map(n => {
-          const hay = (n.name+' '+n.nodeType+' '+(n.observations||[]).join(' ')).toLowerCase();
-          const i = hay.indexOf(ql);
-          if(i < 0) return null;
-          const score = 1 - Math.min(i, 200)/220 - (hay.length - ql.length)/100000;
-          return { ...n, _score: Math.max(0.3, Math.min(0.99, score)) };
-        })
-        .filter(Boolean)
-        .sort((a,b) => b._score - a._score);
-      render(hits, { search: q });
-      return;
+    if (!q) {
+      load();
+    } else {
+      runSearch();
     }
-    try{
+  });
+
+  async function runSearch() {
+    const q = $search.value.trim();
+    if (!q) { render(allNodes); return; }
+
+    try {
       const nodes = await searchAPI(q);
       render(nodes, { search: q });
-    } catch(err){
+    } catch (err) {
       showError(err.message);
     }
   }
 
   // ── '/' to focus search ─────────────────────────────────────
   window.addEventListener('keydown', (e) => {
-    if(e.key === '/' && document.activeElement !== $search && !e.metaKey && !e.ctrlKey){
+    if (e.key === '/' && document.activeElement !== $search && !e.metaKey && !e.ctrlKey) {
       e.preventDefault(); $search.focus();
     }
-    if(e.key === 'Escape' && document.activeElement === $search){
+    if (e.key === 'Escape' && document.activeElement === $search) {
       $search.value = ''; render(allNodes);
     }
   });
 
-  load();
+  // On page load: fetch projects then fetch nodes.
+  loadProjects().then(() => load());
 })();
 </script>
 </body>

@@ -8,19 +8,34 @@ JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migr
 
 Two closed enums are enforced at both the validator and the DB CHECK constraints:
 
-| `nodeType` (9 values) | `relationType` (5 values) |
+| `nodeType` (9 values) | `relationType` (7 values) |
 |---|---|
 | `pattern` | `relates_to` |
 | `error` | `belongs-to` |
 | `constraint` | `calls` |
 | `decision` | `uses-stack` |
 | `tool-gotcha` | `depends-on` |
-| `process-insight` | |
-| `project` | |
+| `process-insight` | `supersedes` |
+| `project` | `conflicts_with` |
 | `service` | |
 | `stack-profile` | |
 
 Anything outside these lists is rejected with `policy/taxonomy-violation`.
+
+`supersedes` and `conflicts_with` are **descriptive-only** — neither filters reads automatically. To hide an old node after `mark_superseded(old, new)`, pass `archive_old_observations: true` which soft-deletes the old node's observations (`deleted_at`).
+
+---
+
+## Project scoping
+
+Every node and relation belongs to a **project**, a write-side scope inside a single deployment. The default project is `'global'` — pre-Phase-2 data backfills here transparently and any caller that doesn't pass `project` keeps the existing behavior.
+
+- **Naming**: `^[a-z]([a-z0-9-]{0,62}[a-z0-9])?$` (lowercase letters, digits, dashes; cannot start with digit or dash; cannot end with dash). Validated server-side. Violations return `policy/project-naming-violation`.
+- **Writes** (`create_nodes`, `create_relations`) accept an optional `project` field. Default `'global'`. The write is rejected if the project name fails the regex.
+- **Reads** (`search_nodes`, `open_nodes`, `read_graph`, `stats`, `timeline`) accept an optional `project` filter. **Omitting `project` returns ALL projects** (back-compat with pre-Phase-2 callers). Filtered reads scope counts, lists, and result sets to the named project.
+- **`add_observations` / `update_observations`** derive the project from the parent node — no `project` field needed in the input. Same-name nodes across projects: the handler takes the first homonym alphabetically (caveat documented in §Tool 2).
+- **Relations are same-project only**: `create_relations` validates that `from` and `to` share a `project_id`. Cross-project edges return `policy/cross-project-relation` and roll back atomically.
+- **Multi-tenant**: this is **not** a tenant isolation mechanism. A single deployment trusts all its users; `project` is a tag for grouping, not for access control. Run separate deployments for separate trust domains.
 
 ---
 
