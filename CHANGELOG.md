@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `feat(sessions): Phase 4 — sessions + passive capture (server side)` — `migrations/00009_sessions.sql`: adds `sessions` table (`id uuid PK`, `user_id`, `project_id`, `working_dir`, `started_at`, `ended_at`, `summary`) and `nodes.session_id uuid FK sessions(id) ON DELETE SET NULL` with partial index. `internal/store/sessions.go`: `CreateSession`, `EndSession` (idempotent), `GetSession`, `ListSessionNodes` (includes soft-deleted, for audit), `CountSessionNodes`. `internal/mcp/sessions.go`: three new tools (`session_start`, `session_end`, `session_summary`) registered in `internal/mcp/server.go`. `create_nodes` (`internal/mcp/nodes.go`) accepts optional `session_id` field — validated (UUID format, session exists, session not ended) before any Tx. `internal/validate/errors.go`: new codes `policy/session-not-found`, `policy/session-already-ended`, and `LayerSession = "session"`. Tool count 13 → 16.
+
 ### Changed
 
 - `chore(test): default to mock embedder` — `internal/embed/encoder.go` + `internal/embed/mock.go`: introduces `MockEncoder` (deterministic FNV-64a, 384-dim, no ONNX), `SetForTesting`/`RealEmbedder` helpers, and installs the mock in `tests/setup_test.go` `TestMain`. All ONNX-gated integration tests (`requireEmbedder` renamed to `requireRealEmbedder`) swap back to the real embedder only when needed. Target test runtime impact: 10 min → <1 min for the non-ONNX path; semantic-validation tests (find_conflicts AC-1, AC-2, AC-6, AC-8) still exercise the real ONNX pipeline when available.

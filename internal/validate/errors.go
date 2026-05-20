@@ -44,6 +44,16 @@ const (
 	// relación supersedes(new → old) ya creada. No es un fallo grave —
 	// permite al caller manejar idempotencia limpia.
 	CodeRelationAlreadyExists = "policy/relation-already-exists"
+
+	// CodeSessionNotFound is returned when a session_id provided to session_end,
+	// session_summary, or create_nodes does not match any row in sessions.
+	// Wire-stable — do NOT rename after merge.
+	CodeSessionNotFound = "policy/session-not-found"
+
+	// CodeSessionAlreadyEnded is returned when create_nodes is called with a
+	// session_id that refers to a session whose ended_at IS NOT NULL.
+	// Wire-stable — do NOT rename after merge.
+	CodeSessionAlreadyEnded = "policy/session-already-ended"
 )
 
 // Layer names for the Layer field.
@@ -58,6 +68,10 @@ const (
 	// LayerProject identifies project-scoping validation errors (naming
 	// violations and cross-project relation attempts).
 	LayerProject = "project"
+
+	// LayerSession identifies session-scoping validation errors (session not
+	// found, session already ended).
+	LayerSession = "session"
 )
 
 // RedactionMarker is the replacement text inserted in place of a matched secret

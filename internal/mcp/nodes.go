@@ -18,6 +18,26 @@ import (
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 )
 
+// isValidUUID returns true when s is a lower-case UUID string.
+func isValidUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // RegisterNodes registers the create_nodes and add_observations tools on the
 // server. limiter enforces per-IP write-tool rate limits on both tools.
 //
@@ -58,6 +78,7 @@ type createNodeInput struct {
 	NodeType     string   `json:"nodeType"`
 	Observations []string `json:"observations"`
 	Project      string   `json:"project,omitempty"`
+	SessionID    string   `json:"session_id,omitempty"`
 }
 
 type createNodesArgs struct {
@@ -89,6 +110,43 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			}
 		}
 
+		// Validate and resolve session_id (same value for all nodes in the batch).
+		// We take the session_id from the first node that provides one; within a
+		// single call all nodes share the same session (or no session at all).
+		var sessionID *string
+		for _, n := range args.Nodes {
+			if n.SessionID != "" {
+				if !isValidUUID(n.SessionID) {
+					return errorResult("session_id must be a valid UUID"), nil
+				}
+				sid := n.SessionID
+				sessionID = &sid
+				break
+			}
+		}
+		if sessionID != nil {
+			sess, err := store.GetSession(ctx, pool, *sessionID)
+			if err == store.ErrSessionNotFound {
+				verr := &validate.Error{
+					Code:    validate.CodeSessionNotFound,
+					Message: fmt.Sprintf("Sesión no encontrada: %s", *sessionID),
+					Layer:   validate.LayerSession,
+				}
+				return verr.ToMCPResult(), nil
+			}
+			if err != nil {
+				return errorResult(fmt.Sprintf("db error: %s", err)), nil
+			}
+			if sess.EndedAt != nil {
+				verr := &validate.Error{
+					Code:    validate.CodeSessionAlreadyEnded,
+					Message: fmt.Sprintf("La sesión %s ya ha finalizado.", *sessionID),
+					Layer:   validate.LayerSession,
+				}
+				return verr.ToMCPResult(), nil
+			}
+		}
+
 		// Build validate.Payload and run the Content Filter before opening any Tx.
 		vp := validate.Payload{Nodes: make([]validate.Node, len(args.Nodes))}
 		for i, n := range args.Nodes {
@@ -103,7 +161,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		}
 
 		userID, email := attributionFromContext(ctx)
-		createdNodes, createdObs, err := execCreateNodes(ctx, pool, args.Nodes, userID, email)
+		createdNodes, createdObs, err := execCreateNodes(ctx, pool, args.Nodes, sessionID, userID, email)
 		if err != nil {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
@@ -115,7 +173,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 	}
 }
 
-func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNodeInput, userID, email *string) (int, int, error) {
+func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNodeInput, sessionID *string, userID, email *string) (int, int, error) {
 	// Collect all observation texts for batch embedding before opening any Tx.
 	// This ensures a model failure does not waste a DB transaction.
 	var allObs []obsRef
@@ -140,7 +198,7 @@ func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNode
 
 	createdNodes, createdObs := 0, 0
 	for ni, n := range nodes {
-		id, err := store.Create(ctx, tx, n.Name, n.NodeType, n.Project, userID, email)
+		id, err := store.Create(ctx, tx, n.Name, n.NodeType, n.Project, sessionID, userID, email)
 		if err != nil {
 			return 0, 0, fmt.Errorf("create node %q: %w", n.Name, err)
 		}

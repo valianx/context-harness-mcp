@@ -35,7 +35,7 @@ func insertNode(t *testing.T, name, nodeType string) string {
 
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err, "insertNode: begin tx")
-	id, err := store.Create(ctx, tx, name, nodeType, "global", nil, nil)
+	id, err := store.Create(ctx, tx, name, nodeType, "global", nil, nil, nil)
 	require.NoError(t, err, "insertNode: store.Create %q", name)
 	require.NoError(t, tx.Commit(ctx), "insertNode: commit")
 	return id
