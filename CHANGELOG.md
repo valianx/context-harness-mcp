@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `internal/mcp/query.go` + `internal/store/nodes.go` + `migrations/00006_nodes_created_at_idx.sql` — `timeline` tool: chronological node listing with optional RFC3339 `since`/`until` date bounds, offset-based pagination (`limit` default 50 max 200, `offset` default 0 max 100000), stable `ORDER BY created_at DESC, id DESC`, `has_more` flag via LIMIT N+1 strategy, and relations scoped to the result set. Read-only, no rate-limit, no content filter.
+
 - `internal/mcp/query.go` + `internal/store/nodes.go` — `stats` tool: server-side aggregated counts (`node_count`, `observation_count`, `relation_count`, `by_type`, `oldest_node`/`newest_node`) replacing client-side `read_graph` counting. Read-only, no rate-limit, no content filter.
 
 - `docs/auth.md` (nuevo, 5 secciones) + ADR en `docs/knowledge.md` + actualización de `CLAUDE.md` §3/§4/§5 — runbook completo de auth: admin setup (Supabase + Database Webhook con bug #38848 gotcha), dev flow walkthrough, revocation paths (primary webhook + fallback cron), nuclear secret rotation procedure, y FAQ con troubleshooting de cada error code. Cierre de docs para v0.2.0 Phase 0 Auth/Security.
