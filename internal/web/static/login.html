@@ -1,164 +1,204 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Context Harness MCP — Login</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg:      #0f0f12;
-      --surface: #1a1a22;
-      --border:  #2a2a38;
-      --text:    #e2e2ef;
-      --muted:   #8888aa;
-      --accent:  #6c6cf0;
-      --error:   #f07070;
-      --success: #4dd898;
-      --radius:  8px;
-    }
-
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
-      font-size: 14px;
-      line-height: 1.6;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 48px 24px;
-    }
-
-    h1 {
-      font-size: 20px;
-      font-weight: 700;
-      margin-bottom: 8px;
-    }
-
-    .muted { color: var(--muted); font-size: 12px; margin-bottom: 32px; }
-
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 24px;
-      width: 100%;
-      max-width: 400px;
-    }
-
-    label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-
-    input[type="email"] {
-      width: 100%;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      color: var(--text);
-      font-family: inherit;
-      font-size: 14px;
-      padding: 8px 10px;
-      outline: none;
-      margin-bottom: 14px;
-    }
-    input[type="email"]:focus { border-color: var(--accent); }
-
-    button {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 4px;
-      font-family: inherit;
-      font-size: 14px;
-      font-weight: 600;
-      padding: 9px 18px;
-      cursor: pointer;
-      width: 100%;
-    }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .error-msg { color: var(--error); font-size: 13px; margin-top: 10px; display: none; }
-    .success-msg { color: var(--success); font-size: 13px; margin-top: 10px; display: none; }
-    .note { color: var(--muted); font-size: 11px; margin-top: 14px; }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>context-harness — re-authenticate</title>
+<style>
+  :root{
+    --ch-bg:#0a0a0d; --ch-bg-panel:#14141a;
+    --ch-fg:#e6e6ea; --ch-fg-mute:#8a8a96; --ch-fg-dim:#56565f;
+    --ch-border:#1f1f27; --ch-accent:#f59e0b; --ch-accent-soft:#f59e0b22;
+    --ch-error:#ef4444;
+    --ch-sans:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    --ch-mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--ch-bg);color:var(--ch-fg);font-family:var(--ch-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;flex-direction:column;position:relative;overflow-x:hidden}
+  .ch-lattice{position:fixed;inset:auto 0 0 0;height:60vh;width:100%;pointer-events:none;opacity:.06;z-index:0;color:var(--ch-fg)}
+  .ch-header{position:relative;z-index:2;display:flex;align-items:center;gap:12px;padding:28px 32px;color:var(--ch-fg-mute)}
+  .ch-mark{color:var(--ch-fg);height:22px;width:22px;display:block;flex:0 0 auto}
+  .ch-wordmark{font-family:var(--ch-mono);font-size:12px;letter-spacing:.02em;color:var(--ch-fg-mute)}
+  main{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;padding:24px}
+  .ch-panel{width:100%;max-width:420px;background:var(--ch-bg-panel);border:1px solid var(--ch-border);border-radius:10px;padding:32px}
+  .ch-title{font-size:24px;line-height:1.25;font-weight:500;margin:0 0 6px;letter-spacing:-.01em}
+  .ch-sub{color:var(--ch-fg-mute);font-size:13px;margin:0 0 22px}
+  .ch-field{margin-bottom:14px}
+  .ch-label{display:block;font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-mute);letter-spacing:.08em;text-transform:uppercase;margin-bottom:6px}
+  .ch-input{width:100%;background:var(--ch-bg);color:var(--ch-fg);border:1px solid var(--ch-border);border-radius:6px;padding:10px 12px;font:400 14px/1.4 var(--ch-sans);outline:none;transition:border-color 150ms ease}
+  .ch-input::placeholder{color:var(--ch-fg-mute)}
+  .ch-input:focus{border-bottom-color:var(--ch-accent)}
+  .ch-input:focus-visible{outline:2px solid var(--ch-accent-soft);outline-offset:1px}
+  .ch-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 18px;border-radius:6px;font:500 14px/1 var(--ch-sans);cursor:pointer;border:1px solid transparent;transition:all 150ms ease;width:100%;background:var(--ch-accent);color:#0a0a0d}
+  .ch-btn-primary:hover:not(:disabled){box-shadow:0 0 0 4px var(--ch-accent-soft)}
+  .ch-btn-primary:disabled{opacity:.55;cursor:default}
+  .ch-spinner{width:14px;height:14px;border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:ch-spin .8s linear infinite}
+  @keyframes ch-spin{to{transform:rotate(360deg)}}
+  .ch-error{color:var(--ch-error);font-size:13px;margin:0 0 14px;padding:10px 12px;background:#ef444411;border:1px solid #ef444433;border-radius:6px;font-family:var(--ch-mono)}
+  .ch-state{animation:ch-in 200ms ease-out both}
+  @keyframes ch-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  [hidden]{display:none!important}
+  .ch-success-line{display:flex;align-items:center;gap:8px;color:var(--ch-accent);font-size:13px;font-family:var(--ch-mono);margin:0 0 18px}
+  .ch-success-line svg{width:14px;height:14px}
+  .ch-email-shown{font-family:var(--ch-mono);font-size:13px;color:var(--ch-fg);background:var(--ch-bg);border:1px solid var(--ch-border);border-radius:6px;padding:10px 12px;display:block;word-break:break-all;margin:0 0 14px}
+  .ch-aside{color:var(--ch-fg-dim);font-size:12px;font-family:var(--ch-mono);margin:0}
+  .ch-retry{margin-top:10px;background:transparent;color:var(--ch-accent);border:1px solid var(--ch-accent);width:100%;height:38px;border-radius:6px;cursor:pointer;font:500 14px/1 var(--ch-sans);transition:background 150ms ease}
+  .ch-retry:hover{background:var(--ch-accent-soft)}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  }
+</style>
 </head>
 <body>
-  <h1>Context Harness MCP</h1>
-  <p class="muted">Enter your email to receive a login link</p>
 
-  <div class="card">
-    <label for="email">Email address</label>
-    <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
-    <button id="btn-send">Send login link</button>
-    <p id="error-msg" class="error-msg"></p>
-    <p id="success-msg" class="success-msg">
-      Check your inbox for a login link. It will redirect you back here to complete authentication.
+<svg class="ch-lattice" aria-hidden="true" preserveAspectRatio="xMidYMax slice" viewBox="0 0 1600 1000">
+  <g fill="currentColor" opacity=".75">
+    <circle cx="120"  cy="80"   r="1"/><circle cx="240"  cy="180"  r="1.2"/>
+    <circle cx="380"  cy="60"   r="0.8"/><circle cx="520"  cy="220"  r="1"/>
+    <circle cx="680"  cy="120"  r="1.4"/><circle cx="840"  cy="280"  r="1"/>
+    <circle cx="1000" cy="80"   r="0.9"/><circle cx="1180" cy="200"  r="1.1"/>
+    <circle cx="1340" cy="100"  r="1"/><circle cx="1500" cy="240"  r="0.8"/>
+    <circle cx="80"   cy="380"  r="1"/><circle cx="260"  cy="520"  r="1.3"/>
+    <circle cx="440"  cy="420"  r="0.9"/><circle cx="620"  cy="600"  r="1"/>
+    <circle cx="820"  cy="480"  r="1.4"/><circle cx="1020" cy="640"  r="1"/>
+    <circle cx="1200" cy="520"  r="1.1"/><circle cx="1380" cy="680"  r="0.9"/>
+    <circle cx="1540" cy="580"  r="1"/><circle cx="60"   cy="780"  r="1.2"/>
+    <circle cx="220"  cy="900"  r="1"/><circle cx="400"  cy="820"  r="0.8"/>
+    <circle cx="580"  cy="940"  r="1.1"/><circle cx="760"  cy="780"  r="1"/>
+    <circle cx="940"  cy="900"  r="1.3"/><circle cx="1140" cy="820"  r="0.9"/>
+    <circle cx="1320" cy="940"  r="1"/><circle cx="1480" cy="860"  r="1.1"/>
+  </g>
+  <g fill="#f59e0b" opacity=".9">
+    <circle cx="380"  cy="540"  r="2.4"/>
+    <circle cx="1100" cy="340"  r="2.4"/>
+  </g>
+  <g stroke="currentColor" stroke-width=".5" stroke-dasharray="3 5" fill="none" opacity=".5">
+    <line x1="380"  y1="540"  x2="1100" y2="340"/>
+    <line x1="120"  y1="80"   x2="380"  y2="540"/>
+    <line x1="1100" y1="340"  x2="1540" y2="580"/>
+    <line x1="220"  y1="900"  x2="380"  y2="540"/>
+    <line x1="1100" y1="340"  x2="680"  y2="120"/>
+  </g>
+</svg>
+
+<header class="ch-header">
+  <svg class="ch-mark" viewBox="0 0 32 32" role="img" aria-label="context-harness mark" xmlns="http://www.w3.org/2000/svg">
+    <g fill="none" stroke="currentColor" stroke-width="0.8" opacity=".85">
+      <circle cx="16" cy="16" r="13"/>
+      <ellipse cx="16" cy="16" rx="13" ry="4.5"/>
+      <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(60 16 16)"/>
+      <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(-60 16 16)"/>
+    </g>
+    <g fill="currentColor">
+      <circle cx="3" cy="16" r="1.1"/>
+      <circle cx="29" cy="16" r="1.1"/>
+      <circle cx="9.5" cy="4.74" r="1.1"/>
+      <circle cx="22.5" cy="4.74" r="1.1"/>
+      <circle cx="9.5" cy="27.26" r="1.1"/>
+      <circle cx="22.5" cy="27.26" r="1.1"/>
+    </g>
+    <circle cx="16" cy="16" r="2.8" fill="#f59e0b">
+      <animate attributeName="r" values="2.8;3.4;2.8" dur="2.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="1" fill="#a78bfa" opacity="0">
+      <animateMotion path="M3,16 L29,16" dur="2.4s" repeatCount="indefinite" begin="0s"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="0s"/>
+    </circle>
+    <circle r="1" fill="#a78bfa" opacity="0">
+      <animateMotion path="M9.5,4.74 L22.5,27.26" dur="2.4s" repeatCount="indefinite" begin="0.8s"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="0.8s"/>
+    </circle>
+    <circle r="1" fill="#a78bfa" opacity="0">
+      <animateMotion path="M22.5,4.74 L9.5,27.26" dur="2.4s" repeatCount="indefinite" begin="1.6s"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="1.6s"/>
+    </circle>
+  </svg>
+  <span class="ch-wordmark">context-harness</span>
+</header>
+
+<main>
+
+  <!-- DEFAULT -->
+  <section class="ch-panel ch-state" id="view-form">
+    <h1 class="ch-title">Re-authenticate</h1>
+    <p class="ch-sub">We'll mail a new magic link to your address.</p>
+    <div class="ch-error" id="form-error" hidden></div>
+    <form id="recover-form" novalidate>
+      <div class="ch-field">
+        <label class="ch-label" for="email">email</label>
+        <input class="ch-input" type="email" id="email" name="email" autocomplete="email" required placeholder="you@team.dev"/>
+      </div>
+      <button class="ch-btn-primary" type="submit" id="recover-submit">
+        <span id="recover-label">Send link</span>
+      </button>
+    </form>
+  </section>
+
+  <!-- SUCCESS -->
+  <section class="ch-panel ch-state" id="view-success" hidden>
+    <p class="ch-success-line">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      link sent
     </p>
-    <p class="note">
-      Your email must be invited by an admin before you can log in.
-      Contact your MCP server administrator if you haven't received an invite.
-    </p>
-  </div>
+    <h1 class="ch-title">Check your inbox</h1>
+    <p class="ch-sub">Sent to:</p>
+    <code class="ch-email-shown" id="sent-to">—</code>
+    <p class="ch-aside">link expires in 1 hour.</p>
+  </section>
 
-  <script>
-    // Server-rendered constants injected at boot time by Go html/template.
-    const SUPABASE_URL  = "{{.SupabaseProjectURL}}";
-    const SUPABASE_ANON = "{{.SupabaseAnonKey}}";
-    const MCP_ORIGIN    = "{{.MCPPublicURL}}";
+</main>
 
-    const emailEl   = document.getElementById("email");
-    const btn       = document.getElementById("btn-send");
-    const errorMsg  = document.getElementById("error-msg");
-    const successMsg = document.getElementById("success-msg");
+<script>
+(() => {
+  const SUPABASE_PROJECT_URL = "{{.SupabaseProjectURL}}";
+  const SUPABASE_ANON_KEY    = "{{.SupabaseAnonKey}}";
+  const MCP_PUBLIC_URL       = "{{.MCPPublicURL}}";
 
-    // Redirect URL for the magic link — Supabase will append #access_token=...
-    const redirectTo = MCP_ORIGIN ? `${MCP_ORIGIN}/auth/callback` : `${window.location.origin}/auth/callback`;
+  function show(name){
+    ['form','success'].forEach(v => {
+      const el = document.getElementById('view-'+v);
+      el.hidden = v !== name;
+      if(v===name){ el.classList.remove('ch-state'); void el.offsetWidth; el.classList.add('ch-state'); }
+    });
+  }
+  function formError(msg){
+    const el = document.getElementById('form-error');
+    el.textContent = msg; el.hidden = false;
+  }
 
-    async function sendLink() {
-      errorMsg.style.display   = "none";
-      successMsg.style.display = "none";
-
-      const email = emailEl.value.trim();
-      if (!email.includes("@")) {
-        errorMsg.textContent = "Please enter a valid email address.";
-        errorMsg.style.display = "block";
-        return;
-      }
-
-      btn.disabled = true;
-
-      try {
-        const res = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": SUPABASE_ANON,
-          },
-          body: JSON.stringify({ email, redirect_to: redirectTo }),
-        });
-
-        // Supabase returns 200 regardless of whether the email exists (privacy).
-        // Only surface a real error if the status is unexpected.
-        if (!res.ok && res.status !== 200) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error_description || body.msg || `Request failed (${res.status})`);
-        }
-
-        successMsg.style.display = "block";
-      } catch (e) {
-        errorMsg.textContent = e.message;
-        errorMsg.style.display = "block";
-        btn.disabled = false;
-      }
+  document.getElementById('recover-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value.trim();
+    document.getElementById('form-error').hidden = true;
+    if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+      return formError('Enter a valid email.');
     }
 
-    btn.addEventListener("click", sendLink);
+    const submit = document.getElementById('recover-submit');
+    const label  = document.getElementById('recover-label');
+    submit.disabled = true;
+    label.innerHTML = '<span class="ch-spinner" style="color:#0a0a0d"></span>';
 
-    emailEl.addEventListener("keydown", e => {
-      if (e.key === "Enter") btn.click();
-    });
-  </script>
+    try{
+      const r = await fetch(`${SUPABASE_PROJECT_URL}/auth/v1/recover`, {
+        method:'POST',
+        headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
+        body: JSON.stringify({ email, options:{ redirectTo:`${MCP_PUBLIC_URL}/auth/callback` } })
+      });
+      if(!r.ok){
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.msg || err.error_description || `Request failed (${r.status})`);
+      }
+      document.getElementById('sent-to').textContent = email;
+      show('success');
+    } catch(err){
+      submit.disabled = false;
+      label.textContent = 'Send link';
+      formError(err.message || 'Request failed.');
+    }
+  });
+})();
+</script>
 </body>
 </html>

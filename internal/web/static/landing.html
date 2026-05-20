@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>agent stack — claude-dev-team + context-harness-mcp</title>
+<style>
+  :root{
+    --ch-bg:#0a0a0d; --ch-bg-panel:#14141a; --ch-bg-code:#050507;
+    --ch-fg:#e6e6ea; --ch-fg-mute:#8a8a96; --ch-fg-dim:#56565f;
+    --ch-border:#1f1f27; --ch-accent:#f59e0b; --ch-accent-soft:#f59e0b22;
+    --ch-signal:#a78bfa;
+    --ch-sans:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    --ch-mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--ch-bg);color:var(--ch-fg);font-family:var(--ch-sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+  a{color:inherit;text-decoration:none}
+
+  /* ── starfield background ─────────────────── */
+  .ch-starfield{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.5}
+  .ch-starfield .star{fill:#e6e6ea}
+  .ch-starfield .hub{fill:#f59e0b}
+
+  /* ── topbar ───────────────────────────────── */
+  .ch-topbar{position:sticky;top:0;z-index:10;background:rgba(10,10,13,.78);backdrop-filter:saturate(140%) blur(12px);border-bottom:1px solid var(--ch-border)}
+  .ch-topbar-inner{max-width:1200px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:24px}
+  .ch-brand{display:flex;align-items:center;gap:10px}
+  .ch-mark{height:24px;width:24px;display:block;color:var(--ch-fg)}
+  .ch-wordmark{font-family:var(--ch-mono);font-size:13px;letter-spacing:.02em;color:var(--ch-fg);font-weight:500}
+  .ch-nav{display:flex;align-items:center;gap:22px;margin-left:auto}
+  .ch-nav a{font-family:var(--ch-mono);font-size:12px;color:var(--ch-fg-mute);letter-spacing:.04em;transition:color 150ms ease}
+  .ch-nav a:hover{color:var(--ch-fg)}
+  .ch-nav-cta{color:var(--ch-accent)!important;border:1px solid var(--ch-accent);padding:6px 12px;border-radius:5px;transition:background 150ms ease}
+  .ch-nav-cta:hover{background:var(--ch-accent-soft)}
+
+  /* ── hero ─────────────────────────────────── */
+  main{flex:1;position:relative;z-index:1}
+  .ch-hero{max-width:1200px;margin:0 auto;padding:80px 28px 100px;display:grid;grid-template-columns:1.05fr 1fr;gap:64px;align-items:center}
+  .ch-eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-mute);letter-spacing:.1em;text-transform:uppercase;margin-bottom:18px;padding:5px 10px;border:1px solid var(--ch-border);border-radius:4px;background:rgba(20,20,26,.55)}
+  .ch-eyebrow-dot{width:6px;height:6px;border-radius:50%;background:var(--ch-accent);box-shadow:0 0 8px var(--ch-accent)}
+  .ch-h1{font-family:var(--ch-sans);font-size:54px;line-height:1.05;font-weight:500;letter-spacing:-.025em;margin:0 0 22px;text-wrap:balance}
+  .ch-h1 em{font-style:normal;color:var(--ch-accent)}
+  .ch-sub{font-size:17px;line-height:1.55;color:var(--ch-fg-mute);max-width:520px;margin:0 0 32px}
+  .ch-sub strong{color:var(--ch-fg);font-weight:500}
+  .ch-cta-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  .ch-btn{display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 20px;border-radius:6px;font:500 14px/1 var(--ch-sans);cursor:pointer;border:1px solid transparent;transition:all 150ms ease;text-decoration:none}
+  .ch-btn-primary{background:var(--ch-accent);color:#0a0a0d}
+  .ch-btn-primary:hover{box-shadow:0 0 0 4px var(--ch-accent-soft);transform:translateY(-1px)}
+  .ch-btn-secondary{background:transparent;color:var(--ch-fg);border-color:var(--ch-border)}
+  .ch-btn-secondary:hover{border-color:var(--ch-fg-mute);color:var(--ch-fg)}
+  .ch-btn-secondary .gh{width:14px;height:14px}
+  .ch-compat{margin-top:28px;font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-dim);letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+  .ch-compat code{color:var(--ch-fg-mute);background:var(--ch-bg-code);padding:2px 6px;border-radius:3px;border:1px solid var(--ch-border);transition:color 150ms ease,border-color 150ms ease}
+  .ch-compat a{display:inline-block}
+  .ch-compat a:hover code{color:var(--ch-accent);border-color:var(--ch-accent)}
+
+  /* ── hero sphere ──────────────────────────── */
+  .ch-sphere-wrap{position:relative;aspect-ratio:1;width:100%;max-width:480px;justify-self:end}
+  .ch-sphere{width:100%;height:100%;display:block}
+  .ch-sphere-meta{position:absolute;font-family:var(--ch-mono);font-size:10px;color:var(--ch-fg-dim);letter-spacing:.1em;text-transform:uppercase;pointer-events:none}
+  .ch-sphere-meta.tl{top:8%;left:6%}
+  .ch-sphere-meta.br{bottom:8%;right:6%;text-align:right}
+  .ch-sphere-meta b{display:block;color:var(--ch-accent);font-weight:500;letter-spacing:.04em;margin-bottom:2px;text-transform:none;font-size:11px}
+
+  /* ── divider rail ─────────────────────────── */
+  .ch-rail{max-width:1200px;margin:0 auto;padding:0 28px;display:flex;align-items:center;gap:14px;color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+  .ch-rail-line{flex:1;height:1px;background:var(--ch-border)}
+
+  /* ── drop-in section ──────────────────────── */
+  .ch-section{max-width:1200px;margin:0 auto;padding:72px 28px;display:grid;grid-template-columns:1fr 1.4fr;gap:48px;align-items:start}
+  .ch-section h2{font-size:30px;line-height:1.15;font-weight:500;margin:0 0 14px;letter-spacing:-.015em}
+  .ch-section p{margin:0;color:var(--ch-fg-mute);font-size:15px}
+  .ch-section .step{font-family:var(--ch-mono);font-size:11px;color:var(--ch-accent);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
+  .ch-code{position:relative;background:var(--ch-bg-code);border:1px solid var(--ch-border);border-radius:8px;padding:20px 20px 20px 22px;font:400 13px/1.65 var(--ch-mono);color:var(--ch-fg);overflow-x:auto;white-space:pre}
+  .ch-code-tag{position:absolute;top:-1px;right:14px;background:var(--ch-bg-code);color:var(--ch-fg-dim);font:500 10px/1 var(--ch-mono);padding:6px 8px;border:1px solid var(--ch-border);border-top:0;border-radius:0 0 4px 4px;letter-spacing:.06em}
+  .ch-code .k{color:var(--ch-accent)}
+  .ch-code .s{color:var(--ch-signal)}
+  .ch-code .c{color:var(--ch-fg-dim)}
+  .ch-code-copy{position:absolute;top:8px;right:8px;background:transparent;border:0;color:var(--ch-fg-mute);cursor:pointer;padding:6px 8px;border-radius:4px;display:inline-flex;align-items:center;gap:6px;font:500 12px/1 var(--ch-sans);transition:color 150ms ease}
+  .ch-code-copy:hover{color:var(--ch-accent)}
+  .ch-code-copy svg{width:13px;height:13px}
+
+  /* ── features ─────────────────────────────── */
+  .ch-features{max-width:1200px;margin:0 auto;padding:0 28px 96px;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--ch-border);border:1px solid var(--ch-border);border-radius:10px;overflow:hidden}
+  .ch-feature{background:var(--ch-bg);padding:32px 26px}
+  .ch-feature-h{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .ch-feature-glyph{width:24px;height:24px;color:var(--ch-fg-mute);display:block}
+  .ch-feature-glyph .hub{fill:var(--ch-accent)}
+  .ch-feature-glyph .net{fill:none;stroke:currentColor;stroke-width:.8}
+  .ch-feature-glyph .sat{fill:currentColor}
+  .ch-feature h3{font-size:15px;font-weight:500;margin:0;letter-spacing:-.005em}
+  .ch-feature p{margin:0;color:var(--ch-fg-mute);font-size:13.5px;line-height:1.6}
+  .ch-feature code{font-family:var(--ch-mono);font-size:12px;color:var(--ch-fg);background:var(--ch-bg-code);padding:1px 5px;border-radius:3px;border:1px solid var(--ch-border)}
+
+  /* ── footer ───────────────────────────────── */
+  footer{border-top:1px solid var(--ch-border);padding:36px 28px;color:var(--ch-fg-dim)}
+  .ch-footer-inner{max-width:1200px;margin:0 auto;display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between;font-family:var(--ch-mono);font-size:11px;letter-spacing:.04em}
+  .ch-footer-links{display:flex;gap:20px}
+  .ch-footer-links a{color:var(--ch-fg-mute);transition:color 150ms ease}
+  .ch-footer-links a:hover{color:var(--ch-fg)}
+
+  /* ── responsive ───────────────────────────── */
+  @media (max-width: 900px){
+    .ch-hero{grid-template-columns:1fr;padding:48px 24px 64px;gap:48px}
+    .ch-sphere-wrap{order:-1;max-width:340px;justify-self:start}
+    .ch-h1{font-size:38px}
+    .ch-section{grid-template-columns:1fr;padding:48px 24px;gap:24px}
+    .ch-features{grid-template-columns:1fr;padding:0 24px 64px}
+    .ch-nav a:not(.ch-nav-cta){display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  }
+</style>
+</head>
+<body>
+
+<!-- ── ambient starfield ────────────────────────────────── -->
+<svg class="ch-starfield" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1600 1000" aria-hidden="true">
+  <g class="star" opacity=".7">
+    <circle cx="120"  cy="80"   r="1"/>
+    <circle cx="240"  cy="180"  r="1.2"/>
+    <circle cx="380"  cy="60"   r="0.8"/>
+    <circle cx="520"  cy="220"  r="1"/>
+    <circle cx="680"  cy="120"  r="1.4"/>
+    <circle cx="840"  cy="280"  r="1"/>
+    <circle cx="1000" cy="80"   r="0.9"/>
+    <circle cx="1180" cy="200"  r="1.1"/>
+    <circle cx="1340" cy="100"  r="1"/>
+    <circle cx="1500" cy="240"  r="0.8"/>
+    <circle cx="80"   cy="380"  r="1"/>
+    <circle cx="260"  cy="520"  r="1.3"/>
+    <circle cx="440"  cy="420"  r="0.9"/>
+    <circle cx="620"  cy="600"  r="1"/>
+    <circle cx="820"  cy="480"  r="1.4"/>
+    <circle cx="1020" cy="640"  r="1"/>
+    <circle cx="1200" cy="520"  r="1.1"/>
+    <circle cx="1380" cy="680"  r="0.9"/>
+    <circle cx="1540" cy="580"  r="1"/>
+    <circle cx="60"   cy="780"  r="1.2"/>
+    <circle cx="220"  cy="900"  r="1"/>
+    <circle cx="400"  cy="820"  r="0.8"/>
+    <circle cx="580"  cy="940"  r="1.1"/>
+    <circle cx="760"  cy="780"  r="1"/>
+    <circle cx="940"  cy="900"  r="1.3"/>
+    <circle cx="1140" cy="820"  r="0.9"/>
+    <circle cx="1320" cy="940"  r="1"/>
+    <circle cx="1480" cy="860"  r="1.1"/>
+  </g>
+  <g class="hub">
+    <circle cx="380"  cy="540"  r="2"/>
+    <circle cx="1100" cy="340"  r="2"/>
+  </g>
+  <g stroke="#1f1f27" stroke-width=".5" stroke-dasharray="3 5" fill="none" opacity=".55">
+    <line x1="380"  y1="540"  x2="1100" y2="340"/>
+    <line x1="120"  y1="80"   x2="380"  y2="540"/>
+    <line x1="1100" y1="340"  x2="1540" y2="580"/>
+    <line x1="220"  y1="900"  x2="380"  y2="540"/>
+    <line x1="1100" y1="340"  x2="680"  y2="120"/>
+  </g>
+</svg>
+
+<!-- ── topbar ───────────────────────────────────────────── -->
+<header class="ch-topbar">
+  <div class="ch-topbar-inner">
+    <a class="ch-brand" href="/" aria-label="context-harness home">
+      <svg class="ch-mark" viewBox="0 0 32 32" role="img" aria-label="context-harness mark" xmlns="http://www.w3.org/2000/svg">
+        <g fill="none" stroke="currentColor" stroke-width="0.8" opacity=".85">
+          <circle cx="16" cy="16" r="13"/>
+          <ellipse cx="16" cy="16" rx="13" ry="4.5"/>
+          <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(60 16 16)"/>
+          <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(-60 16 16)"/>
+        </g>
+        <g fill="currentColor">
+          <circle cx="3" cy="16" r="1.1"/><circle cx="29" cy="16" r="1.1"/>
+          <circle cx="9.5" cy="4.74" r="1.1"/><circle cx="22.5" cy="4.74" r="1.1"/>
+          <circle cx="9.5" cy="27.26" r="1.1"/><circle cx="22.5" cy="27.26" r="1.1"/>
+        </g>
+        <circle cx="16" cy="16" r="2.8" fill="#f59e0b">
+          <animate attributeName="r" values="2.8;3.4;2.8" dur="2.4s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
+      <span class="ch-wordmark">context-harness</span>
+    </a>
+    <nav class="ch-nav" aria-label="primary">
+      <a href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">claude-dev-team</a>
+      <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">context-harness-mcp</a>
+      <a href="/viewer">Viewer</a>
+      <a class="ch-nav-cta" href="/auth/login">Sign in →</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <!-- ── HERO ──────────────────────────────────────────── -->
+  <section class="ch-hero">
+    <div>
+      <span class="ch-eyebrow"><span class="ch-eyebrow-dot"></span>open source · two-product agent stack</span>
+      <h1 class="ch-h1">Persistent memory<br/>for your team's <em>agents</em>.</h1>
+      <p class="ch-sub">
+        <strong>claude-dev-team</strong> orchestrates a specialized subagent pipeline for the full dev lifecycle &mdash; architect, implementer, tester, qa, security, delivery. <strong>context-harness-mcp</strong> is their shared memory: a Postgres + pgvector knowledge graph with semantic search and a three-layer write filter. Two products, one stack, fully open source.
+      </p>
+      <div class="ch-cta-row">
+        <a class="ch-btn ch-btn-primary" href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">
+          <svg class="gh" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.08-2.7-1.08-.36-.92-.89-1.16-.89-1.16-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.71 1.23 1.87.88 2.33.67.07-.52.28-.88.5-1.08-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          claude-dev-team
+        </a>
+        <a class="ch-btn ch-btn-secondary" href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">
+          <svg class="gh" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.08-2.7-1.08-.36-.92-.89-1.16-.89-1.16-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.71 1.23 1.87.88 2.33.67.07-.52.28-.88.5-1.08-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          context-harness-mcp
+        </a>
+      </div>
+      <p class="ch-compat">Install one, get both &middot; <code>./bin/install.sh</code></p>
+    </div>
+
+    <!-- HERO SPHERE -->
+    <div class="ch-sphere-wrap">
+      <span class="ch-sphere-meta tl"><b>hub</b>single tenant</span>
+      <span class="ch-sphere-meta br"><b>agents</b>peer-to-peer</span>
+      <svg class="ch-sphere" viewBox="0 0 400 400" role="img" aria-label="agent constellation" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="ch-glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%"  stop-color="#f59e0b" stop-opacity="0.22"/>
+            <stop offset="38%" stop-color="#f59e0b" stop-opacity="0.06"/>
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="ch-hub-glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%"  stop-color="#fbbf24" stop-opacity="1"/>
+            <stop offset="65%" stop-color="#f59e0b" stop-opacity="1"/>
+            <stop offset="100%" stop-color="#f59e0b" stop-opacity=".5"/>
+          </radialGradient>
+        </defs>
+
+        <!-- ambient glow -->
+        <circle cx="200" cy="200" r="180" fill="url(#ch-glow)"/>
+
+        <!-- outer ring -->
+        <circle cx="200" cy="200" r="160" fill="none" stroke="#3a3a44" stroke-width="0.8"/>
+
+        <!-- 3 main orbitals -->
+        <g fill="none" stroke="#3a3a44" stroke-width="0.8">
+          <ellipse cx="200" cy="200" rx="160" ry="52"/>
+          <ellipse cx="200" cy="200" rx="160" ry="52" transform="rotate(60 200 200)"/>
+          <ellipse cx="200" cy="200" rx="160" ry="52" transform="rotate(-60 200 200)"/>
+        </g>
+
+        <!-- 2 secondary orbitals for depth -->
+        <g fill="none" stroke="#2a2a32" stroke-width="0.6" stroke-dasharray="2 5">
+          <ellipse cx="200" cy="200" rx="160" ry="110" transform="rotate(30 200 200)"/>
+          <ellipse cx="200" cy="200" rx="160" ry="110" transform="rotate(-30 200 200)"/>
+        </g>
+
+        <!-- peer-to-peer chords (subtle violet, dashed) -->
+        <g stroke="#a78bfa" stroke-width="0.6" stroke-dasharray="3 5" opacity=".4" fill="none">
+          <line x1="40"  y1="200" x2="280" y2="59"/>
+          <line x1="360" y1="200" x2="120" y2="341"/>
+          <line x1="120" y1="59"  x2="280" y2="341"/>
+        </g>
+
+        <!-- surface nodes (6) -->
+        <g fill="#a0a0aa">
+          <circle cx="40"  cy="200" r="3.5"/>
+          <circle cx="360" cy="200" r="3.5"/>
+          <circle cx="120" cy="59"  r="3.5"/>
+          <circle cx="280" cy="59"  r="3.5"/>
+          <circle cx="120" cy="341" r="3.5"/>
+          <circle cx="280" cy="341" r="3.5"/>
+        </g>
+
+        <!-- activity blip nodes (flicker — "agent ping") -->
+        <circle cx="200" cy="40" r="2" fill="#a78bfa">
+          <animate attributeName="opacity" values="0;1;0" keyTimes="0;0.1;0.2" dur="6s" repeatCount="indefinite" begin="0s"/>
+        </circle>
+        <circle cx="200" cy="360" r="2" fill="#a78bfa">
+          <animate attributeName="opacity" values="0;1;0" keyTimes="0;0.1;0.2" dur="6s" repeatCount="indefinite" begin="2s"/>
+        </circle>
+        <circle cx="60" cy="120" r="2" fill="#a78bfa">
+          <animate attributeName="opacity" values="0;1;0" keyTimes="0;0.1;0.2" dur="6s" repeatCount="indefinite" begin="4s"/>
+        </circle>
+
+        <!-- HUB -->
+        <circle cx="200" cy="200" r="14" fill="url(#ch-hub-glow)">
+          <animate attributeName="r" values="14;16;14" dur="2.4s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="200" cy="200" r="6" fill="#fff7e6">
+          <animate attributeName="opacity" values="1;.6;1" dur="2.4s" repeatCount="indefinite"/>
+        </circle>
+
+        <!-- signal pulses through center along diametric chords -->
+        <circle r="3" fill="#a78bfa" opacity="0">
+          <animateMotion path="M40,200 L360,200" dur="2.4s" repeatCount="indefinite" begin="0s"/>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.92;1" dur="2.4s" repeatCount="indefinite" begin="0s"/>
+        </circle>
+        <circle r="3" fill="#a78bfa" opacity="0">
+          <animateMotion path="M120,59 L280,341" dur="2.4s" repeatCount="indefinite" begin="0.6s"/>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.92;1" dur="2.4s" repeatCount="indefinite" begin="0.6s"/>
+        </circle>
+        <circle r="3" fill="#a78bfa" opacity="0">
+          <animateMotion path="M280,59 L120,341" dur="2.4s" repeatCount="indefinite" begin="1.2s"/>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.92;1" dur="2.4s" repeatCount="indefinite" begin="1.2s"/>
+        </circle>
+        <circle r="2.4" fill="#a78bfa" opacity="0">
+          <animateMotion path="M360,200 L40,200" dur="2.4s" repeatCount="indefinite" begin="1.8s"/>
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.92;1" dur="2.4s" repeatCount="indefinite" begin="1.8s"/>
+        </circle>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ── divider ───────────────────────────────────────── -->
+  <div class="ch-rail">
+    <span>// drop-in</span>
+    <span class="ch-rail-line"></span>
+  </div>
+
+  <!-- ── DROP-IN SECTION ───────────────────────────────── -->
+  <section class="ch-section">
+    <div>
+      <p class="step">01 · wire it</p>
+      <h2>Three lines in <code style="font-family:var(--ch-mono);font-size:.85em;background:var(--ch-bg-code);padding:2px 7px;border-radius:4px;border:1px solid var(--ch-border);">~/.claude.json</code></h2>
+      <p>The <strong>claude-dev-team</strong> installer drops the snippet for you. Point Claude Code at your shared MCP and every agent on your team starts reading from the same memory.</p>
+    </div>
+    <div class="ch-code">
+      <span class="ch-code-tag">~/.claude.json</span>
+      <button class="ch-code-copy" type="button" id="copy-btn" aria-label="copy snippet">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="4" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="var(--ch-bg-code)"/></svg>
+        <span id="copy-label">Copy</span>
+      </button><code id="snippet">{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"memory"</span>: {
+      <span class="k">"type"</span>: <span class="s">"http"</span>,
+      <span class="k">"url"</span>: <span class="s">"https://memory.team.dev/mcp"</span>,
+      <span class="k">"headers"</span>: {
+        <span class="k">"Authorization"</span>: <span class="s">"Bearer ch_..."</span>
+      }
+    }
+  }
+}</code></div>
+  </section>
+
+  <!-- ── FEATURES ──────────────────────────────────────── -->
+  <section class="ch-features">
+
+    <div class="ch-feature">
+      <div class="ch-feature-h">
+        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
+          <g class="net"><circle cx="16" cy="16" r="11"/><ellipse cx="16" cy="16" rx="11" ry="4"/><ellipse cx="16" cy="16" rx="11" ry="4" transform="rotate(60 16 16)"/></g>
+          <g class="sat"><circle cx="5" cy="16" r="1"/><circle cx="27" cy="16" r="1"/></g>
+          <circle cx="16" cy="16" r="2.2" class="hub"/>
+        </svg>
+        <h3>Shared knowledge graph</h3>
+      </div>
+      <p>One graph per team. Every agent reads and writes the same memory — sessions, refactors, and PRs leave a trail the next agent can find.</p>
+    </div>
+
+    <div class="ch-feature">
+      <div class="ch-feature-h">
+        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
+          <g class="net"><circle cx="7" cy="16" r="1.5"/><circle cx="16" cy="9" r="1.5"/><circle cx="25" cy="16" r="1.5"/><circle cx="16" cy="23" r="1.5"/><line x1="7" y1="16" x2="25" y2="16"/><line x1="16" y1="9" x2="16" y2="23"/><line x1="7" y1="16" x2="16" y2="9"/><line x1="25" y1="16" x2="16" y2="23"/></g>
+          <circle cx="16" cy="16" r="2.2" class="hub"/>
+        </svg>
+        <h3>Semantic search</h3>
+      </div>
+      <p>384-dim embeddings indexed with pgvector HNSW. <code>search_nodes("auth patterns")</code> returns what you mean, not just substring hits.</p>
+    </div>
+
+    <div class="ch-feature">
+      <div class="ch-feature-h">
+        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
+          <g class="net"><rect x="5" y="6" width="22" height="5" rx="1"/><rect x="5" y="13.5" width="22" height="5" rx="1"/><rect x="5" y="21" width="22" height="5" rx="1"/></g>
+          <circle cx="9" cy="8.5" r="1.2" class="hub"/>
+          <circle cx="9" cy="16" r="1.2" fill="#a78bfa"/>
+          <circle cx="9" cy="23.5" r="1.2" fill="#ef4444"/>
+        </svg>
+        <h3>Three-layer filter</h3>
+      </div>
+      <p>Size + junk denylist → secrets scan (gitleaks) → taxonomy check. Atomic reject before any DB transaction opens. No secrets, ever.</p>
+    </div>
+
+  </section>
+
+</main>
+
+<footer>
+  <div class="ch-footer-inner">
+    <span>open source agent stack &middot; claude-dev-team (MIT) &middot; context-harness-mcp (LICENSE pending)</span>
+    <nav class="ch-footer-links" aria-label="footer">
+      <a href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">claude-dev-team</a>
+      <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">context-harness-mcp</a>
+      <a href="/viewer">Viewer</a>
+      <a href="/auth/login">Sign in</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // copy snippet (strips highlight spans)
+  document.getElementById('copy-btn').addEventListener('click', async () => {
+    const text = document.getElementById('snippet').innerText;
+    try { await navigator.clipboard.writeText(text); }
+    catch { /* noop */ }
+    const lbl = document.getElementById('copy-label');
+    const prev = lbl.textContent;
+    lbl.textContent = 'Copied';
+    setTimeout(() => { lbl.textContent = prev; }, 1500);
+  });
+})();
+</script>
+</body>
+</html>

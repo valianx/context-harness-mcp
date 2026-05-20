@@ -1,341 +1,491 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Context Harness MCP — Knowledge Graph</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>context-harness — knowledge graph</title>
+<style>
+  :root{
+    --ch-bg:#0a0a0d; --ch-bg-panel:#14141a; --ch-bg-code:#050507;
+    --ch-fg:#e6e6ea; --ch-fg-mute:#8a8a96; --ch-fg-dim:#56565f;
+    --ch-border:#1f1f27; --ch-accent:#f59e0b; --ch-accent-soft:#f59e0b22;
+    --ch-error:#ef4444;
+    --ch-sans:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    --ch-mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--ch-bg);color:var(--ch-fg);font-family:var(--ch-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;flex-direction:column}
 
-    :root {
-      --bg:          #0f0f12;
-      --surface:     #1a1a22;
-      --border:      #2a2a38;
-      --text:        #e2e2ef;
-      --muted:       #8888aa;
-      --accent:      #6c6cf0;
-      --accent-dim:  #3a3a80;
-      --pill-bg:     #252535;
-      --tag-out:     #1a3a2a;
-      --tag-out-text:#4dd898;
-      --tag-in:      #2a1a3a;
-      --tag-in-text: #c084fc;
-      --radius:      8px;
-    }
+  /* ── header ─────────────────────────────────── */
+  .ch-topbar{position:sticky;top:0;z-index:5;background:rgba(10,10,13,.92);backdrop-filter:saturate(140%) blur(8px);border-bottom:1px solid var(--ch-border);display:flex;align-items:center;gap:18px;padding:14px 24px}
+  .ch-mark{color:var(--ch-fg);height:22px;width:22px;display:block;flex:0 0 auto}
+  .ch-wordmark{font-family:var(--ch-mono);font-size:12px;letter-spacing:.02em;color:var(--ch-fg-mute);flex:0 0 auto}
+  .ch-sep{flex:0 0 auto;color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:11px;letter-spacing:.04em}
+  .ch-stat{flex:0 0 auto;display:flex;align-items:center;gap:6px;font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-mute);letter-spacing:.04em;text-transform:uppercase}
+  .ch-stat-val{color:var(--ch-accent)}
+  .ch-spacer{flex:1}
 
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
-      font-size: 14px;
-      line-height: 1.6;
-      min-height: 100vh;
-    }
+  /* ── search ─────────────────────────────────── */
+  .ch-search-wrap{position:relative;flex:0 1 380px;min-width:200px}
+  .ch-search{width:100%;background:var(--ch-bg-panel);color:var(--ch-fg);border:1px solid var(--ch-border);border-radius:6px;padding:8px 12px 8px 32px;font:400 13px/1.4 var(--ch-mono);outline:none;transition:border-color 150ms ease}
+  .ch-search::placeholder{color:var(--ch-fg-mute)}
+  .ch-search:focus{border-bottom-color:var(--ch-accent)}
+  .ch-search-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:var(--ch-fg-mute);pointer-events:none}
+  .ch-kbd{position:absolute;right:8px;top:50%;transform:translateY(-50%);font:500 10px/1 var(--ch-mono);color:var(--ch-fg-dim);background:var(--ch-bg);border:1px solid var(--ch-border);border-radius:3px;padding:3px 5px;pointer-events:none}
 
-    header {
-      border-bottom: 1px solid var(--border);
-      padding: 20px 24px;
-    }
+  /* ── main ───────────────────────────────────── */
+  main{flex:1;padding:24px;max-width:1100px;width:100%;margin:0 auto}
+  .ch-listmeta{display:flex;align-items:center;gap:12px;margin:4px 0 16px;color:var(--ch-fg-mute);font-family:var(--ch-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  .ch-listmeta .ch-dot{width:4px;height:4px;border-radius:50%;background:var(--ch-fg-dim)}
 
-    header h1 {
-      font-size: 18px;
-      font-weight: 700;
-      color: var(--text);
-      letter-spacing: -0.3px;
-    }
+  /* ── card ───────────────────────────────────── */
+  .ch-grid{display:grid;grid-template-columns:1fr;gap:8px}
+  .ch-card{background:var(--ch-bg-panel);border:1px solid var(--ch-border);border-radius:8px;padding:16px 18px;cursor:pointer;transition:border-color 150ms ease,background 150ms ease;display:block;text-align:left;width:100%;color:inherit;font:inherit}
+  .ch-card:hover{border-color:#f59e0b66}
+  .ch-card:focus-visible{outline:2px solid var(--ch-accent);outline-offset:1px}
+  .ch-card-head{display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+  .ch-card-name{font-family:var(--ch-mono);font-size:14px;color:var(--ch-fg);font-weight:500;letter-spacing:-.005em}
+  .ch-badge{font-family:var(--ch-mono);font-size:10px;color:var(--ch-accent);background:var(--ch-accent-soft);padding:3px 7px;border-radius:4px;letter-spacing:.06em;text-transform:uppercase}
+  .ch-card-meta{margin-left:auto;display:flex;gap:10px;font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-dim)}
+  .ch-similarity{color:var(--ch-accent)}
+  .ch-card-preview{color:var(--ch-fg-mute);font-size:13px;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
 
-    header p {
-      font-size: 12px;
-      color: var(--muted);
-      margin-top: 2px;
-    }
+  /* ── expanded ───────────────────────────────── */
+  .ch-card.open{border-color:#f59e0b66;cursor:default}
+  .ch-card.open .ch-card-preview{display:none}
+  .ch-expand{margin-top:14px;padding-top:14px;border-top:1px solid var(--ch-border);animation:ch-in 200ms ease-out both}
+  .ch-section-label{font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-dim);letter-spacing:.08em;text-transform:uppercase;margin:0 0 8px}
+  .ch-obs-list{margin:0 0 18px;padding:0;list-style:none}
+  .ch-obs-list li{padding:8px 0;border-bottom:1px dashed var(--ch-border);font-size:13px;color:var(--ch-fg);line-height:1.55}
+  .ch-obs-list li:last-child{border-bottom:0}
+  .ch-rel-list{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+  .ch-rel{display:inline-flex;align-items:center;gap:6px;font-family:var(--ch-mono);font-size:12px;background:var(--ch-bg);border:1px solid var(--ch-border);border-radius:4px;padding:4px 8px;color:var(--ch-fg-mute);cursor:pointer;transition:border-color 150ms ease,color 150ms ease}
+  .ch-rel:hover{border-color:var(--ch-accent);color:var(--ch-accent)}
+  .ch-rel-arrow{color:var(--ch-fg-dim);font-size:10px}
+  .ch-rel-kind{color:var(--ch-accent);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
 
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      padding: 24px 20px;
-    }
+  /* ── states ─────────────────────────────────── */
+  .ch-state{animation:ch-in 200ms ease-out both}
+  @keyframes ch-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  [hidden]{display:none!important}
+  .ch-spinner{width:14px;height:14px;border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:ch-spin .8s linear infinite}
+  @keyframes ch-spin{to{transform:rotate(360deg)}}
+  .ch-loading-row{display:flex;align-items:center;gap:10px;color:var(--ch-fg-mute);font-family:var(--ch-mono);font-size:12px;padding:24px 0}
+  .ch-loading-row .ch-spinner{color:var(--ch-accent)}
 
-    .search-wrap {
-      position: relative;
-      margin-bottom: 24px;
-    }
+  /* ── empty ──────────────────────────────────── */
+  .ch-empty{text-align:center;padding:64px 24px;color:var(--ch-fg-mute)}
+  .ch-empty-graph{margin:0 auto 18px;display:block;color:var(--ch-fg-dim);opacity:.5}
+  .ch-empty h2{font-family:var(--ch-sans);font-weight:500;font-size:18px;color:var(--ch-fg);margin:0 0 6px}
+  .ch-empty p{margin:0;font-size:13px;color:var(--ch-fg-mute);font-family:var(--ch-mono)}
 
-    #search-input {
-      width: 100%;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      color: var(--text);
-      font-family: inherit;
-      font-size: 14px;
-      padding: 10px 14px;
-      outline: none;
-      transition: border-color 0.15s;
-    }
+  /* ── error ──────────────────────────────────── */
+  .ch-error-box{margin:0 0 14px;padding:12px 14px;background:#ef444411;border:1px solid #ef444433;color:var(--ch-error);font-family:var(--ch-mono);font-size:12px;border-radius:6px;display:flex;align-items:center;gap:10px}
+  .ch-error-box button{background:transparent;border:1px solid var(--ch-error);color:var(--ch-error);font:500 11px/1 var(--ch-mono);padding:5px 10px;border-radius:4px;cursor:pointer;margin-left:auto;text-transform:uppercase;letter-spacing:.06em}
+  .ch-error-box button:hover{background:#ef444422}
 
-    #search-input:focus {
-      border-color: var(--accent);
-    }
+  /* ── footer ─────────────────────────────────── */
+  footer{padding:24px;border-top:1px solid var(--ch-border);color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:11px;text-align:center;letter-spacing:.04em}
 
-    #search-input::placeholder {
-      color: var(--muted);
-    }
-
-    #status {
-      font-size: 12px;
-      color: var(--muted);
-      margin-bottom: 16px;
-      min-height: 18px;
-    }
-
-    .spinner {
-      display: inline-block;
-      width: 10px;
-      height: 10px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      margin-right: 6px;
-      vertical-align: middle;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .node-list {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .node-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 14px 16px;
-    }
-
-    .node-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-
-    .node-name {
-      font-size: 15px;
-      font-weight: 700;
-      color: var(--text);
-    }
-
-    .node-type {
-      font-size: 11px;
-      font-weight: 600;
-      background: var(--pill-bg);
-      color: var(--accent);
-      border-radius: 4px;
-      padding: 2px 7px;
-      letter-spacing: 0.3px;
-      white-space: nowrap;
-    }
-
-    .obs-list {
-      list-style: none;
-      margin-bottom: 10px;
-    }
-
-    .obs-list li {
-      position: relative;
-      padding-left: 14px;
-      color: #c8c8e0;
-      margin-bottom: 3px;
-      font-size: 13px;
-    }
-
-    .obs-list li::before {
-      content: "·";
-      position: absolute;
-      left: 3px;
-      color: var(--muted);
-    }
-
-    .relations {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 8px;
-    }
-
-    .rel-tag {
-      font-size: 11px;
-      border-radius: 4px;
-      padding: 2px 8px;
-    }
-
-    .rel-out {
-      background: var(--tag-out);
-      color: var(--tag-out-text);
-    }
-
-    .rel-in {
-      background: var(--tag-in);
-      color: var(--tag-in-text);
-    }
-
-    .empty-state {
-      text-align: center;
-      color: var(--muted);
-      padding: 60px 0;
-      font-size: 13px;
-      line-height: 1.9;
-    }
-
-    .empty-state code {
-      color: var(--accent);
-      background: var(--pill-bg);
-      padding: 1px 6px;
-      border-radius: 3px;
-    }
-
-    .error-msg {
-      color: #f87171;
-      font-size: 13px;
-      padding: 12px 0;
-    }
-  </style>
+  @media (max-width:680px){
+    .ch-topbar{flex-wrap:wrap;gap:10px;padding:12px 16px}
+    .ch-search-wrap{flex:1 1 100%;order:99}
+    .ch-stat{display:none}
+    main{padding:16px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  }
+</style>
 </head>
 <body>
-  <header>
-    <h1>Context Harness MCP — Knowledge Graph</h1>
-    <p>Public read-only viewer</p>
-  </header>
 
-  <div class="container">
-    <div class="search-wrap">
-      <input
-        id="search-input"
-        type="search"
-        placeholder="Search nodes by semantic similarity… (leave blank to list all)"
-        autofocus
-        autocomplete="off"
-      >
-    </div>
+<header class="ch-topbar">
+  <svg class="ch-mark" viewBox="0 0 32 32" role="img" aria-label="context-harness mark" xmlns="http://www.w3.org/2000/svg">
+    <g fill="none" stroke="currentColor" stroke-width="0.8" opacity=".85">
+      <circle cx="16" cy="16" r="13"/>
+      <ellipse cx="16" cy="16" rx="13" ry="4.5"/>
+      <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(60 16 16)"/>
+      <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(-60 16 16)"/>
+    </g>
+    <g fill="currentColor">
+      <circle cx="3" cy="16" r="1.1"/>
+      <circle cx="29" cy="16" r="1.1"/>
+      <circle cx="9.5" cy="4.74" r="1.1"/>
+      <circle cx="22.5" cy="4.74" r="1.1"/>
+      <circle cx="9.5" cy="27.26" r="1.1"/>
+      <circle cx="22.5" cy="27.26" r="1.1"/>
+    </g>
+    <circle cx="16" cy="16" r="2.8" fill="#f59e0b">
+      <animate attributeName="r" values="2.8;3.4;2.8" dur="2.4s" repeatCount="indefinite"/>
+    </circle>
+    <circle r="1" fill="#a78bfa" opacity="0">
+      <animateMotion path="M3,16 L29,16" dur="2.4s" repeatCount="indefinite" begin="0s"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="0s"/>
+    </circle>
+    <circle r="1" fill="#a78bfa" opacity="0">
+      <animateMotion path="M9.5,4.74 L22.5,27.26" dur="2.4s" repeatCount="indefinite" begin="0.8s"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="0.8s"/>
+    </circle>
+    <circle r="1" fill="#a78bfa" opacity="0">
+      <animateMotion path="M22.5,4.74 L9.5,27.26" dur="2.4s" repeatCount="indefinite" begin="1.6s"/>
+      <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="1.6s"/>
+    </circle>
+  </svg>
+  <span class="ch-wordmark">context-harness</span>
+  <span class="ch-sep">/</span>
+  <span class="ch-stat"><span class="ch-stat-val" id="stat-nodes">—</span>&nbsp;nodes</span>
+  <span class="ch-stat"><span class="ch-stat-val" id="stat-obs">—</span>&nbsp;observations</span>
+  <span class="ch-spacer"></span>
+  <div class="ch-search-wrap">
+    <svg class="ch-search-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+    <input class="ch-search" type="search" id="search" placeholder="search nodes (semantic)…" autocomplete="off" aria-label="search nodes"/>
+    <span class="ch-kbd">/</span>
+  </div>
+</header>
 
-    <div id="status"></div>
-    <div id="results"></div>
+<main>
+  <div class="ch-listmeta" id="listmeta">
+    <span id="listmeta-text">read_graph</span>
+    <span class="ch-dot" aria-hidden="true"></span>
+    <span id="listmeta-count">—</span>
   </div>
 
-  <script>
-    (function () {
-      const input   = document.getElementById('search-input');
-      const status  = document.getElementById('status');
-      const results = document.getElementById('results');
+  <div class="ch-error-box" id="errorbox" hidden role="alert">
+    <span id="errortext">Server unreachable.</span>
+    <button type="button" id="errorretry">retry</button>
+  </div>
 
-      let debounceTimer = null;
+  <div class="ch-loading-row ch-state" id="loadingrow"><span class="ch-spinner"></span><span>fetching graph…</span></div>
 
-      function escapeHtml(s) {
-        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')
-                .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      }
+  <div class="ch-grid" id="grid" hidden></div>
 
-      function renderNodes(data) {
-        if (!data.nodes || data.nodes.length === 0) {
-          if (!data.query) {
-            results.innerHTML = '<div class="empty-state">' +
-              'No nodes yet.<br>' +
-              'Save knowledge via the MCP <code>create_nodes</code> tool to populate the graph.' +
-              '</div>';
-          } else {
-            results.innerHTML = '<div class="empty-state">No nodes matched your query.</div>';
+  <div class="ch-empty" id="empty" hidden>
+    <svg class="ch-empty-graph" width="180" height="180" viewBox="0 0 32 32" aria-hidden="true">
+      <g fill="none" stroke="currentColor" stroke-width="0.7" opacity=".7">
+        <circle cx="16" cy="16" r="13"/>
+        <ellipse cx="16" cy="16" rx="13" ry="4.5"/>
+        <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(60 16 16)"/>
+        <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(-60 16 16)"/>
+      </g>
+      <g fill="currentColor">
+        <circle cx="3" cy="16" r="1.1"/><circle cx="29" cy="16" r="1.1"/>
+        <circle cx="9.5" cy="4.74" r="1.1"/><circle cx="22.5" cy="4.74" r="1.1"/>
+        <circle cx="9.5" cy="27.26" r="1.1"/><circle cx="22.5" cy="27.26" r="1.1"/>
+      </g>
+      <circle cx="16" cy="16" r="2.8" fill="#f59e0b"/>
+      <circle cx="10" cy="16" r="0.9" fill="#a78bfa"/>
+      <circle cx="22" cy="16" r="0.9" fill="#a78bfa"/>
+    </svg>
+    <h2>No nodes yet</h2>
+    <p>call create_nodes from your client to populate the graph</p>
+  </div>
+</main>
+
+<footer>
+  context-harness · public read-only knowledge graph
+</footer>
+
+<script>
+(() => {
+  // ── config ──────────────────────────────────────────────────
+  // The viewer talks to its own /viewer/api/search endpoint instead of /mcp/
+  // directly because /mcp/ is gated by the auth middleware when MCP_AUTH=enabled
+  // and the viewer is a locked public read-only surface (decision in
+  // session-docs/v0.2.0-team-features/01-architecture.md). The search endpoint
+  // already exists as part of the viewer package and bypasses auth by design.
+  const SEARCH_API = '/viewer/api/search';
+  const SEARCH_DEBOUNCE_MS = 250;
+
+  // ── mock data fallback (used when server unreachable, for preview) ──
+  const MOCK_NODES = [
+    {
+      name:'AuthMiddleware', nodeType:'pattern',
+      observations:[
+        'JWT verified against Supabase JWKS endpoint, cached 1h.',
+        'Bearer is read from Authorization header — never from query.',
+        'On 401 we never leak whether the token was expired vs malformed.',
+        'Refresh tokens are not handled here — clients hit /auth/recover.'
+      ],
+      relations:[
+        {to:'BearerToken',  relationType:'uses'},
+        {to:'SupabaseAuth', relationType:'depends-on'}
+      ]
+    },
+    {
+      name:'BearerToken', nodeType:'concept',
+      observations:[
+        'Opaque 32-byte token, base64url-encoded, prefixed `ch_`.',
+        'Stored hashed (argon2id) — never round-trip the cleartext after issuance.'
+      ],
+      relations:[ {to:'AuthMiddleware', relationType:'consumed-by'} ]
+    },
+    {
+      name:'SupabaseAuth', nodeType:'integration',
+      observations:[
+        'External IdP. We treat it as plumbing — no branding surfaces in product.',
+        'Templates: invite, recovery. Magic-link only, no OTP.'
+      ],
+      relations:[]
+    },
+    {
+      name:'pgvector_HNSW_index', nodeType:'storage',
+      observations:[
+        'm=16, ef_construction=64 — defaults are good for <1M rows.',
+        'Cosine ops on 384-dim embeddings from all-MiniLM-L6-v2.',
+        'Rebuild required after >20% churn; currently manual via khctl reindex.'
+      ],
+      relations:[ {to:'EmbeddingPipeline', relationType:'fed-by'} ]
+    },
+    {
+      name:'EmbeddingPipeline', nodeType:'pipeline',
+      observations:[
+        'fastembed-go ONNX, runs in-process — no separate model server.',
+        'Cold-start ~1.2s; warm calls <40ms p99.',
+        'Batches of 32 max — beyond that we OOM on low-memory targets.'
+      ],
+      relations:[ {to:'pgvector_HNSW_index', relationType:'writes-to'} ]
+    },
+    {
+      name:'ContentFilter', nodeType:'pattern',
+      observations:[
+        'Three layers: size/junk denylist → secrets scan (gitleaks) → taxonomy check.',
+        'Reject is atomic — never partial writes.',
+        'Whole payload rejected if ANY observation trips secrets scan.'
+      ],
+      relations:[
+        {to:'AuthMiddleware', relationType:'runs-after'},
+        {to:'pgvector_HNSW_index', relationType:'gates'}
+      ]
+    },
+    {
+      name:'khctl_cli', nodeType:'tool',
+      observations:[
+        'Operator CLI in Go — admin ops outside MCP surface.',
+        'Subcommands: reindex, backup, invite, prune.'
+      ],
+      relations:[]
+    },
+    {
+      name:'StreamableHTTP_transport', nodeType:'protocol',
+      observations:[
+        'Per MCP spec — server may upgrade to SSE on long calls.',
+        'Viewer uses plain fetch + JSON-RPC body, no streaming needed.'
+      ],
+      relations:[ {to:'AuthMiddleware', relationType:'wraps'} ]
+    }
+  ];
+
+  // ── DOM refs ────────────────────────────────────────────────
+  const $search   = document.getElementById('search');
+  const $grid     = document.getElementById('grid');
+  const $empty    = document.getElementById('empty');
+  const $loading  = document.getElementById('loadingrow');
+  const $errorbox = document.getElementById('errorbox');
+  const $errortext= document.getElementById('errortext');
+  const $statN    = document.getElementById('stat-nodes');
+  const $statO    = document.getElementById('stat-obs');
+  const $meta     = document.getElementById('listmeta-text');
+  const $metaCt   = document.getElementById('listmeta-count');
+
+  let allNodes = [];
+  let mockMode = false;
+
+  // ── search API client ───────────────────────────────────────
+  // Calls the viewer's own /viewer/api/search?q=... endpoint and normalises
+  // the response shape into what the rest of this script expects (a flat
+  // array of nodes with `nodeType` camelCase + combined `relations`).
+  // Empty q lists all active nodes ordered by created_at DESC; non-empty q
+  // runs pgvector cosine search via the embedder.
+  async function searchAPI(query){
+    const url = SEARCH_API + (query ? '?q=' + encodeURIComponent(query) : '');
+    const r = await fetch(url, { headers: { 'Accept':'application/json' } });
+    if(!r.ok) throw new Error('search → ' + r.status);
+    const j = await r.json();
+    // Server returns { query, node_count, nodes: [{name, node_type, observations,
+    // relations_out, relations_in}] }. Normalise to the legacy shape this UI was
+    // built against (nodeType + relations: [{to, relationType}]).
+    return (j.nodes || []).map(n => ({
+      name: n.name,
+      nodeType: n.node_type,
+      observations: n.observations || [],
+      relations: [
+        ...(n.relations_out || []).map(r => ({ to: r.to, relationType: r.type })),
+        ...(n.relations_in  || []).map(r => ({ to: r.from, relationType: r.type + ' ← in' })),
+      ],
+    }));
+  }
+
+  // ── render ──────────────────────────────────────────────────
+  function render(nodes, opts={}){
+    $loading.hidden = true;
+    $grid.hidden = false;
+    $empty.hidden = nodes.length > 0;
+    if(nodes.length === 0){ $grid.hidden = true; return; }
+
+    $metaCt.textContent = nodes.length + (opts.search ? ' match' + (nodes.length===1?'':'es') : ' node' + (nodes.length===1?'':'s'));
+    $meta.textContent = opts.search ? `search_nodes("${opts.search}")` : 'read_graph';
+
+    $grid.innerHTML = '';
+    nodes.forEach((n, i) => $grid.appendChild(card(n, i, opts)));
+  }
+
+  function card(node, i, opts){
+    const c = document.createElement('button');
+    c.type = 'button'; c.className = 'ch-card ch-state';
+    c.style.animationDelay = Math.min(i*20, 200) + 'ms';
+    const obsCount = (node.observations||[]).length;
+    const previewText = (node.observations && node.observations[0]) || '—';
+    c.innerHTML = `
+      <div class="ch-card-head">
+        <span class="ch-card-name">${esc(node.name)}</span>
+        <span class="ch-badge">${esc(node.nodeType||'node')}</span>
+        <span class="ch-card-meta">
+          ${opts.search && typeof node._score === 'number' ? `<span class="ch-similarity">sim ${node._score.toFixed(2)}</span>` : ''}
+          <span>${obsCount} obs</span>
+        </span>
+      </div>
+      <div class="ch-card-preview">${esc(previewText)}</div>
+    `;
+    c.addEventListener('click', () => toggleExpand(c, node));
+    return c;
+  }
+
+  function toggleExpand(cardEl, node){
+    if(cardEl.classList.contains('open')){
+      const exp = cardEl.querySelector('.ch-expand');
+      if(exp) exp.remove();
+      cardEl.classList.remove('open');
+      return;
+    }
+    // close others
+    document.querySelectorAll('.ch-card.open').forEach(c => {
+      c.classList.remove('open');
+      const e = c.querySelector('.ch-expand'); if(e) e.remove();
+    });
+    cardEl.classList.add('open');
+    const exp = document.createElement('div');
+    exp.className = 'ch-expand';
+
+    const obs = node.observations || [];
+    const rels = node.relations || [];
+
+    exp.innerHTML = `
+      <p class="ch-section-label">observations · ${obs.length}</p>
+      <ul class="ch-obs-list">
+        ${obs.map(o => `<li>${esc(o)}</li>`).join('') || '<li style="color:var(--ch-fg-dim)">—</li>'}
+      </ul>
+      <p class="ch-section-label">relations · ${rels.length}</p>
+      ${rels.length ? `<ul class="ch-rel-list">${rels.map(r => `
+        <li><button class="ch-rel" data-target="${esc(r.to)}">
+          <span class="ch-rel-kind">${esc(r.relationType||'rel')}</span>
+          <span class="ch-rel-arrow">→</span>
+          <span>${esc(r.to)}</span>
+        </button></li>`).join('')}</ul>` : `<p style="color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:12px;margin:0">—</p>`}
+    `;
+    cardEl.appendChild(exp);
+    exp.querySelectorAll('.ch-rel').forEach(b => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const target = b.dataset.target;
+        const t = allNodes.find(n => n.name === target);
+        if(t){
+          // find rendered card for target, scroll + open
+          const cards = [...$grid.querySelectorAll('.ch-card')];
+          const idx = allNodes.indexOf(t);
+          const tc = cards[idx];
+          if(tc){
+            window.scrollTo({ top: tc.offsetTop - 80, behavior:'smooth' });
+            if(!tc.classList.contains('open')) toggleExpand(tc, t);
           }
-          return;
         }
-
-        const count = data.node_count;
-        const label = data.query
-          ? count + ' result' + (count !== 1 ? 's' : '') + ' for “' + escapeHtml(data.query) + '”'
-          : count + ' node' + (count !== 1 ? 's' : '');
-
-        status.textContent = label;
-
-        const cards = data.nodes.map(function (node) {
-          const obItems = (node.observations || []).map(function (o) {
-            return '<li>' + escapeHtml(o) + '</li>';
-          }).join('');
-
-          const outTags = (node.relations_out || []).map(function (r) {
-            return '<span class="rel-tag rel-out">→ ' +
-              escapeHtml(r.to) + ' <span style="opacity:.7">(' + escapeHtml(r.type) + ')</span>' +
-              '</span>';
-          }).join('');
-
-          const inTags = (node.relations_in || []).map(function (r) {
-            return '<span class="rel-tag rel-in">← ' +
-              escapeHtml(r.from) + ' <span style="opacity:.7">(' + escapeHtml(r.type) + ')</span>' +
-              '</span>';
-          }).join('');
-
-          const relSection = (outTags || inTags)
-            ? '<div class="relations">' + outTags + inTags + '</div>'
-            : '';
-
-          return '<div class="node-card">' +
-            '<div class="node-header">' +
-              '<span class="node-name">' + escapeHtml(node.name) + '</span>' +
-              '<span class="node-type">' + escapeHtml(node.node_type) + '</span>' +
-            '</div>' +
-            '<ul class="obs-list">' + obItems + '</ul>' +
-            relSection +
-            '</div>';
-        }).join('');
-
-        results.innerHTML = '<div class="node-list">' + cards + '</div>';
-      }
-
-      function showLoading() {
-        status.innerHTML = '<span class="spinner"></span>Searching…';
-        results.innerHTML = '';
-      }
-
-      function showError(msg) {
-        status.textContent = '';
-        results.innerHTML = '<div class="error-msg">' + escapeHtml(msg) + '</div>';
-      }
-
-      function fetch_search(q) {
-        showLoading();
-        var url = '/viewer/api/search' + (q ? '?q=' + encodeURIComponent(q) : '');
-        fetch(url)
-          .then(function (res) {
-            if (!res.ok) {
-              return res.json().then(function (e) {
-                throw new Error(e.error || 'HTTP ' + res.status);
-              });
-            }
-            return res.json();
-          })
-          .then(function (data) {
-            status.textContent = '';
-            renderNodes(data);
-          })
-          .catch(function (err) {
-            showError('Error: ' + err.message);
-          });
-      }
-
-      input.addEventListener('input', function () {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(function () {
-          fetch_search(input.value.trim());
-        }, 250);
       });
+    });
+  }
 
-      // Initial load — list all nodes.
-      fetch_search('');
-    })();
-  </script>
+  function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  function updateStats(nodes){
+    $statN.textContent = nodes.length;
+    $statO.textContent = nodes.reduce((a,n) => a + (n.observations||[]).length, 0);
+  }
+
+  // ── load ────────────────────────────────────────────────────
+  async function load(){
+    $errorbox.hidden = true; $loading.hidden = false; $grid.hidden = true; $empty.hidden = true;
+    try{
+      const nodes = await searchAPI('');   // empty q → list all active nodes
+      allNodes = nodes;
+      updateStats(allNodes);
+      render(allNodes);
+    } catch(err){
+      // fall back to mock for static preview when the server is unreachable
+      mockMode = true;
+      allNodes = MOCK_NODES;
+      updateStats(allNodes);
+      render(allNodes);
+      showError(err.message + ' — showing local sample.');
+    }
+  }
+
+  function showError(msg){
+    $errortext.textContent = msg || 'Server unreachable.';
+    $errorbox.hidden = false;
+  }
+  document.getElementById('errorretry').addEventListener('click', load);
+
+  // ── search ──────────────────────────────────────────────────
+  let searchTimer = null;
+  $search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runSearch, SEARCH_DEBOUNCE_MS);
+  });
+  $search.addEventListener('search', runSearch); // clear button
+
+  async function runSearch(){
+    const q = $search.value.trim();
+    if(!q){ render(allNodes); return; }
+
+    if(mockMode){
+      // mock semantic-ish: substring + simple score
+      const ql = q.toLowerCase();
+      const hits = allNodes
+        .map(n => {
+          const hay = (n.name+' '+n.nodeType+' '+(n.observations||[]).join(' ')).toLowerCase();
+          const i = hay.indexOf(ql);
+          if(i < 0) return null;
+          const score = 1 - Math.min(i, 200)/220 - (hay.length - ql.length)/100000;
+          return { ...n, _score: Math.max(0.3, Math.min(0.99, score)) };
+        })
+        .filter(Boolean)
+        .sort((a,b) => b._score - a._score);
+      render(hits, { search: q });
+      return;
+    }
+    try{
+      const nodes = await searchAPI(q);
+      render(nodes, { search: q });
+    } catch(err){
+      showError(err.message);
+    }
+  }
+
+  // ── '/' to focus search ─────────────────────────────────────
+  window.addEventListener('keydown', (e) => {
+    if(e.key === '/' && document.activeElement !== $search && !e.metaKey && !e.ctrlKey){
+      e.preventDefault(); $search.focus();
+    }
+    if(e.key === 'Escape' && document.activeElement === $search){
+      $search.value = ''; render(allNodes);
+    }
+  });
+
+  load();
+})();
+</script>
 </body>
 </html>

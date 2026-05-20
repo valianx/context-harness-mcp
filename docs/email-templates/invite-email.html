@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="x-apple-disable-message-reformatting"/>
+<meta name="color-scheme" content="light dark"/>
+<meta name="supported-color-schemes" content="light dark"/>
+<title>You've been invited to a shared memory</title>
+<!--[if mso]>
+<style>* { font-family: Arial, sans-serif !important; }</style>
+<![endif]-->
+<style>
+  /* dark-mode capable clients */
+  @media (prefers-color-scheme: dark) {
+    body, .ch-page { background:#0a0a0d !important; }
+    .ch-card { background:#14141a !important; border-color:#1f1f27 !important; }
+    .ch-title { color:#e6e6ea !important; }
+    .ch-body  { color:#c8c8d0 !important; }
+    .ch-mute  { color:#8a8a96 !important; }
+    .ch-dim   { color:#56565f !important; }
+    .ch-mark-text { color:#e6e6ea !important; }
+    .ch-divider { border-color:#1f1f27 !important; }
+  }
+  /* mobile stack */
+  @media only screen and (max-width: 620px) {
+    .ch-shell { width:100% !important; }
+    .ch-pad   { padding-left:24px !important; padding-right:24px !important; }
+    .ch-title { font-size:24px !important; line-height:1.25 !important; }
+  }
+</style>
+</head>
+<body class="ch-page" style="margin:0;padding:0;background:#f2f2f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+
+<!-- preheader (hidden) -->
+<div style="display:none;font-size:1px;color:transparent;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
+  Set up your access in 30 seconds.
+</div>
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f2f2f4;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+
+      <!-- shell -->
+      <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" class="ch-shell" style="width:600px;max-width:600px;">
+
+        <!-- header / mark -->
+        <tr>
+          <td align="left" class="ch-pad" style="padding:0 32px 24px;">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td valign="middle" style="padding-right:10px;line-height:0;">
+                  <!-- node-graph mark, static for email clients -->
+                  <svg width="44" height="44" viewBox="0 0 32 32" role="img" aria-label="context-harness mark" xmlns="http://www.w3.org/2000/svg">
+                    <g fill="none" stroke="#56565f" stroke-width="0.8" opacity=".85">
+                      <circle cx="16" cy="16" r="13"/>
+                      <ellipse cx="16" cy="16" rx="13" ry="4.5"/>
+                      <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(60 16 16)"/>
+                      <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(-60 16 16)"/>
+                    </g>
+                    <g fill="#56565f">
+                      <circle cx="3" cy="16" r="1.1"/>
+                      <circle cx="29" cy="16" r="1.1"/>
+                      <circle cx="9.5" cy="4.74" r="1.1"/>
+                      <circle cx="22.5" cy="4.74" r="1.1"/>
+                      <circle cx="9.5" cy="27.26" r="1.1"/>
+                      <circle cx="22.5" cy="27.26" r="1.1"/>
+                    </g>
+                    <circle cx="16" cy="16" r="2.8" fill="#f59e0b"/>
+                    <circle cx="10" cy="16" r="0.9" fill="#a78bfa"/>
+                    <circle cx="22" cy="16" r="0.9" fill="#a78bfa"/>
+                  </svg>
+                </td>
+                <td valign="middle" class="ch-mark-text" style="font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:13px;color:#56565f;letter-spacing:.02em;">
+                  context-harness
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- card -->
+        <tr>
+          <td>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="ch-card" style="background:#ffffff;border:1px solid #e5e5e8;border-radius:10px;">
+
+              <tr>
+                <td class="ch-pad" style="padding:40px 40px 8px;">
+                  <h1 class="ch-title" style="margin:0 0 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:26px;line-height:1.25;font-weight:500;color:#0a0a0d;letter-spacing:-0.01em;">
+                    You've been invited to a shared memory.
+                  </h1>
+                </td>
+              </tr>
+
+              <tr>
+                <td class="ch-pad" style="padding:0 40px 28px;">
+                  <p class="ch-body" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#3a3a44;">
+                    You've been granted access to a shared knowledge graph for your team's AI agents. Click below to finish setup.
+                  </p>
+                </td>
+              </tr>
+
+              <!-- CTA -->
+              <tr>
+                <td class="ch-pad" style="padding:0 40px 32px;">
+                  <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                      <td align="center" style="background:#f59e0b;border-radius:6px;">
+                        <a href="{{ .ConfirmationURL }}" target="_blank"
+                           style="display:inline-block;padding:12px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#0a0a0d;text-decoration:none;border-radius:6px;letter-spacing:.01em;">
+                          Set up access&nbsp;→
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+
+              <!-- raw URL fallback -->
+              <tr>
+                <td class="ch-pad" style="padding:0 40px 32px;">
+                  <p class="ch-mute" style="margin:0 0 6px;font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:11px;color:#8a8a96;letter-spacing:.08em;text-transform:uppercase;">
+                    or paste this url
+                  </p>
+                  <p style="margin:0;font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:12px;line-height:1.55;color:#8a8a96;word-break:break-all;">
+                    <a href="{{ .ConfirmationURL }}" target="_blank" style="color:#8a8a96;text-decoration:underline;">{{ .ConfirmationURL }}</a>
+                  </p>
+                </td>
+              </tr>
+
+              <!-- divider -->
+              <tr>
+                <td class="ch-pad" style="padding:0 40px;">
+                  <div class="ch-divider" style="height:1px;background:#e5e5e8;line-height:1px;font-size:1px;">&nbsp;</div>
+                </td>
+              </tr>
+
+              <!-- footer line -->
+              <tr>
+                <td class="ch-pad" style="padding:20px 40px 32px;">
+                  <p class="ch-dim" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#8a8a96;">
+                    Didn't expect this? Ignore it — the link expires in 24h.
+                  </p>
+                </td>
+              </tr>
+
+            </table>
+          </td>
+        </tr>
+
+        <!-- outside footer: recipient + wordmark -->
+        <tr>
+          <td class="ch-pad" align="left" style="padding:18px 32px 8px;">
+            <p class="ch-dim" style="margin:0;font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:11px;color:#8a8a96;letter-spacing:.04em;">
+              sent to {{ .Email }} · context-harness
+            </p>
+          </td>
+        </tr>
+
+      </table>
+
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>
