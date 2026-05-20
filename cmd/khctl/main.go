@@ -35,6 +35,10 @@ func main() {
 		importCmd(args)
 	case "sync-users":
 		syncUsersCmd(args)
+	case "backup":
+		backupCmd(args)
+	case "restore":
+		restoreCmd(args)
 	case "help", "--help", "-h":
 		printUsage()
 		os.Exit(0)
@@ -65,6 +69,14 @@ Subcommands:
   sync-users [--dsn URL]                        Reconcile public.users against Supabase Admin API.
              [--supabase-service-role-key KEY]  Defaults to $SUPABASE_SERVICE_ROLE_KEY.
              [--supabase-project-url URL]       Defaults to $SUPABASE_PROJECT_URL.
+  backup     [--dsn URL] --out PATH             Stream pg_dump custom-format archive to PATH.
+             [--compress N]                     Compression level 0-9 (default 9).
+  restore    FILE [--dsn URL] [--clean] [--yes] Restore pg_dump custom-format archive (created by 'khctl backup').
+                                                --clean drops existing schema first (destructive). --yes skips
+                                                the interactive confirmation prompt required with --clean.
+
+Both 'backup' and 'restore' require the 'pg_dump' / 'pg_restore' binaries
+on PATH (debian package: postgresql-client).
 
 Flags (shared):
   --dsn URL   Postgres DSN. Defaults to $DATABASE_URL (falls back to $SUPABASE_DB_URL for one release).
