@@ -212,6 +212,11 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	// a webhook event immediately invalidates the cached revocation state,
 	// reducing effective revocation latency from 1h (TTL) to ~1s.
 	web.RegisterWebhook(mux, pool, revocationCache)
+	// Landing page at GET / — fully static, presents both products in the
+	// agent stack (claude-dev-team + context-harness-mcp). Registered LAST so
+	// it doesn't shadow any earlier exact route; mux's longest-prefix match
+	// means /mcp, /auth/*, /healthz, /viewer/* are all hit before "/".
+	web.RegisterLanding(mux)
 
 	// /mcp is wrapped by auth.Middleware — when ModeNone it's a no-op pass-through.
 	// Ordering: auth.Middleware → httpServer (MCP handler → Content Filter → DB write).

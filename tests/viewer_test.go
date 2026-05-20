@@ -32,8 +32,14 @@ func TestViewerIndex(t *testing.T) {
 		"GET /viewer/ must return 200")
 	assert.Contains(t, resp.Header.Get("Content-Type"), "text/html",
 		"Content-Type must be text/html")
-	assert.Contains(t, w.Body.String(), "Context Harness MCP",
-		"body must contain the page title")
+	// The new design uses "context-harness" lowercase as the wordmark
+	// (see internal/viewer/templates/index.html). The previous design's
+	// "Context Harness MCP" title was retired in the agent-sphere refactor.
+	body := w.Body.String()
+	assert.Contains(t, body, "context-harness",
+		"body must contain the wordmark")
+	assert.Contains(t, body, "knowledge graph",
+		"body must reference the product purpose")
 }
 
 // ── TestViewerSearchAPI_Empty ─────────────────────────────────────────────────

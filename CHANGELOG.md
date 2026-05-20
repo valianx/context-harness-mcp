@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `internal/web/landing.go` + `internal/web/static/landing.html` — new landing page served at `GET /`. Presents the two-product agent stack (`claude-dev-team` + `context-harness-mcp`) with equal billing: dual GitHub CTAs, dual nav links, install line pointing at `./bin/install.sh`. Uses the `agent-sphere` motif (wireframe sphere + amber hub + violet signal pulses across diametral chords). Same vanilla HTML/CSS/JS stack as the other static surfaces; no framework, no CDN deps. Registered last on the mux so it doesn't shadow `/mcp/`, `/auth/*`, `/healthz`, `/viewer/*`; non-`/` paths under `/` fall through to 404.
+- `docs/email-templates/invite-email.html` + `docs/email-templates/recovery-email.html` — email templates for the operator to paste into the identity provider's email-template dashboard. Table-based layout, inline CSS only, `prefers-color-scheme: dark` media query, inline SVG mark (no remote images). Uses the IdP's `{{ .ConfirmationURL }}` / `{{ .Email }}` / `{{ .SiteURL }}` placeholders.
+- `docs/design-system.md` — design spec covering palette, typography, the `agent-sphere` motif, and the 8 reusable components (`ch-mark`, `ch-btn-primary`/`-secondary`, `ch-input`, `ch-code`, `ch-card`, `ch-badge`, `ch-toast`, state classes). Reference for future surfaces.
+
+### Changed
+
+- `internal/web/static/callback.html` + `internal/web/static/login.html` — refactored to the `agent-sphere` design system (same template variables preserved: `{{.SupabaseProjectURL}}`, `{{.SupabaseAnonKey}}`, `{{.MCPPublicURL}}`). New visual identity, same behavior contract. Inline SVG mark + starfield background, amber accent + violet signals, JetBrains Mono for code snippets.
+- `internal/viewer/templates/index.html` — full visual refactor to the agent-sphere design. JS rewired to call the existing `/viewer/api/search` endpoint (unauthenticated) instead of `/mcp/` directly; `/mcp/` requires auth when `MCP_AUTH=enabled` and the viewer is locked public read-only per the v0.2.0 architecture. Response shape mapping (`node_type` → `nodeType`, `relations_out`/`relations_in` → unified `relations`) lives in `searchAPI()`.
+- `tests/viewer_test.go` `TestViewerIndex` — assertion updated to match the new wordmark ("context-harness" lowercase + "knowledge graph") since the old "Context Harness MCP" title was retired in the design refactor.
+- `cmd/server/main.go` — registers `web.RegisterLanding(mux)` for `GET /` after the other unauthenticated routes.
+
 ### Changed
 
 - **SOFT-BREAKING: `GET /healthz` HTTP behavior change** (`cmd/server/main.go` + `internal/healthz/healthz.go`) — the endpoint now returns **HTTP 200** when all checks pass and **HTTP 503** when any check fails (degraded), replacing the previous always-200 response. The body shape changes from `{"status":"ok","db":"not-configured"}` to `{"checks":[...],"degraded":bool}`, matching the new `doctor` MCP tool. Container hosts (Railway, Render, Fly, Docker compose) automatically benefit from the 503 signal to mark the container unhealthy. Operators who currently rely on the always-200 response or parse the `status`/`db` fields must update their healthcheck to use the HTTP status code and the new body shape.
