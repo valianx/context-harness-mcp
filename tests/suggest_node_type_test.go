@@ -67,7 +67,7 @@ type suggestResponse struct {
 //
 // ONNX-gated: embeddings are required for both seeding and ranking.
 func TestSuggestNodeType_HappyPath(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 
 	// Seed 2 pattern nodes with auth-related observations.
@@ -212,7 +212,7 @@ func TestSuggestNodeType_BadProject(t *testing.T) {
 //
 // ONNX-gated: embeddings are required for both seeding and ranking.
 func TestSuggestNodeType_ProjectFilter(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 
 	// Project "auth-proj": pattern nodes about authentication.
