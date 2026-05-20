@@ -1,9 +1,10 @@
 // Package viewer serves a public single-page web UI for browsing the knowledge
-// graph. It registers three routes on the caller's mux:
+// graph. It registers four routes on the caller's mux:
 //
-//   - GET /viewer/          — serves the embedded HTML page
-//   - GET /viewer/api/search — returns JSON (node list or semantic search results)
-//   - GET /viewer/api/projects — returns the list of distinct project IDs
+//   - GET /viewer/              — serves the embedded HTML page
+//   - GET /viewer/api/search    — returns JSON (node list or semantic search results)
+//   - GET /viewer/api/projects  — returns the list of distinct project IDs
+//   - GET /viewer/api/node-types — returns the static list of valid node types
 //
 // Access is intentionally unauthenticated — same exposure level as the MCP read
 // tools (search_nodes, read_graph). User chose Option A (public, no auth) in the
@@ -25,13 +26,14 @@ import (
 
 	embedpkg "github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
+	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 )
 
 //go:embed templates/*
 var templateFS embed.FS
 
-// Register adds the /viewer/, /viewer/api/search, and /viewer/api/projects
-// routes to mux. pool must be non-nil — both handlers require DB access.
+// Register adds the viewer routes to mux. pool must be non-nil — the search
+// and projects handlers require DB access. The node-types handler is static.
 func Register(mux *http.ServeMux, pool *pgxpool.Pool) {
 	h := &handler{pool: pool}
 	h.initTemplates()
@@ -39,6 +41,7 @@ func Register(mux *http.ServeMux, pool *pgxpool.Pool) {
 	mux.HandleFunc("/viewer/", h.handleIndex)
 	mux.HandleFunc("/viewer/api/search", h.handleSearchAPI)
 	mux.HandleFunc("/viewer/api/projects", h.handleProjectsAPI)
+	mux.HandleFunc("/viewer/api/node-types", h.handleNodeTypesAPI)
 }
 
 // handler holds shared state for the viewer routes.
@@ -78,47 +81,44 @@ type searchResponse struct {
 
 // nodeView is the per-node JSON shape served to the browser.
 type nodeView struct {
-	Name         string        `json:"name"`
-	NodeType     string        `json:"node_type"`
-	ProjectID    string        `json:"project_id"`
-	Observations []string      `json:"observations"`
-	RelationsOut []relationOut `json:"relations_out"`
-	RelationsIn  []relationIn  `json:"relations_in"`
+	Name         string         `json:"name"`
+	NodeType     string         `json:"node_type"`
+	ProjectID    string         `json:"project_id"`
+	Observations []string       `json:"observations"`
+	Relations    []relationView `json:"relations"`
 }
 
-type relationOut struct {
-	To   string `json:"to"`
-	Type string `json:"type"`
-}
-
-type relationIn struct {
-	From string `json:"from"`
-	Type string `json:"type"`
+// relationView is a single directed edge with both endpoint names resolved.
+type relationView struct {
+	FromName     string `json:"from_name"`
+	ToName       string `json:"to_name"`
+	RelationType string `json:"relation_type"`
 }
 
 const searchLimit = 50
 
-// handleSearchAPI handles GET /viewer/api/search?q=...&project=...
+// handleSearchAPI handles GET /viewer/api/search?q=...&project=...&nodeType=...
 // Empty or missing q → list all active nodes ordered by created_at DESC.
 // Non-empty q → semantic search via pgvector cosine, limit 50.
-// Optional project= filters by project.
+// Optional project= filters by project. Optional nodeType= filters by node type.
 func (h *handler) handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	project := r.URL.Query().Get("project")
-	ctx := r.Context()
+	query    := strings.TrimSpace(r.URL.Query().Get("q"))
+	project  := r.URL.Query().Get("project")
+	nodeType := r.URL.Query().Get("nodeType")
+	ctx      := r.Context()
 
 	var nodeRows []store.NodeRow
 	var err error
 
 	if query == "" {
-		nodeRows, err = listAllDesc(ctx, h.pool, project)
+		nodeRows, err = listAllDesc(ctx, h.pool, project, nodeType)
 	} else {
-		nodeRows, err = searchByCosine(ctx, h.pool, query, project)
+		nodeRows, err = searchByCosine(ctx, h.pool, query, project, nodeType)
 	}
 
 	if err != nil {
@@ -225,20 +225,41 @@ func fetchDistinctProjects(ctx context.Context, pool *pgxpool.Pool) ([]string, e
 	return result, nil
 }
 
+// ── /viewer/api/node-types ────────────────────────────────────────────────────
+
+// nodeTypesResponse is the JSON shape returned by /viewer/api/node-types.
+type nodeTypesResponse struct {
+	NodeTypes []string `json:"nodeTypes"`
+}
+
+// handleNodeTypesAPI handles GET /viewer/api/node-types. Returns the static
+// sorted list of valid node_type values. No DB access required — the list is
+// derived from the validate package's taxonomy table.
+func (h *handler) handleNodeTypesAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, nodeTypesResponse{NodeTypes: validate.SortedNodeTypes()})
+}
+
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
 // listAllDesc returns up to searchLimit active nodes ordered by creation time
 // (newest first). Unlike store.ListActive which orders by name, this gives the
-// viewer a "most recently added" default view. Optional project filters by project.
-func listAllDesc(ctx context.Context, pool *pgxpool.Pool, project string) ([]store.NodeRow, error) {
+// viewer a "most recently added" default view. Optional project and nodeType
+// params filter the result set; empty string means no filter.
+func listAllDesc(ctx context.Context, pool *pgxpool.Pool, project, nodeType string) ([]store.NodeRow, error) {
 	rows, err := pool.Query(ctx,
 		`SELECT id, name, node_type, project_id
 		 FROM nodes
 		 WHERE deleted_at IS NULL
 		   AND ($2::text = '' OR project_id = $2)
+		   AND ($3::text = '' OR node_type  = $3)
 		 ORDER BY created_at DESC
 		 LIMIT $1`,
-		searchLimit, project,
+		searchLimit, project, nodeType,
 	)
 	if err != nil {
 		return nil, err
@@ -258,8 +279,8 @@ func listAllDesc(ctx context.Context, pool *pgxpool.Pool, project string) ([]sto
 
 // searchByCosine embeds query and returns up to searchLimit active nodes ranked
 // by minimum cosine distance of their observation embeddings. Optional project
-// filters results to a specific project.
-func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project string) ([]store.NodeRow, error) {
+// and nodeType params filter results; empty string means no filter.
+func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project, nodeType string) ([]store.NodeRow, error) {
 	vecs, err := embedpkg.Default().Encode(ctx, []string{query})
 	if err != nil {
 		return nil, err
@@ -274,12 +295,14 @@ func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project stri
 		   AND o.deleted_at IS NULL
 		   AND o.embedding IS NOT NULL
 		   AND ($3::text = '' OR n.project_id = $3)
+		   AND ($4::text = '' OR n.node_type  = $4)
 		 GROUP BY n.id, n.name, n.node_type, n.project_id
 		 ORDER BY MIN(o.embedding <=> $1::vector) ASC
 		 LIMIT $2`,
 		queryVec,
 		searchLimit,
 		project,
+		nodeType,
 	)
 	if err != nil {
 		return nil, err
@@ -298,7 +321,8 @@ func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project stri
 }
 
 // buildNodeViews enriches node rows with their observations and relations,
-// transforming them into the viewer-specific JSON shape.
+// transforming them into the viewer-specific JSON shape. Relations are fetched
+// in a single batch query (no N+1) for all nodes that touch the result set.
 func buildNodeViews(ctx context.Context, pool *pgxpool.Pool, nodeRows []store.NodeRow) ([]nodeView, error) {
 	if len(nodeRows) == 0 {
 		return []nodeView{}, nil
@@ -314,10 +338,16 @@ func buildNodeViews(ctx context.Context, pool *pgxpool.Pool, nodeRows []store.No
 		return nil, err
 	}
 
-	allRelations, err := store.ListActiveRelations(ctx, pool)
+	// Single batch query: all active relations where at least one endpoint is
+	// in the result set. Avoids fetching the entire relations table when the
+	// graph is large while still showing cross-result-set edges (e.g. a node
+	// in the result that supersedes a node not in the result).
+	relRows, err := store.RelationsForNodeIDs(ctx, pool, ids)
 	if err != nil {
 		return nil, err
 	}
+
+	relViews := toRelationViews(relRows)
 
 	views := make([]nodeView, len(nodeRows))
 	for i, r := range nodeRows {
@@ -326,44 +356,44 @@ func buildNodeViews(ctx context.Context, pool *pgxpool.Pool, nodeRows []store.No
 			obs = []string{}
 		}
 
-		out, in := partitionRelations(allRelations, r.Name)
-
 		views[i] = nodeView{
 			Name:         r.Name,
 			NodeType:     r.NodeType,
 			ProjectID:    r.ProjectID,
 			Observations: obs,
-			RelationsOut: out,
-			RelationsIn:  in,
+			Relations:    relationsForNode(relViews, r.Name),
 		}
 	}
 
 	return views, nil
 }
 
-// partitionRelations splits active relations into outbound and inbound slices
-// for the given node name. Relations where neither endpoint matches are skipped.
-func partitionRelations(relations []store.RelationRow, nodeName string) ([]relationOut, []relationIn) {
-	var out []relationOut
-	var in []relationIn
-
-	for _, rel := range relations {
-		switch {
-		case rel.From == nodeName:
-			out = append(out, relationOut{To: rel.To, Type: rel.RelationType})
-		case rel.To == nodeName:
-			in = append(in, relationIn{From: rel.From, Type: rel.RelationType})
+// toRelationViews converts store rows to the viewer wire shape.
+func toRelationViews(rows []store.RelationRow) []relationView {
+	views := make([]relationView, len(rows))
+	for i, r := range rows {
+		views[i] = relationView{
+			FromName:     r.From,
+			ToName:       r.To,
+			RelationType: r.RelationType,
 		}
 	}
+	return views
+}
 
-	if out == nil {
-		out = []relationOut{}
+// relationsForNode filters the pre-fetched relation slice to only those that
+// touch the given node name (either as source or target).
+func relationsForNode(all []relationView, nodeName string) []relationView {
+	var result []relationView
+	for _, rv := range all {
+		if rv.FromName == nodeName || rv.ToName == nodeName {
+			result = append(result, rv)
+		}
 	}
-	if in == nil {
-		in = []relationIn{}
+	if result == nil {
+		return []relationView{}
 	}
-
-	return out, in
+	return result
 }
 
 // ── response helpers ──────────────────────────────────────────────────────────

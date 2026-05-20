@@ -15,7 +15,7 @@ const (
 	serverVersion = "0.1.0"
 )
 
-// New returns a configured *server.MCPServer with all 12 MCP tools registered.
+// New returns a configured *server.MCPServer with all 13 MCP tools registered.
 // pool must be non-nil — the server requires DB access for all write and read
 // tool handlers. limiter enforces per-IP write-tool rate limits; pass a non-nil
 // *ratelimit.Limiter for HTTP deployments.
@@ -26,6 +26,7 @@ func New(pool *pgxpool.Pool, limiter *ratelimit.Limiter) *server.MCPServer {
 	RegisterRelations(s, pool, limiter)
 	RegisterQuery(s, pool)
 	RegisterConflicts(s, pool, limiter)
+	RegisterSuggestNodeType(s, pool)
 	return s
 }
 
@@ -40,5 +41,5 @@ func RegisterDoctor(s *server.MCPServer, pool *pgxpool.Pool) {
 		"doctor",
 		mcplib.WithDescription("Runs deep operational health probes (db, pgvector, embedder, gitleaks, row counts) and returns a structured report. Always returns IsError:false — read the 'degraded' field in the body."),
 	)
-	s.AddTool(tool, healthz.Handler(pool))
+	s.AddTool(tool, instrumentTool("doctor", healthz.Handler(pool)))
 }

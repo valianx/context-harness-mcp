@@ -25,7 +25,7 @@ func RegisterRelations(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelim
 			mcplib.WithDescription("Create directed relations between nodes. Each relation needs from, to, and relationType. Cross-project relations are rejected."),
 			mcplib.WithArray("relations", mcplib.Required()),
 		),
-		createRelationsHandler(pool, limiter),
+		instrumentTool("create_relations", createRelationsHandler(pool, limiter)),
 	)
 }
 
