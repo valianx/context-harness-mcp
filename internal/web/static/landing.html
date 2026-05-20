@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>agent stack — claude-dev-team + context-harness-mcp</title>
+<title>agent stack — Claude Dev Team + Context Harness MCP</title>
 <style>
   :root{
     --ch-bg:#0a0a0d; --ch-bg-panel:#14141a; --ch-bg-code:#050507;
@@ -83,15 +83,15 @@
   .ch-code-copy svg{width:13px;height:13px}
 
   /* ── features ─────────────────────────────── */
-  .ch-features{max-width:1200px;margin:0 auto;padding:0 28px 96px;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--ch-border);border:1px solid var(--ch-border);border-radius:10px;overflow:hidden}
-  .ch-feature{background:var(--ch-bg);padding:32px 26px}
-  .ch-feature-h{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-  .ch-feature-glyph{width:24px;height:24px;color:var(--ch-fg-mute);display:block}
+  .ch-features{max-width:1200px;margin:0 auto 56px;padding:0 28px;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--ch-border);border:1px solid var(--ch-border);border-radius:10px;overflow:hidden}
+  .ch-feature{background:var(--ch-bg);padding:36px 28px;display:flex;flex-direction:column;gap:14px;min-height:200px}
+  .ch-feature-h{display:flex;align-items:center;gap:12px;margin:0}
+  .ch-feature-glyph{width:26px;height:26px;color:var(--ch-fg-mute);display:block;flex-shrink:0}
   .ch-feature-glyph .hub{fill:var(--ch-accent)}
   .ch-feature-glyph .net{fill:none;stroke:currentColor;stroke-width:.8}
   .ch-feature-glyph .sat{fill:currentColor}
-  .ch-feature h3{font-size:15px;font-weight:500;margin:0;letter-spacing:-.005em}
-  .ch-feature p{margin:0;color:var(--ch-fg-mute);font-size:13.5px;line-height:1.6}
+  .ch-feature h3{font-size:15px;font-weight:500;margin:0;letter-spacing:-.005em;line-height:1.2}
+  .ch-feature p{margin:0;color:var(--ch-fg-mute);font-size:13.5px;line-height:1.65}
   .ch-feature code{font-family:var(--ch-mono);font-size:12px;color:var(--ch-fg);background:var(--ch-bg-code);padding:1px 5px;border-radius:3px;border:1px solid var(--ch-border)}
 
   /* ── footer ───────────────────────────────── */
@@ -185,8 +185,8 @@
       <span class="ch-wordmark">context-harness</span>
     </a>
     <nav class="ch-nav" aria-label="primary">
-      <a href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">claude-dev-team</a>
-      <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">context-harness-mcp</a>
+      <a href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">Claude Dev Team</a>
+      <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">Context Harness MCP</a>
       <a href="/viewer">Viewer</a>
       <a class="ch-nav-cta" href="/auth/login">Sign in →</a>
     </nav>
@@ -201,16 +201,16 @@
       <span class="ch-eyebrow"><span class="ch-eyebrow-dot"></span>open source · two-product agent stack</span>
       <h1 class="ch-h1">Persistent memory<br/>for your team's <em>agents</em>.</h1>
       <p class="ch-sub">
-        <strong>claude-dev-team</strong> orchestrates a specialized subagent pipeline for the full dev lifecycle &mdash; architect, implementer, tester, qa, security, delivery. <strong>context-harness-mcp</strong> is their shared memory: a Postgres + pgvector knowledge graph with semantic search and a three-layer write filter. Two products, one stack, fully open source.
+        <strong>Claude Dev Team</strong> orchestrates a specialized subagent pipeline for the full dev lifecycle &mdash; architect, implementer, tester, qa, security, delivery. <strong>Context Harness MCP</strong> is their shared memory: a Postgres + pgvector knowledge graph with semantic search and a three-layer write filter. Two products, one stack, fully open source.
       </p>
       <div class="ch-cta-row">
         <a class="ch-btn ch-btn-primary" href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">
           <svg class="gh" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.08-2.7-1.08-.36-.92-.89-1.16-.89-1.16-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.71 1.23 1.87.88 2.33.67.07-.52.28-.88.5-1.08-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          claude-dev-team
+          Claude Dev Team
         </a>
         <a class="ch-btn ch-btn-secondary" href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">
           <svg class="gh" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.08-2.7-1.08-.36-.92-.89-1.16-.89-1.16-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.71 1.23 1.87.88 2.33.67.07-.52.28-.88.5-1.08-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          context-harness-mcp
+          Context Harness MCP
         </a>
       </div>
       <p class="ch-compat">Install one, get both &middot; <code>./bin/install.sh</code></p>
@@ -321,7 +321,7 @@
     <div>
       <p class="step">01 · wire it</p>
       <h2>Three lines in <code style="font-family:var(--ch-mono);font-size:.85em;background:var(--ch-bg-code);padding:2px 7px;border-radius:4px;border:1px solid var(--ch-border);">~/.claude.json</code></h2>
-      <p>The <strong>claude-dev-team</strong> installer drops the snippet for you. Point Claude Code at your shared MCP and every agent on your team starts reading from the same memory.</p>
+      <p>The <strong>Claude Dev Team</strong> installer drops the snippet for you. Point Claude Code at your shared MCP and every agent on your team starts reading from the same memory.</p>
     </div>
     <div class="ch-code">
       <span class="ch-code-tag">~/.claude.json</span>
@@ -386,10 +386,10 @@
 
 <footer>
   <div class="ch-footer-inner">
-    <span>open source agent stack &middot; claude-dev-team (MIT) &middot; context-harness-mcp (LICENSE pending)</span>
+    <span>open source agent stack &middot; Claude Dev Team (MIT) &middot; Context Harness MCP (LICENSE pending)</span>
     <nav class="ch-footer-links" aria-label="footer">
-      <a href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">claude-dev-team</a>
-      <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">context-harness-mcp</a>
+      <a href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">Claude Dev Team</a>
+      <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">Context Harness MCP</a>
       <a href="/viewer">Viewer</a>
       <a href="/auth/login">Sign in</a>
     </nav>
