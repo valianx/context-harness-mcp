@@ -1,8 +1,9 @@
 // Package viewer serves a public single-page web UI for browsing the knowledge
-// graph. It registers two routes on the caller's mux:
+// graph. It registers three routes on the caller's mux:
 //
 //   - GET /viewer/          — serves the embedded HTML page
 //   - GET /viewer/api/search — returns JSON (node list or semantic search results)
+//   - GET /viewer/api/projects — returns the list of distinct project IDs
 //
 // Access is intentionally unauthenticated — same exposure level as the MCP read
 // tools (search_nodes, read_graph). User chose Option A (public, no auth) in the
@@ -16,6 +17,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,14 +30,15 @@ import (
 //go:embed templates/*
 var templateFS embed.FS
 
-// Register adds the /viewer/ and /viewer/api/search routes to mux.
-// pool must be non-nil — both handlers require DB access.
+// Register adds the /viewer/, /viewer/api/search, and /viewer/api/projects
+// routes to mux. pool must be non-nil — both handlers require DB access.
 func Register(mux *http.ServeMux, pool *pgxpool.Pool) {
 	h := &handler{pool: pool}
 	h.initTemplates()
 
 	mux.HandleFunc("/viewer/", h.handleIndex)
 	mux.HandleFunc("/viewer/api/search", h.handleSearchAPI)
+	mux.HandleFunc("/viewer/api/projects", h.handleProjectsAPI)
 }
 
 // handler holds shared state for the viewer routes.
@@ -77,6 +80,7 @@ type searchResponse struct {
 type nodeView struct {
 	Name         string        `json:"name"`
 	NodeType     string        `json:"node_type"`
+	ProjectID    string        `json:"project_id"`
 	Observations []string      `json:"observations"`
 	RelationsOut []relationOut `json:"relations_out"`
 	RelationsIn  []relationIn  `json:"relations_in"`
@@ -94,9 +98,10 @@ type relationIn struct {
 
 const searchLimit = 50
 
-// handleSearchAPI handles GET /viewer/api/search?q=...
+// handleSearchAPI handles GET /viewer/api/search?q=...&project=...
 // Empty or missing q → list all active nodes ordered by created_at DESC.
 // Non-empty q → semantic search via pgvector cosine, limit 50.
+// Optional project= filters by project.
 func (h *handler) handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -104,15 +109,16 @@ func (h *handler) handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	project := r.URL.Query().Get("project")
 	ctx := r.Context()
 
 	var nodeRows []store.NodeRow
 	var err error
 
 	if query == "" {
-		nodeRows, err = listAllDesc(ctx, h.pool)
+		nodeRows, err = listAllDesc(ctx, h.pool, project)
 	} else {
-		nodeRows, err = searchByCosine(ctx, h.pool, query)
+		nodeRows, err = searchByCosine(ctx, h.pool, query, project)
 	}
 
 	if err != nil {
@@ -146,19 +152,93 @@ func (h *handler) handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ── /viewer/api/projects ──────────────────────────────────────────────────────
+
+// projectsResponse is the JSON shape returned by /viewer/api/projects.
+type projectsResponse struct {
+	Projects []string `json:"projects"`
+}
+
+// handleProjectsAPI handles GET /viewer/api/projects. Returns the distinct
+// project IDs from active nodes, ordered with "global" first, then the rest
+// alphabetically. If "global" has no active nodes it is still always included
+// (as the default project it is always conceptually present).
+func (h *handler) handleProjectsAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	projects, err := fetchDistinctProjects(r.Context(), h.pool)
+	if err != nil {
+		slog.Error("viewer: fetch projects failed", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{
+			"error": "internal server error",
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, projectsResponse{Projects: projects})
+}
+
+// fetchDistinctProjects returns the sorted project list. "global" is always
+// first; remaining projects are sorted alphabetically.
+func fetchDistinctProjects(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT DISTINCT project_id FROM nodes WHERE deleted_at IS NULL ORDER BY project_id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := map[string]bool{}
+	var others []string
+	hasGlobal := false
+
+	for rows.Next() {
+		var pid string
+		if err := rows.Scan(&pid); err != nil {
+			return nil, err
+		}
+		if pid == "global" {
+			hasGlobal = true
+			continue
+		}
+		if !seen[pid] {
+			seen[pid] = true
+			others = append(others, pid)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	sort.Strings(others)
+
+	// "global" always appears first, even if there are no active nodes in it
+	// (the default project is always conceptually present).
+	result := make([]string, 0, 1+len(others))
+	_ = hasGlobal // always include global regardless
+	result = append(result, "global")
+	result = append(result, others...)
+	return result, nil
+}
+
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
 // listAllDesc returns up to searchLimit active nodes ordered by creation time
 // (newest first). Unlike store.ListActive which orders by name, this gives the
-// viewer a "most recently added" default view.
-func listAllDesc(ctx context.Context, pool *pgxpool.Pool) ([]store.NodeRow, error) {
+// viewer a "most recently added" default view. Optional project filters by project.
+func listAllDesc(ctx context.Context, pool *pgxpool.Pool, project string) ([]store.NodeRow, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id, name, node_type
+		`SELECT id, name, node_type, project_id
 		 FROM nodes
 		 WHERE deleted_at IS NULL
+		   AND ($2::text = '' OR project_id = $2)
 		 ORDER BY created_at DESC
 		 LIMIT $1`,
-		searchLimit,
+		searchLimit, project,
 	)
 	if err != nil {
 		return nil, err
@@ -168,7 +248,7 @@ func listAllDesc(ctx context.Context, pool *pgxpool.Pool) ([]store.NodeRow, erro
 	var result []store.NodeRow
 	for rows.Next() {
 		var r store.NodeRow
-		if err := rows.Scan(&r.ID, &r.Name, &r.NodeType); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.NodeType, &r.ProjectID); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -177,8 +257,9 @@ func listAllDesc(ctx context.Context, pool *pgxpool.Pool) ([]store.NodeRow, erro
 }
 
 // searchByCosine embeds query and returns up to searchLimit active nodes ranked
-// by minimum cosine distance of their observation embeddings.
-func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query string) ([]store.NodeRow, error) {
+// by minimum cosine distance of their observation embeddings. Optional project
+// filters results to a specific project.
+func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project string) ([]store.NodeRow, error) {
 	vecs, err := embedpkg.Default().Encode(ctx, []string{query})
 	if err != nil {
 		return nil, err
@@ -186,17 +267,19 @@ func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query string) ([]st
 	queryVec := pgvector.NewVector(vecs[0])
 
 	rows, err := pool.Query(ctx,
-		`SELECT n.id, n.name, n.node_type
+		`SELECT n.id, n.name, n.node_type, n.project_id
 		 FROM nodes n
 		 JOIN observations o ON o.node_id = n.id
 		 WHERE n.deleted_at IS NULL
 		   AND o.deleted_at IS NULL
 		   AND o.embedding IS NOT NULL
-		 GROUP BY n.id, n.name, n.node_type
+		   AND ($3::text = '' OR n.project_id = $3)
+		 GROUP BY n.id, n.name, n.node_type, n.project_id
 		 ORDER BY MIN(o.embedding <=> $1::vector) ASC
 		 LIMIT $2`,
 		queryVec,
 		searchLimit,
+		project,
 	)
 	if err != nil {
 		return nil, err
@@ -206,7 +289,7 @@ func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query string) ([]st
 	var result []store.NodeRow
 	for rows.Next() {
 		var r store.NodeRow
-		if err := rows.Scan(&r.ID, &r.Name, &r.NodeType); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.NodeType, &r.ProjectID); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
@@ -248,6 +331,7 @@ func buildNodeViews(ctx context.Context, pool *pgxpool.Pool, nodeRows []store.No
 		views[i] = nodeView{
 			Name:         r.Name,
 			NodeType:     r.NodeType,
+			ProjectID:    r.ProjectID,
 			Observations: obs,
 			RelationsOut: out,
 			RelationsIn:  in,

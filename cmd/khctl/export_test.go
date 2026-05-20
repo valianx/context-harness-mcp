@@ -19,7 +19,7 @@ func TestExport_EmptyDB(t *testing.T) {
 	}
 	t.Cleanup(func() { cleanDB(t) })
 
-	payload, err := khctl.BuildExportPayload(context.Background(), khctlPool)
+	payload, err := khctl.BuildExportPayload(context.Background(), khctlPool, "")
 	require.NoError(t, err)
 	assert.Equal(t, khctl.ExportFormatVersion, payload.FormatVersion)
 	assert.Equal(t, 0, payload.NodeCount)
@@ -62,7 +62,7 @@ func TestExport_RoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, relsIn, "expected 1 relation inserted")
 
-	payload, err := khctl.BuildExportPayload(context.Background(), khctlPool)
+	payload, err := khctl.BuildExportPayload(context.Background(), khctlPool, "")
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, payload.NodeCount)
@@ -97,7 +97,7 @@ func TestExport_JSONSerializable(t *testing.T) {
 	}
 	t.Cleanup(func() { cleanDB(t) })
 
-	payload, err := khctl.BuildExportPayload(context.Background(), khctlPool)
+	payload, err := khctl.BuildExportPayload(context.Background(), khctlPool, "")
 	require.NoError(t, err)
 
 	data, err := json.MarshalIndent(payload, "", "  ")

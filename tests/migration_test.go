@@ -40,7 +40,7 @@ func TestMigrationRoundTrip(t *testing.T) {
 	require.NoError(t, err, "import fixture into testcontainer Postgres")
 
 	// Step 2 — export back from the testcontainer Postgres.
-	payload, err := khctl.BuildExportPayload(context.Background(), testPool)
+	payload, err := khctl.BuildExportPayload(context.Background(), testPool, "")
 	require.NoError(t, err, "export from testcontainer Postgres")
 
 	exportedData, err := json.Marshal(payload)

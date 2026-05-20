@@ -28,7 +28,7 @@ import (
 func RegisterNodes(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelimit.Limiter) {
 	s.AddTool(
 		mcplib.NewTool("create_nodes",
-			mcplib.WithDescription("Create new nodes in the knowledge graph. Each node must have name, nodeType, and observations. Idempotent on name."),
+			mcplib.WithDescription("Create new nodes in the knowledge graph. Each node must have name, nodeType, and observations. Idempotent on (project, name)."),
 			mcplib.WithArray("nodes", mcplib.Required()),
 		),
 		createNodesHandler(pool, limiter),
@@ -57,6 +57,7 @@ type createNodeInput struct {
 	Name         string   `json:"name"`
 	NodeType     string   `json:"nodeType"`
 	Observations []string `json:"observations"`
+	Project      string   `json:"project,omitempty"`
 }
 
 type createNodesArgs struct {
@@ -72,6 +73,20 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		var args createNodesArgs
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+		}
+
+		// Validate project naming BEFORE the Content Filter — project is a tag,
+		// not content, so it does not go through the Content Filter layers.
+		for i, n := range args.Nodes {
+			if n.Project != "" {
+				if verr := validate.Check(n.Project); verr != nil {
+					return verr.ToMCPResult(), nil
+				}
+			}
+			// Resolve default project so the rest of the handler can use it directly.
+			if args.Nodes[i].Project == "" {
+				args.Nodes[i].Project = validate.DefaultProjectID
+			}
 		}
 
 		// Build validate.Payload and run the Content Filter before opening any Tx.
@@ -125,7 +140,7 @@ func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNode
 
 	createdNodes, createdObs := 0, 0
 	for ni, n := range nodes {
-		id, err := store.Create(ctx, tx, n.Name, n.NodeType, userID, email)
+		id, err := store.Create(ctx, tx, n.Name, n.NodeType, n.Project, userID, email)
 		if err != nil {
 			return 0, 0, fmt.Errorf("create node %q: %w", n.Name, err)
 		}
@@ -257,7 +272,9 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 
 	added := 0
 	for ii, item := range items {
-		id, _, found, err := store.FindByName(ctx, tx, item.NodeName)
+		// Derive project from the node — no project param on add_observations.
+		// nil filter: return first match by project_id ASC if homonyms exist.
+		id, _, _, found, err := store.FindByName(ctx, tx, item.NodeName, nil)
 		if err != nil {
 			return 0, fmt.Errorf("find node %q: %w", item.NodeName, err)
 		}
@@ -365,7 +382,9 @@ func execUpdateObservations(ctx context.Context, pool *pgxpool.Pool, updates []u
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	for i, u := range updates {
-		nodeID, _, found, err := store.FindByName(ctx, tx, u.NodeName)
+		// Derive project from the node — no project param on update_observations.
+		// nil filter: return first match by project_id ASC if homonyms exist.
+		nodeID, _, _, found, err := store.FindByName(ctx, tx, u.NodeName, nil)
 		if err != nil {
 			return 0, fmt.Errorf("find node %q: %w", u.NodeName, err)
 		}
