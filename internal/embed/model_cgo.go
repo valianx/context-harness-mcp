@@ -6,8 +6,11 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	fastembed "github.com/anush008/fastembed-go"
+
+	"github.com/mariogutierrez/context-harness-mcp/internal/metrics"
 )
 
 // defaultEmbedder is the package-level singleton.
@@ -36,6 +39,9 @@ type FastEmbedder struct {
 // surfaces the error as an MCP error so a broken embedder degrades cleanly
 // per-call rather than crashing the server.
 func (e *FastEmbedder) Encode(_ context.Context, texts []string) ([][]float32, error) {
+	start := time.Now()
+	defer func() { metrics.EmbedderDuration.Observe(time.Since(start).Seconds()) }()
+
 	e.once.Do(func() {
 		showProgress := false
 		opts := &fastembed.InitOptions{

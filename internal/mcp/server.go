@@ -40,5 +40,5 @@ func RegisterDoctor(s *server.MCPServer, pool *pgxpool.Pool) {
 		"doctor",
 		mcplib.WithDescription("Runs deep operational health probes (db, pgvector, embedder, gitleaks, row counts) and returns a structured report. Always returns IsError:false — read the 'degraded' field in the body."),
 	)
-	s.AddTool(tool, healthz.Handler(pool))
+	s.AddTool(tool, instrumentTool("doctor", healthz.Handler(pool)))
 }
