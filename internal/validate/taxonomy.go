@@ -24,11 +24,13 @@ var NodeTypes = map[string]bool{
 
 // RelationTypes is the closed enum of allowed relation_type values.
 var RelationTypes = map[string]bool{
-	"relates_to": true,
-	"belongs-to": true,
-	"calls":      true,
-	"uses-stack": true,
-	"depends-on": true,
+	"relates_to":     true,
+	"belongs-to":     true,
+	"calls":          true,
+	"uses-stack":     true,
+	"depends-on":     true,
+	"supersedes":     true, // NEW v0.4.0 — directional override (new → old)
+	"conflicts_with": true, // NEW v0.4.0 — descriptive contradiction (bidirectional)
 }
 
 // absolutePathPatterns matches absolute filesystem paths that embed user names

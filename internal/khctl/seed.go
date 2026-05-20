@@ -320,11 +320,14 @@ func insertFixtureNodes(ctx context.Context, tx pgx.Tx) (int, error) {
 		}
 		seen[n.Name] = struct{}{}
 
+		// Seed fixtures all land in the 'global' project. The composite UNIQUE
+		// constraint nodes_project_name_key (project_id, name) replaced the
+		// historical entities_name_key (name) UNIQUE in migration 00007.
 		var id string
 		err := tx.QueryRow(ctx,
-			`INSERT INTO nodes (name, node_type)
-			 VALUES ($1, $2)
-			 ON CONFLICT (name) DO NOTHING
+			`INSERT INTO nodes (name, node_type, project_id)
+			 VALUES ($1, $2, 'global')
+			 ON CONFLICT ON CONSTRAINT nodes_project_name_key DO NOTHING
 			 RETURNING id`,
 			n.Name, n.NodeType,
 		).Scan(&id)
