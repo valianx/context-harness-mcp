@@ -25,7 +25,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 			mcplib.WithNumber("offset", mcplib.Description("Row offset for pagination. Default 0, max 100000. Values outside [0,100000] are silently clamped.")),
 			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, only nodes in this project are returned.")),
 		),
-		timelineHandler(pool),
+		instrumentTool("timeline", timelineHandler(pool)),
 	)
 
 	s.AddTool(
@@ -33,7 +33,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 			mcplib.WithDescription("Return aggregated counts for the active knowledge graph: node_count, observation_count, relation_count, by_type breakdown, and oldest/newest node. Read-only."),
 			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, counts are restricted to this project.")),
 		),
-		statsHandler(pool),
+		instrumentTool("stats", statsHandler(pool)),
 	)
 
 	s.AddTool(
@@ -42,7 +42,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 			mcplib.WithString("query", mcplib.Required()),
 			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, only nodes in this project are returned.")),
 		),
-		searchNodesHandler(pool),
+		instrumentTool("search_nodes", searchNodesHandler(pool)),
 	)
 
 	s.AddTool(
@@ -51,7 +51,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 			mcplib.WithArray("names", mcplib.Required()),
 			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, only nodes matching names in this project are returned.")),
 		),
-		openNodesHandler(pool),
+		instrumentTool("open_nodes", openNodesHandler(pool)),
 	)
 
 	s.AddTool(
@@ -59,7 +59,7 @@ func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
 			mcplib.WithDescription("Read the entire active knowledge graph. Use sparingly — prefer search_nodes for targeted queries."),
 			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, only nodes in this project are returned.")),
 		),
-		readGraphHandler(pool),
+		instrumentTool("read_graph", readGraphHandler(pool)),
 	)
 }
 

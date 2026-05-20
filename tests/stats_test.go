@@ -306,11 +306,15 @@ func TestStats_RegisteredCorrectly(t *testing.T) {
 	require.NotNil(t, statsTool,
 		"AC-5: 'stats' tool must be present in the server's tool list")
 
-	// stats is a read-only, argument-free tool — its InputSchema must declare
-	// no properties and no required fields.
+	// stats is a read-only tool. Pre-Phase-2 (v0.3.x) it took no arguments;
+	// PR-2 of v0.4.0 added an optional `project` filter. The tool still has
+	// no REQUIRED arguments — `project` is optional with default "all
+	// projects" (back-compat).
 	schema := statsTool.InputSchema
-	assert.Empty(t, schema.Properties,
-		"AC-5: stats tool must have no declared input-schema properties (no arguments)")
+	for prop := range schema.Properties {
+		assert.Equal(t, "project", prop,
+			"AC-5: only the optional `project` property is allowed on the stats schema")
+	}
 	assert.Empty(t, schema.Required,
-		"AC-5: stats tool must have no required fields")
+		"AC-5: stats tool must have no required fields (`project` is optional)")
 }

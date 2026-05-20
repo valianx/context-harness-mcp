@@ -10,6 +10,8 @@ import (
 	"fmt"
 
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/mariogutierrez/context-harness-mcp/internal/metrics"
 )
 
 // Stable policy error codes. Downstream consumers (tool handlers, Claude
@@ -139,7 +141,9 @@ func (e *Error) MarshalJSON() ([]byte, error) {
 // ToMCPResult converts a policy *Error into a *mcp.CallToolResult that the MCP
 // tool handler can return directly to the caller. The structured error JSON is
 // embedded in the text content so Claude can parse and surface it.
+// Side-effect: increments mcp_content_filter_rejects_total{code, layer}.
 func (e *Error) ToMCPResult() *mcp.CallToolResult {
+	metrics.ContentFilterRejects.WithLabelValues(e.Code, e.Layer).Inc()
 	payload, _ := json.Marshal(e) // Error is always marshallable; ignore error.
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{

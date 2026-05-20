@@ -83,7 +83,7 @@ func TestViewerSearchAPI_WithQuery(t *testing.T) {
 	CleanDB(t)
 
 	// Skip when embedder is unavailable — semantic search requires ONNX.
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 
 	ctx := context.Background()
 
