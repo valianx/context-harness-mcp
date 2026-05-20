@@ -32,6 +32,7 @@ Optional pieces that some operators wire up:
 |---|---|---|
 | `DATABASE_URL` | always | Postgres DSN with `?sslmode=require` for managed providers. `SUPABASE_DB_URL` accepted as a deprecated fallback for one release. |
 | `MCP_TRANSPORT` | always (default `http`) | `http` for cloud. `stdio` only when the binary is exec'd by a local Claude Code. |
+| `PORT` | PaaS (default `:7654`) | HTTP listen port. Railway / Heroku / Fly / Render set this automatically and route their healthcheck to the same port — leave alone there. Set explicitly only for local docker-compose or bare-metal. |
 | `MCP_AUTH` | always (default `none`) | `none` (no bearer required) or `enabled` (bearer JWT required). Garbage values fail fast at boot. |
 
 When `MCP_AUTH=enabled`, the following are also required:
