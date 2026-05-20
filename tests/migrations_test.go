@@ -79,15 +79,15 @@ func TestMigrationsApplyCleanlyFreshContainer(t *testing.T) {
 	require.NoError(t, goose.SetDialect("postgres"))
 
 	// goose.Up aplica todas las migraciones desde 00001 hasta la última.
-	// Un error aquí indica que 00004 o 00005 fallaron.
+	// Un error aquí indica que alguna migración falló.
 	require.NoError(t, goose.Up(db, migrationsDir),
-		"goose.Up debe aplicar 00004 y 00005 sin error")
+		"goose.Up debe aplicar todas las migraciones sin error")
 
 	// Confirmar que se llegó a la versión 5.
 	version, err := goose.GetDBVersion(db)
 	require.NoError(t, err, "goose.GetDBVersion")
-	assert.Equal(t, int64(5), version,
-		"versión final de goose debe ser 5 (00001..00005 aplicados)")
+	assert.Equal(t, int64(6), version,
+		"versión final de goose debe ser 6 (00001..00006 aplicados)")
 }
 
 // ── AC-2: TestUsersTableSchema ────────────────────────────────────────────────

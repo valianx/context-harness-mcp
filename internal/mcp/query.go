@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -13,8 +14,19 @@ import (
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
 
-// RegisterQuery registers the search_nodes, open_nodes, read_graph, and stats tools.
+// RegisterQuery registers the search_nodes, open_nodes, read_graph, stats, and timeline tools.
 func RegisterQuery(s *server.MCPServer, pool *pgxpool.Pool) {
+	s.AddTool(
+		mcplib.NewTool("timeline",
+			mcplib.WithDescription("List active nodes in reverse-chronological order (newest first). Supports optional RFC3339 date bounds and offset-based pagination. Read-only — no rate-limit."),
+			mcplib.WithString("since", mcplib.Description("Lower bound (inclusive) on created_at. RFC3339 format, e.g. 2026-05-01T00:00:00Z. Optional.")),
+			mcplib.WithString("until", mcplib.Description("Upper bound (inclusive) on created_at. RFC3339 format. Optional.")),
+			mcplib.WithNumber("limit", mcplib.Description("Page size. Default 50, max 200. Values outside [1,200] are silently clamped.")),
+			mcplib.WithNumber("offset", mcplib.Description("Row offset for pagination. Default 0, max 100000. Values outside [0,100000] are silently clamped.")),
+		),
+		timelineHandler(pool),
+	)
+
 	s.AddTool(
 		mcplib.NewTool("stats",
 			mcplib.WithDescription("Return aggregated counts for the active knowledge graph: node_count, observation_count, relation_count, by_type breakdown, and oldest/newest node. Read-only — no arguments required."),
@@ -200,6 +212,101 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			"relation_count": len(relations),
 		}), nil
 	}
+}
+
+// ── timeline ──────────────────────────────────────────────────────────────────
+
+const (
+	timelineDefaultLimit  = 50
+	timelineMaxLimit      = 200
+	timelineMaxOffset     = 100_000
+)
+
+type timelineArgs struct {
+	Since  string `json:"since"`
+	Until  string `json:"until"`
+	Limit  int    `json:"limit"`
+	Offset int    `json:"offset"`
+}
+
+// timelineHandler lists active nodes in reverse-chronological order with
+// optional date bounds and offset-based pagination. Read-only: no rate-limit,
+// no content filter. Invalid since/until produce a structured error response
+// without hitting the DB. limit/offset are silently clamped to valid ranges.
+func timelineHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		var args timelineArgs
+		if err := req.BindArguments(&args); err != nil {
+			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+		}
+
+		since, until, err := parseTimelineBounds(args.Since, args.Until)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		limit, offset := clampTimelinePagination(args.Limit, args.Offset)
+
+		nodeRows, hasMore, err := store.ListByCreatedAt(ctx, pool, since, until, limit, offset)
+		if err != nil {
+			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+		}
+
+		nodes, relations, err := buildNodeRelationResult(ctx, pool, nodeRows)
+		if err != nil {
+			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+		}
+
+		return jsonResult(map[string]any{
+			"nodes":      nodes,
+			"relations":  relations,
+			"node_count": len(nodes),
+			"has_more":   hasMore,
+		}), nil
+	}
+}
+
+// parseTimelineBounds parses the optional since/until RFC3339 strings.
+// Returns nil pointers when a field is empty (no bound). Returns an error
+// with a user-facing message when a non-empty field fails to parse.
+func parseTimelineBounds(since, until string) (*time.Time, *time.Time, error) {
+	var sinceT, untilT *time.Time
+
+	if since != "" {
+		t, err := time.Parse(time.RFC3339, since)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid since: must be RFC3339")
+		}
+		sinceT = &t
+	}
+
+	if until != "" {
+		t, err := time.Parse(time.RFC3339, until)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid until: must be RFC3339")
+		}
+		untilT = &t
+	}
+
+	return sinceT, untilT, nil
+}
+
+// clampTimelinePagination returns a limit clamped to [1, 200] and an offset
+// clamped to [0, 100000]. Zero/negative limit falls back to the default of 50.
+func clampTimelinePagination(limit, offset int) (int, int) {
+	if limit <= 0 {
+		limit = timelineDefaultLimit
+	}
+	if limit > timelineMaxLimit {
+		limit = timelineMaxLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > timelineMaxOffset {
+		offset = timelineMaxOffset
+	}
+	return limit, offset
 }
 
 // ── shared builder ────────────────────────────────────────────────────────────

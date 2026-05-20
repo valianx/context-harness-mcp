@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The server exposes seven knowledge-graph tools plus a `healthz` probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes eight knowledge-graph tools plus a `healthz` probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
 JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
@@ -140,7 +140,72 @@ Return aggregated counts for the active knowledge graph. Use this instead of `re
 - Soft-deleted nodes (`deleted_at IS NOT NULL`) are excluded from all counts.
 - No rate-limit, no content filter — read-only.
 
-### 5. `search_nodes`
+### 5. `timeline`
+
+List active nodes in reverse-chronological order (newest first). Use this to browse recent knowledge-graph additions or to audit what was added within a time window. Supports optional date bounds and offset-based pagination.
+
+**Arguments** — all optional
+
+```json
+{
+  "since":  "2026-05-12T00:00:00Z",
+  "until":  "2026-05-19T23:59:59Z",
+  "limit":  50,
+  "offset": 0
+}
+```
+
+- `since` — RFC3339 timestamp; only nodes created at or after this time are returned. Omit to return from the beginning of recorded time.
+- `until` — RFC3339 timestamp; only nodes created at or before this time are returned. Omit to include up to the latest node.
+- `limit` — page size; default `50`, max `200`. Values outside `[1, 200]` are silently clamped to the nearest bound.
+- `offset` — row offset for pagination; default `0`, max `100000`. Values outside `[0, 100000]` are silently clamped.
+
+**Success response**
+
+```json
+{
+  "nodes": [
+    { "name": "policy-rate-limited", "nodeType": "pattern", "observations": ["..."] }
+  ],
+  "relations": [
+    { "from": "policy-rate-limited", "to": "supabase-auth", "relationType": "relates_to" }
+  ],
+  "node_count": 1,
+  "has_more": false
+}
+```
+
+- `nodes` is ordered `created_at DESC, id DESC` — newest first, with a stable tiebreak on UUID so pagination never skips or duplicates rows.
+- `relations` includes only relations whose **both** endpoints appear in the result `nodes` (same as `open_nodes`).
+- `has_more: true` means another page of results exists at `offset + len(nodes)`.
+- Soft-deleted nodes are excluded (`deleted_at IS NOT NULL`).
+- No rate-limit, no content filter — read-only.
+
+**Pagination example**
+
+```jsonc
+// Page 1 — first 2 nodes
+{ "limit": 2, "offset": 0 }
+// → { "nodes": [N5, N4], "has_more": true }
+
+// Page 2 — next 2 nodes
+{ "limit": 2, "offset": 2 }
+// → { "nodes": [N3, N2], "has_more": true }
+
+// Page 3 — last node
+{ "limit": 2, "offset": 4 }
+// → { "nodes": [N1], "has_more": false }
+```
+
+**Error responses**
+
+| Condition | Response |
+|---|---|
+| `since` is not valid RFC3339 | `IsError: true`, message `"invalid since: must be RFC3339"` |
+| `until` is not valid RFC3339 | `IsError: true`, message `"invalid until: must be RFC3339"` |
+| `since > until` | Empty result set, `has_more: false` — Postgres returns zero rows for an impossible range |
+
+### 6. `search_nodes`
 
 Semantic search over observations. The query string is embedded via `all-MiniLM-L6-v2` (384 dims) and matched against `observations.embedding` using pgvector cosine (`<=>`). Results aggregate per node (`MIN(distance)`) and are returned with the relations between nodes in the result set.
 
@@ -172,7 +237,7 @@ Semantic search over observations. The query string is embedded via `all-MiniLM-
 
 Returns up to 10 nodes ordered by cosine distance. If the embedder is unavailable (ONNX init failed, model file missing) the call fails loudly with an MCP error — `search_nodes` never silently degrades to substring matching.
 
-### 6. `open_nodes`
+### 7. `open_nodes`
 
 Retrieve specific nodes by name plus the relations between them. Names not found are silently skipped (no error).
 
@@ -184,7 +249,7 @@ Retrieve specific nodes by name plus the relations between them. Names not found
 
 **Success response** — same shape as `search_nodes`, restricted to the requested names.
 
-### 7. `read_graph`
+### 8. `read_graph`
 
 Read the entire active knowledge graph. Use sparingly — prefer `search_nodes` or `open_nodes` for targeted queries.
 

@@ -249,6 +249,44 @@ func SearchByTextSubstring(ctx context.Context, pool *pgxpool.Pool, query string
 	return scanNodeRows(rows)
 }
 
+// ListByCreatedAt returns active nodes ordered by created_at DESC, id DESC for
+// stable pagination. Optional since/until bounds narrow the result window; pass
+// nil to skip a bound. limit controls page size; offset skips rows. Returns the
+// page of nodes plus a hasMore flag (true when additional rows exist beyond the
+// requested limit). The LIMIT N+1 strategy avoids a second COUNT(*) query.
+func ListByCreatedAt(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	since, until *time.Time,
+	limit, offset int,
+) (rows []NodeRow, hasMore bool, err error) {
+	// Fetch one extra row to detect whether a next page exists.
+	dbRows, err := pool.Query(ctx,
+		`SELECT id, name, node_type
+		 FROM nodes
+		 WHERE deleted_at IS NULL
+		   AND ($1::timestamptz IS NULL OR created_at >= $1)
+		   AND ($2::timestamptz IS NULL OR created_at <= $2)
+		 ORDER BY created_at DESC, id DESC
+		 LIMIT $3 OFFSET $4`,
+		since, until, limit+1, offset,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	defer dbRows.Close()
+
+	nodeRows, err := scanNodeRows(dbRows)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(nodeRows) > limit {
+		return nodeRows[:limit], true, nil
+	}
+	return nodeRows, false, nil
+}
+
 func scanNodeRows(rows pgx.Rows) ([]NodeRow, error) {
 	var result []NodeRow
 	for rows.Next() {
