@@ -41,6 +41,14 @@ func RegisterNodes(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelimit.L
 		),
 		addObservationsHandler(pool, limiter),
 	)
+
+	s.AddTool(
+		mcplib.NewTool("update_observations",
+			mcplib.WithDescription("Atomically replace an existing observation text with new text on a node. Each update must have nodeName, old_text (exact match), and new_text. old_text is soft-deleted and new_text is inserted with a fresh embedding in a single transaction. Rolls back entirely on any error."),
+			mcplib.WithArray("updates", mcplib.Required()),
+		),
+		updateObservationsHandler(pool, limiter),
+	)
 }
 
 // ── create_nodes ──────────────────────────────────────────────────────────────
@@ -270,6 +278,119 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 	}
 
 	return added, tx.Commit(ctx)
+}
+
+// ── update_observations ───────────────────────────────────────────────────────
+
+type updateObsInput struct {
+	NodeName string `json:"nodeName"`
+	OldText  string `json:"old_text"`
+	NewText  string `json:"new_text"`
+}
+
+type updateObservationsArgs struct {
+	Updates []updateObsInput `json:"updates"`
+}
+
+func updateObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		if result := checkRateLimit(ctx, limiter); result != nil {
+			return result, nil
+		}
+
+		var args updateObservationsArgs
+		if err := req.BindArguments(&args); err != nil {
+			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+		}
+
+		if len(args.Updates) == 0 {
+			return errorResult("updates must be non-empty"), nil
+		}
+
+		// Validate old_text != new_text before opening any Tx. This is a
+		// logical no-op guard: replacing text with itself serves no purpose and
+		// would create a (node_id, text) conflict against the row we're about
+		// to soft-delete (depending on Tx ordering vs. partial index presence).
+		for _, u := range args.Updates {
+			if u.OldText == u.NewText {
+				return errorResult("new_text identical to old_text"), nil
+			}
+		}
+
+		// Run the Content Filter over new_text values before any Tx.
+		// old_text is a lookup key only — it does not pass through the filter.
+		flatObs := make([]validate.Observation, len(args.Updates))
+		for i, u := range args.Updates {
+			flatObs[i] = validate.Observation{NodeName: u.NodeName, Text: u.NewText}
+		}
+		vp := validate.Payload{Observations: flatObs}
+		if verr := validate.Run(&vp, validate.KindObservations); verr != nil {
+			return verr.ToMCPResult(), nil
+		}
+
+		// Propagate potentially-redacted texts back into args (SECRET_MODE=redact path).
+		for i := range args.Updates {
+			args.Updates[i].NewText = vp.Observations[i].Text
+		}
+
+		userID, email := attributionFromContext(ctx)
+		updated, err := execUpdateObservations(ctx, pool, args.Updates, userID, email)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+
+		return jsonResult(map[string]any{"updated": updated}), nil
+	}
+}
+
+func execUpdateObservations(ctx context.Context, pool *pgxpool.Pool, updates []updateObsInput, userID, email *string) (int, error) {
+	// Truncate and batch-embed all new texts before opening any Tx.
+	// This avoids wasting a DB transaction on a model failure.
+	refs := make([]obsRef, len(updates))
+	for i, u := range updates {
+		truncated := embed.TruncateToTokens(u.NewText, 256)
+		updates[i].NewText = truncated
+		refs[i] = obsRef{nodeIdx: i, obsIdx: 0, text: truncated}
+	}
+
+	embeddings, err := batchEmbed(ctx, refs)
+	if err != nil {
+		return 0, fmt.Errorf("embed encode: %w", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	for i, u := range updates {
+		nodeID, _, found, err := store.FindByName(ctx, tx, u.NodeName)
+		if err != nil {
+			return 0, fmt.Errorf("find node %q: %w", u.NodeName, err)
+		}
+		if !found {
+			return 0, fmt.Errorf("node not found: %s", u.NodeName)
+		}
+
+		count, err := store.MarkObservationDeletedByText(ctx, tx, nodeID, u.OldText)
+		if err != nil {
+			return 0, fmt.Errorf("soft-delete observation for %q: %w", u.NodeName, err)
+		}
+		if count == 0 {
+			return 0, fmt.Errorf("observation not found: nodeName=%s", u.NodeName)
+		}
+
+		vec := embeddings[[2]int{i, 0}]
+		if _, _, err := store.Insert(ctx, tx, nodeID, u.NewText, vec, userID, email); err != nil {
+			return 0, fmt.Errorf("insert new observation for %q: %w", u.NodeName, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return len(updates), nil
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────

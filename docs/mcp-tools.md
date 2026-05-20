@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The server exposes nine knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes ten knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
 JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
@@ -26,7 +26,7 @@ Anything outside these lists is rejected with `policy/taxonomy-violation`.
 
 ## Write tools
 
-All write tools (1)–(3) wrap their work in a single `pgx.Tx`. If the Content Filter rejects, the transaction is **never opened**. If any insert fails partway through, the transaction rolls back — there are no partial writes. Inserts are deduplicated by DB-level unique constraints (`ON CONFLICT DO NOTHING`).
+All write tools (1)–(4) wrap their work in a single `pgx.Tx`. If the Content Filter rejects, the transaction is **never opened**. If any step fails partway through, the transaction rolls back — there are no partial writes. Inserts are deduplicated by DB-level unique constraints (`ON CONFLICT DO NOTHING`).
 
 ### 1. `create_nodes`
 
@@ -102,11 +102,58 @@ Create relations between existing nodes. Each relation triple `(from, to, relati
 { "created": 1 }
 ```
 
+### 4. `update_observations`
+
+Atomically replace an existing observation text on a node. The old text is soft-deleted and the new text is inserted with a fresh embedding — all within a single `pgx.Tx`. If any step fails (node not found, observation not found, embedding error), the transaction rolls back completely, leaving the graph unchanged.
+
+**Arguments**
+
+```json
+{
+  "updates": [
+    {
+      "nodeName": "pgvector-hnsw-index",
+      "old_text": "Defaults m=16, ef_construction=64 suffice for ≤100k vectors.",
+      "new_text": "Defaults m=16, ef_construction=64 suffice for ≤500k vectors with recall ≥0.95."
+    }
+  ]
+}
+```
+
+- `nodeName` — camelCase, must match an active node exactly.
+- `old_text` — exact text of the observation to replace (case-sensitive, no wildcards). Only active observations (not soft-deleted) are matched.
+- `new_text` — replacement text. Passes through the Content Filter (size, secrets, taxonomy) before the transaction opens. If `SECRET_MODE=redact`, the redacted version is what gets stored.
+
+**Success response**
+
+```json
+{ "updated": 1 }
+```
+
+`updated` equals the number of items in `updates` — the tool either succeeds for all or rolls back entirely.
+
+**Error responses**
+
+| Condition | Response |
+|---|---|
+| `updates` is empty | `IsError: true`, message `"updates must be non-empty"` |
+| `old_text` equals `new_text` | `IsError: true`, message `"new_text identical to old_text"` — no Tx opened |
+| Node not found | `IsError: true`, message `"node not found: <nodeName>"` — Tx rolled back |
+| Observation not found (or already soft-deleted) | `IsError: true`, message `"observation not found: nodeName=<nodeName>"` — Tx rolled back |
+| Content Filter violation on `new_text` | `IsError: true`, `policy/*` code (see [Content Filter](#content-filter--policy-errors)) — no Tx opened |
+| Rate limit exceeded | `IsError: true`, `policy/rate-limited` |
+
+**Atomicity.** All soft-deletes and inserts run in one `pgx.Tx`. If the N-th update fails, the previous N-1 soft-deletes and inserts are all rolled back. Zero partial writes.
+
+**Attribution.** The new observation row is written with `created_by_user_id` / `created_by_email` from the authenticated request context. The old (soft-deleted) row retains its original attribution as an audit trail.
+
+**Note:** `old_text` is a lookup key only — it does not pass through the Content Filter. Only `new_text` is filtered.
+
 ---
 
 ## Read tools
 
-### 4. `stats`
+### 5. `stats`
 
 Return aggregated counts for the active knowledge graph. Use this instead of `read_graph` when you only need counts — it is significantly cheaper because it runs a single aggregated SQL query rather than fetching every node, observation, and relation.
 
@@ -140,7 +187,7 @@ Return aggregated counts for the active knowledge graph. Use this instead of `re
 - Soft-deleted nodes (`deleted_at IS NOT NULL`) are excluded from all counts.
 - No rate-limit, no content filter — read-only.
 
-### 5. `timeline`
+### 6. `timeline`
 
 List active nodes in reverse-chronological order (newest first). Use this to browse recent knowledge-graph additions or to audit what was added within a time window. Supports optional date bounds and offset-based pagination.
 
@@ -205,7 +252,7 @@ List active nodes in reverse-chronological order (newest first). Use this to bro
 | `until` is not valid RFC3339 | `IsError: true`, message `"invalid until: must be RFC3339"` |
 | `since > until` | Empty result set, `has_more: false` — Postgres returns zero rows for an impossible range |
 
-### 6. `doctor`
+### 7. `doctor`
 
 Run deep operational health probes against every subsystem the server depends on. Use this when you need to diagnose a degraded server or verify that all dependencies are reachable and functional after a deploy.
 
@@ -257,7 +304,7 @@ Run deep operational health probes against every subsystem the server depends on
 - No rate-limit, no content filter — read-only.
 - **Cold-start note:** the first call after server boot triggers ONNX model initialization (~100–500 ms). Configure container-host healthchecks with a ≥10 s timeout and ≥30 s interval to avoid false-positive failures during startup.
 
-### 7. `search_nodes`
+### 8. `search_nodes`
 
 Semantic search over observations. The query string is embedded via `all-MiniLM-L6-v2` (384 dims) and matched against `observations.embedding` using pgvector cosine (`<=>`). Results aggregate per node (`MIN(distance)`) and are returned with the relations between nodes in the result set.
 
@@ -289,7 +336,7 @@ Semantic search over observations. The query string is embedded via `all-MiniLM-
 
 Returns up to 10 nodes ordered by cosine distance. If the embedder is unavailable (ONNX init failed, model file missing) the call fails loudly with an MCP error — `search_nodes` never silently degrades to substring matching.
 
-### 8. `open_nodes`
+### 9. `open_nodes`
 
 Retrieve specific nodes by name plus the relations between them. Names not found are silently skipped (no error).
 
@@ -301,7 +348,7 @@ Retrieve specific nodes by name plus the relations between them. Names not found
 
 **Success response** — same shape as `search_nodes`, restricted to the requested names.
 
-### 9. `read_graph`
+### 10. `read_graph`
 
 Read the entire active knowledge graph. Use sparingly — prefer `search_nodes` or `open_nodes` for targeted queries.
 
@@ -396,7 +443,7 @@ curl -i http://localhost:7654/healthz
 
 ## Content Filter — policy errors
 
-Write tools (1)–(2)–(3) — those that carry user-provided text — gate every payload through three layers of validation **before** opening any transaction.
+Write tools (1)–(2)–(3)–(4) — those that carry user-provided text — gate every payload through three layers of validation **before** opening any transaction.
 
 ### Size limits
 
@@ -421,7 +468,7 @@ Any `SECRET_MODE` value other than `reject` or `redact` causes a startup error (
 To prevent runaway agent loops (e.g., a buggy agent rapidly inserting thousands of observations), write tools are rate-limited **per client IP**:
 
 - **10 writes per 10 seconds** per IP, token-bucket with burst of 10 and refill rate of 1 token/second.
-- Applies to `create_nodes`, `add_observations`, and `create_relations`. Reads (`search_nodes`, `open_nodes`, `read_graph`) are unconstrained.
+- Applies to `create_nodes`, `add_observations`, `create_relations`, and `update_observations`. Reads (`search_nodes`, `open_nodes`, `read_graph`, `stats`, `timeline`, `doctor`) are unconstrained.
 - In HTTP mode, the client IP is read from the leftmost entry of `X-Forwarded-For` (most container hosts forward the real client IP there); falls back to `RemoteAddr` for direct connections.
 - In stdio mode (local Claude Code), rate limiting is skipped — no IP is available.
 
