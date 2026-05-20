@@ -172,7 +172,7 @@ func queryRelationAttribution(t *testing.T, fromName, toName, relationType strin
 // AC-1: Given create_nodes called with auth ctx (sub=X, email=Y) → nodes row has
 // created_by_user_id = X AND created_by_email = Y.
 func TestAttribution_WithCtxUser(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	insertAttrUser(t)
 
@@ -231,7 +231,7 @@ func TestAttribution_WithCtxUser(t *testing.T) {
 // AC-2: Given create_nodes called with no auth ctx → nodes row has
 // created_by_user_id IS NULL AND created_by_email IS NULL.
 func TestAttribution_NoCtxUser(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 
 	c := newMCPClientForAttribution(t)
@@ -278,7 +278,7 @@ func TestAttribution_NoCtxUser(t *testing.T) {
 // AC-3 (observations): Given add_observations with/without auth ctx,
 // Then observations rows mirror the same attribution behavior as nodes.
 func TestAttribution_Observations(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	insertAttrUser(t)
 
@@ -355,7 +355,7 @@ func TestAttribution_Observations(t *testing.T) {
 // AC-3 (relations): Given create_relations with/without auth ctx,
 // Then relations rows mirror the same attribution behavior as nodes.
 func TestAttribution_Relations(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	insertAttrUser(t)
 

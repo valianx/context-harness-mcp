@@ -65,7 +65,7 @@ func TestAuthBackcompat_ModeNone_NoBearer(t *testing.T) {
 //
 // AC-11: Given MCP_AUTH=none, Then write tools persist rows with created_by_user_id = NULL.
 func TestAuthBackcompat_ModeNone_NullAttribution(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	pool := NewTestPool(t)
 	ctx := context.Background()

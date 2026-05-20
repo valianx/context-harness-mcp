@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `chore(test): default to mock embedder` — `internal/embed/encoder.go` + `internal/embed/mock.go`: introduces `MockEncoder` (deterministic FNV-64a, 384-dim, no ONNX), `SetForTesting`/`RealEmbedder` helpers, and installs the mock in `tests/setup_test.go` `TestMain`. All ONNX-gated integration tests (`requireEmbedder` renamed to `requireRealEmbedder`) swap back to the real embedder only when needed. Target test runtime impact: 10 min → <1 min for the non-ONNX path; semantic-validation tests (find_conflicts AC-1, AC-2, AC-6, AC-8) still exercise the real ONNX pipeline when available.
+
 ### Added
 
 - `feat(db): project scoping schema (00007)` — `migrations/00007_project_scope.sql`: adds `project_id text NOT NULL DEFAULT 'global'` to `nodes` and `relations`, drops legacy UNIQUE `entities_name_key`, adds composite UNIQUE `nodes_project_name_key (project_id, name)`, and three partial indexes (`nodes_project_name_active_idx`, `nodes_project_id_active_idx`, `relations_project_id_active_idx`). All existing rows backfill to `'global'` via PG16 fast-default path (O(1)).
