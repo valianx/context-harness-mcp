@@ -40,16 +40,13 @@ var expectedCheckNames = []string{
 
 // warmEmbedder swaps the suite-wide mock to the real ONNX embedder and
 // pre-initialises the ONNX sync.Once so that subsequent calls to the embedder
-// check inside healthz.Run do not incur the 200–500 ms cold-start penalty and
-// trigger the 200 ms latency gate.
+// check inside healthz.Run do not incur the 200–500 ms cold-start penalty.
 //
-// Background: the embedder uses sync.Once to lazy-load the ONNX session. The
-// first Encode call can take 200–500 ms depending on the host. The doctor check
-// fails when latency exceeds 200 ms (embedderLatencyLimit in healthz.go). By
-// calling warmEmbedder before invoking doctor we ensure the cold-start cost is
-// paid outside the measured window, making the test deterministic.
-//
-// The mock is restored via t.Cleanup when the test exits.
+// As of the healthz cold-start fix the embedder check no longer enforces a
+// latency gate (cold-start is reported in Detail but does not fail the
+// check), but pre-warming is still useful for deterministic test timing and
+// to ensure a missing model / CGO surfaces as a skip rather than a per-test
+// failure. The mock is restored via t.Cleanup when the test exits.
 func warmEmbedder(t *testing.T) {
 	t.Helper()
 	requireRealEmbedder(t)
@@ -97,8 +94,10 @@ func assertCheckShape(t *testing.T, idx int, raw any, wantName string) map[strin
 //
 // AC-1: Given healthy DB with pgvector, all 5 probes pass.
 func TestDoctor_HealthyDB(t *testing.T) {
-	// Pre-warm the embedder outside the doctor's 200 ms latency gate.
-	// See warmEmbedder doc comment for rationale.
+	// Pre-warm the embedder for deterministic timing. The 200 ms latency
+	// gate that historically motivated this was removed in the healthz
+	// cold-start fix, but warmEmbedder still handles the CGO/model-missing
+	// skip path. See warmEmbedder doc comment.
 	warmEmbedder(t)
 
 	c := newMCPClient(t)
