@@ -43,7 +43,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_RUNTIME_VERSION}/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}.tgz" \
         -o /tmp/onnxruntime.tgz \
     && tar -xzf /tmp/onnxruntime.tgz -C /tmp \
-    && cp /tmp/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}/lib/libonnxruntime.so* /usr/local/lib/ \
+    # cp -a preserves symlinks. The ONNX release ships three files in lib/:
+    #   libonnxruntime.so          → libonnxruntime.so.1     (symlink)
+    #   libonnxruntime.so.1        → libonnxruntime.so.1.20.0 (symlink)
+    #   libonnxruntime.so.1.20.0   (regular file, ~17 MB)
+    # Without -a, cp dereferences each symlink and copies the actual binary
+    # three times, producing 51 MB of duplicates and the ldconfig warning
+    # "libonnxruntime.so.1 is not a symbolic link" because ldconfig expects
+    # SONAME → versioned-file to be a link. -a preserves the link chain.
+    && cp -a /tmp/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}/lib/libonnxruntime.so* /usr/local/lib/ \
     && ldconfig \
     && rm -rf /tmp/onnxruntime* \
     # onnxruntime_go (used by fastembed-go) dlopen("onnxruntime.so") by default.
