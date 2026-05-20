@@ -30,11 +30,9 @@ import (
 )
 
 // envOrDefault returns the value of env var key when non-empty, otherwise
-// the fallback. Used to seed flag defaults so CLI flags > env var > hard
-// default precedence holds. Without this, the binary ignored MCP_TRANSPORT
-// and MCP_HTTP_ADDR set by container hosting providers — the flag defaults
-// always won, forcing operators to override the Dockerfile CMD just to change
-// the transport.
+// the fallback. Used to seed the -transport flag default so MCP_TRANSPORT
+// set by container hosting providers wins over the stdio default without
+// requiring operators to override the Dockerfile CMD.
 func envOrDefault(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -45,19 +43,25 @@ func envOrDefault(key, fallback string) string {
 func main() {
 	transport := flag.String("transport", envOrDefault("MCP_TRANSPORT", "stdio"),
 		"MCP transport: stdio or http (env: MCP_TRANSPORT)")
-	// Fallback chain: MCP_HTTP_ADDR > PORT (Railway / Heroku convention) > :7654.
-	// Railway sets PORT to its assigned port; honoring it lets the app deploy
-	// without an explicit Target Port override in the Railway UI.
-	rawAddr := envOrDefault("MCP_HTTP_ADDR", "")
-	if rawAddr == "" {
-		if port := os.Getenv("PORT"); port != "" {
-			rawAddr = ":" + port
-		} else {
-			rawAddr = ":7654"
-		}
+	// Address resolution: CLI -addr flag > PORT env > :7654 hard default.
+	// PORT is the universal PaaS convention (Railway / Heroku / Fly / Render
+	// all set it dynamically and route their healthcheck to the same port).
+	// Local dev sets -addr or relies on the :7654 default.
+	//
+	// There is NO separate MCP_HTTP_ADDR env var. The previous version had
+	// one and its higher priority over PORT was a footgun: operators who
+	// set both got the MCP_HTTP_ADDR value silently, even though Railway's
+	// healthcheck went to PORT, producing service-unavailable on deploy.
+	// PaaS users: leave PORT alone, the platform sets it. Local users: use
+	// -addr.
+	rawAddr := ""
+	if port := os.Getenv("PORT"); port != "" {
+		rawAddr = ":" + port
+	} else {
+		rawAddr = ":7654"
 	}
 	addr := flag.String("addr", rawAddr,
-		"Listen address for http transport (env: MCP_HTTP_ADDR, or PORT for hosting platforms)")
+		"Listen address for http transport (env: PORT — set automatically by Railway / Heroku / Fly / Render)")
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))

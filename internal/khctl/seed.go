@@ -168,7 +168,7 @@ var FixtureNodes = []SeedNode{
 		Name:     "mcp-server-deployment",
 		NodeType: "service",
 		Observations: []string{
-			"Container running the Go binary, listening on $MCP_HTTP_ADDR (default :7654) with /mcp/ + /auth/* + /viewer/* endpoints.",
+			"Container running the Go binary, listening on $PORT (default :7654 for local runs) with /mcp/ + /auth/* + /viewer/* endpoints.",
 			"Cold-start budget 1-3 s — viable on platforms that idle/sleep containers (most free tiers).",
 			"Healthcheck at /healthz: returns 200 with {status:ok, db:...} once the DB pool is ready.",
 			"Same Dockerfile across all deployments — runtime configuration is via env vars only (no per-platform image variants).",

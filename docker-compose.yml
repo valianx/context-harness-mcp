@@ -19,7 +19,6 @@ services:
     environment:
       DATABASE_URL: "${DATABASE_URL:-${SUPABASE_DB_URL:?DATABASE_URL is required — copy .env.example to .env and set it}}"
       MCP_TRANSPORT: http
-      MCP_HTTP_ADDR: ":7654"
       LOG_LEVEL: "${LOG_LEVEL:-info}"
     healthcheck:
       test: ["CMD", "curl", "-fsSL", "http://localhost:7654/healthz"]
