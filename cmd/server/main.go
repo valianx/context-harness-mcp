@@ -11,12 +11,14 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
 	"github.com/mariogutierrez/context-harness-mcp/internal/config"
+	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/healthz"
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
@@ -253,6 +255,23 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 		Addr:    addr,
 		Handler: mux,
 	}
+
+	// Pre-warm the ONNX embedder before accepting traffic so the first
+	// /healthz probe (and the first real write request) sees a warm session
+	// rather than paying the ~300-500 ms sync.Once cold-start. Platform
+	// healthchecks (Railway, Render, Fly) probe within seconds of boot;
+	// without this, the embedder check used to fail intermittently on the
+	// very first attempt. Errors here are logged but non-fatal — the server
+	// still boots; the embedder check itself will surface any real failure
+	// via /healthz on the next probe.
+	warmCtx, warmCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	warmStart := time.Now()
+	if _, err := embed.Default().Encode(warmCtx, []string{"_warmup"}); err != nil {
+		slog.Warn("embedder warmup failed (non-fatal)", "error", err, "duration_ms", time.Since(warmStart).Milliseconds())
+	} else {
+		slog.Info("embedder warmup complete", "duration_ms", time.Since(warmStart).Milliseconds())
+	}
+	warmCancel()
 
 	slog.Info("starting MCP server", "transport", "http", "addr", addr, "auth_mode", authMode)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
