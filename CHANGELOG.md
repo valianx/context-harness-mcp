@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **SOFT-BREAKING: `GET /healthz` HTTP behavior change** (`cmd/server/main.go` + `internal/healthz/healthz.go`) — the endpoint now returns **HTTP 200** when all checks pass and **HTTP 503** when any check fails (degraded), replacing the previous always-200 response. The body shape changes from `{"status":"ok","db":"not-configured"}` to `{"checks":[...],"degraded":bool}`, matching the new `doctor` MCP tool. Container hosts (Railway, Render, Fly, Docker compose) automatically benefit from the 503 signal to mark the container unhealthy. Operators who currently rely on the always-200 response or parse the `status`/`db` fields must update their healthcheck to use the HTTP status code and the new body shape.
+
 - **Platform-agnostic positioning refactor**: removed all hosting-provider-specific assumptions from code, config, docs, and KG fixtures. Render is no longer a privileged target — the product is positioned as deployable to any container host (Railway / Render / Fly / Coolify / self-hosted Docker / etc.), with `docker compose up` for local mode as a first-class peer to cloud deployments. ChromaDB / `claude-dev-team`-as-source positioning also removed — `context-harness-mcp` is the standalone memory MCP, not a "replacement for". Concrete changes:
   - `render.yaml` deleted (no longer needed; operators configure their own platform).
   - `.github/workflows/deploy.yml` rewritten: `RENDER_DEPLOY_HOOK_URL` → generic `DEPLOY_HOOK_URL` (with backward-compat fallback for one release); deploy hook step skips with a notice when unset (platforms that auto-deploy from git push don't need it).
@@ -36,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SUPABASE_DB_URL` env var. Accepted as fallback with stderr warning for one release; will be removed in v2.0. Use `DATABASE_URL` instead.
 
 ### Added
+
+- `internal/healthz/healthz.go` + `internal/mcp/server.go` + `internal/validate/secrets.go` — `doctor` MCP tool: runs 5 deep operational probes in order (`db_ping`, `pgvector_extension`, `embedder`, `gitleaks_detector`, `row_counts`), each with a 5 s per-check timeout. Always returns `IsError:false` — degradation is reported in the body via `degraded:true` and per-check `status:"fail"`. Read-only, no rate-limit, no content filter.
 
 - `internal/mcp/query.go` + `internal/store/nodes.go` + `migrations/00006_nodes_created_at_idx.sql` — `timeline` tool: chronological node listing with optional RFC3339 `since`/`until` date bounds, offset-based pagination (`limit` default 50 max 200, `offset` default 0 max 100000), stable `ORDER BY created_at DESC, id DESC`, `has_more` flag via LIMIT N+1 strategy, and relations scoped to the result set. Read-only, no rate-limit, no content filter.
 

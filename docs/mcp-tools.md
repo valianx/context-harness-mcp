@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The server exposes eight knowledge-graph tools plus a `healthz` probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes nine knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
 JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
@@ -205,7 +205,59 @@ List active nodes in reverse-chronological order (newest first). Use this to bro
 | `until` is not valid RFC3339 | `IsError: true`, message `"invalid until: must be RFC3339"` |
 | `since > until` | Empty result set, `has_more: false` — Postgres returns zero rows for an impossible range |
 
-### 6. `search_nodes`
+### 6. `doctor`
+
+Run deep operational health probes against every subsystem the server depends on. Use this when you need to diagnose a degraded server or verify that all dependencies are reachable and functional after a deploy.
+
+**Arguments**: none.
+
+**Success response** (all checks pass)
+
+```json
+{
+  "checks": [
+    { "name": "db_ping",            "status": "pass", "duration_ms": 3,   "detail": "" },
+    { "name": "pgvector_extension", "status": "pass", "duration_ms": 8,   "detail": "0.7.4" },
+    { "name": "embedder",           "status": "pass", "duration_ms": 122, "detail": "all-MiniLM-L6-v2 384 dims" },
+    { "name": "gitleaks_detector",  "status": "pass", "duration_ms": 1,   "detail": "150 rules loaded" },
+    { "name": "row_counts",         "status": "pass", "duration_ms": 4,   "detail": "nodes=42 obs=137 rel=23" }
+  ],
+  "degraded": false
+}
+```
+
+**Degraded response** (one or more checks fail)
+
+```json
+{
+  "checks": [
+    { "name": "db_ping",            "status": "fail", "duration_ms": 5002, "detail": "context deadline exceeded" },
+    { "name": "pgvector_extension", "status": "fail", "duration_ms": 0,    "detail": "context deadline exceeded" },
+    { "name": "embedder",           "status": "pass", "duration_ms": 145,  "detail": "all-MiniLM-L6-v2 384 dims" },
+    { "name": "gitleaks_detector",  "status": "pass", "duration_ms": 1,    "detail": "150 rules loaded" },
+    { "name": "row_counts",         "status": "fail", "duration_ms": 5001, "detail": "context deadline exceeded" }
+  ],
+  "degraded": true
+}
+```
+
+**Checks (executed sequentially, no short-circuit)**
+
+| # | Name | What it tests | Pass condition |
+|---|------|---------------|----------------|
+| 1 | `db_ping` | `pool.Ping()` round-trip | No error within 5 s |
+| 2 | `pgvector_extension` | `SELECT extversion FROM pg_extension WHERE extname = 'vector'` | Row found within 5 s; `detail` = version string |
+| 3 | `embedder` | `embed.Default().Encode(ctx, ["healthcheck"])` | No error AND latency ≤ 200 ms; `detail` = model name + dims |
+| 4 | `gitleaks_detector` | Fire the gitleaks `sync.Once` and count rules | Init succeeds; `detail` = rule count |
+| 5 | `row_counts` | `SELECT count(*)` on nodes, observations, relations | All 3 queries succeed (counts of 0 are valid on a fresh deploy) |
+
+- Each check has an individual 5-second timeout.
+- `degraded: true` when **any** check has `status: "fail"`.
+- `doctor` always returns `IsError: false` at the MCP-protocol level. Degradation is in the body, not the envelope — the agent caller must read the `degraded` field.
+- No rate-limit, no content filter — read-only.
+- **Cold-start note:** the first call after server boot triggers ONNX model initialization (~100–500 ms). Configure container-host healthchecks with a ≥10 s timeout and ≥30 s interval to avoid false-positive failures during startup.
+
+### 7. `search_nodes`
 
 Semantic search over observations. The query string is embedded via `all-MiniLM-L6-v2` (384 dims) and matched against `observations.embedding` using pgvector cosine (`<=>`). Results aggregate per node (`MIN(distance)`) and are returned with the relations between nodes in the result set.
 
@@ -237,7 +289,7 @@ Semantic search over observations. The query string is embedded via `all-MiniLM-
 
 Returns up to 10 nodes ordered by cosine distance. If the embedder is unavailable (ONNX init failed, model file missing) the call fails loudly with an MCP error — `search_nodes` never silently degrades to substring matching.
 
-### 7. `open_nodes`
+### 8. `open_nodes`
 
 Retrieve specific nodes by name plus the relations between them. Names not found are silently skipped (no error).
 
@@ -249,7 +301,7 @@ Retrieve specific nodes by name plus the relations between them. Names not found
 
 **Success response** — same shape as `search_nodes`, restricted to the requested names.
 
-### 8. `read_graph`
+### 9. `read_graph`
 
 Read the entire active knowledge graph. Use sparingly — prefer `search_nodes` or `open_nodes` for targeted queries.
 
@@ -296,19 +348,49 @@ Hard deletes are operator-only via Supabase Studio. All rows retain `deleted_at`
 
 ## Health probe
 
-### `healthz`
+### `GET /healthz`
 
-Plain HTTP health check. Returned by `GET /healthz` (not over the MCP protocol).
+Plain HTTP health check consumed by container-host healthcheck daemons (Railway, Render, Fly, Docker compose). Runs the same 5 deep probes as the `doctor` MCP tool via a shared `healthz.Run` implementation.
 
 ```sh
-curl http://localhost:7654/healthz
+curl -i http://localhost:7654/healthz
 ```
+
+**Healthy response (HTTP 200)**
 
 ```json
-{ "status": "ok", "db": "not-configured" }
+{
+  "checks": [
+    { "name": "db_ping",            "status": "pass", "duration_ms": 3,   "detail": "" },
+    { "name": "pgvector_extension", "status": "pass", "duration_ms": 8,   "detail": "0.7.4" },
+    { "name": "embedder",           "status": "pass", "duration_ms": 122, "detail": "all-MiniLM-L6-v2 384 dims" },
+    { "name": "gitleaks_detector",  "status": "pass", "duration_ms": 1,   "detail": "150 rules loaded" },
+    { "name": "row_counts",         "status": "pass", "duration_ms": 4,   "detail": "nodes=42 obs=137 rel=23" }
+  ],
+  "degraded": false
+}
 ```
 
-The `"db"` field reads `"not-configured"` in the current version — a deeper DB ping will land in a follow-up.
+**Degraded response (HTTP 503)**
+
+```json
+{
+  "checks": [
+    { "name": "db_ping", "status": "fail", "duration_ms": 5002, "detail": "context deadline exceeded" },
+    ...
+  ],
+  "degraded": true
+}
+```
+
+| HTTP status | Meaning |
+|---|---|
+| `200 OK` | All 5 checks passed — server is healthy |
+| `503 Service Unavailable` | One or more checks failed — server is degraded |
+
+**Breaking change from v0.2.x:** the previous `/healthz` always returned HTTP 200 with `{"status":"ok","db":"not-configured"}`. Operators who relied on the always-200 behavior or parsed the `status`/`db` fields must update their healthcheck to use the HTTP status code (200/503) and the new `checks[]` / `degraded` body shape. Container hosts that simply check for a non-5xx response will automatically benefit from the 503 signal.
+
+**Cold-start note:** the first request after server boot triggers ONNX model initialization (100–500 ms). Configure container healthchecks with `timeout ≥ 10s` and `interval ≥ 30s` to avoid false-positive unhealthy signals during startup.
 
 ---
 
