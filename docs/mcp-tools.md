@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The server exposes thirteen knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes sixteen knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
 JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
@@ -489,6 +489,157 @@ A second call with the same `old` / `new` pair returns `policy/relation-already-
 
 ---
 
+## Sessions
+
+Sessions bracket a unit of work: `session_start` → ... → `session_end`. Inside a session, any `create_nodes` call can attach the new node to the session via the optional `session_id` field. After the session ends, `session_summary` returns the chronological list of nodes created — including soft-deleted ones, for a complete audit trail.
+
+**Trust model:** sessions are tags, not security boundaries. Any caller can call `session_end` / `session_summary` on any session — same trust model as `project_id` (single-deployment trust).
+
+**Cross-project:** sessions are not scoped to a project. A single session can capture nodes created across multiple projects. The `project_id` field on a session is denormalized at `session_start` time and is informational only.
+
+### `session_id` field on `create_nodes`
+
+Add `session_id` to any node entry in the `create_nodes` array to attach it to an active session:
+
+```json
+{
+  "nodes": [
+    {
+      "name": "my-node",
+      "nodeType": "pattern",
+      "observations": ["..."],
+      "session_id": "<uuid from session_start>"
+    }
+  ]
+}
+```
+
+- `session_id` is optional. Omitting it leaves `nodes.session_id` as `NULL` (pre-Phase-4 behavior, fully back-compat).
+- All nodes in one `create_nodes` call should use the same `session_id` (or no `session_id`). The first non-empty `session_id` found in the batch is used for the entire call.
+- If `session_id` is not a valid UUID → `IsError: true`, plain message (no policy code).
+- If `session_id` refers to a non-existent session → `policy/session-not-found`.
+- If `session_id` refers to a session where `ended_at IS NOT NULL` → `policy/session-already-ended`.
+
+### 14. `session_start`
+
+Start a new session. Returns a `session_id` UUID to pass to subsequent `create_nodes` calls.
+
+**Arguments** — all optional
+
+```json
+{
+  "project":     "zippy-backoffice",
+  "working_dir": "/home/user/zippy"
+}
+```
+
+- `project` — optional. Must match the project naming regex when provided. Default `'global'`. Stored on the session row as informational context.
+- `working_dir` — optional. Free-form path string. Stored verbatim.
+
+**Success response**
+
+```json
+{
+  "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "started_at": "2026-05-20T14:00:00Z"
+}
+```
+
+**Error responses**
+
+| Condition | Code |
+|---|---|
+| `project` fails naming regex | `policy/project-naming-violation` |
+| Rate limit exceeded | `policy/rate-limited` |
+
+### 15. `session_end`
+
+End a session. Idempotent — calling it on an already-ended session returns the same row unchanged.
+
+**Arguments**
+
+```json
+{
+  "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "summary":    "Learned about retry strategies and circuit-breaker patterns."
+}
+```
+
+- `session_id` — required. UUID returned by `session_start`.
+- `summary` — optional. Free-form text (≤4096 chars). Persisted in `sessions.summary`. On a repeated call the summary is NOT overwritten — the first `session_end` wins.
+
+**Success response**
+
+```json
+{
+  "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "ended_at":   "2026-05-20T14:30:00Z",
+  "node_count": 5
+}
+```
+
+- `node_count` — total number of nodes (including soft-deleted) attached to this session.
+- On a repeated call `ended_at` equals the original end timestamp.
+
+**Error responses**
+
+| Condition | Code |
+|---|---|
+| `session_id` not a valid UUID | `IsError: true`, plain message |
+| `session_id` not found | `policy/session-not-found` |
+| `summary` exceeds 4096 chars | `IsError: true`, plain message |
+| Rate limit exceeded | `policy/rate-limited` |
+
+### 16. `session_summary`
+
+Return the full list of nodes created during a session, ordered chronologically. Includes soft-deleted nodes — this is a full audit trail, not a filtered view.
+
+**Arguments**
+
+```json
+{ "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" }
+```
+
+**Success response**
+
+```json
+{
+  "session_id":  "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "started_at":  "2026-05-20T14:00:00Z",
+  "ended_at":    "2026-05-20T14:30:00Z",
+  "project_id":  "zippy-backoffice",
+  "working_dir": "/home/user/zippy",
+  "summary":     "Learned about retry strategies.",
+  "nodes": [
+    {
+      "id":                "uuid",
+      "name":              "retry-policy",
+      "node_type":         "pattern",
+      "project_id":        "zippy-backoffice",
+      "created_at":        "2026-05-20T14:05:00Z",
+      "deleted_at":        null,
+      "observation_count": 3
+    }
+  ]
+}
+```
+
+- `nodes` is ordered by `created_at ASC` — chronological creation order.
+- `deleted_at` is non-null for soft-deleted nodes (they are included intentionally).
+- `observation_count` counts **active** observations only (`deleted_at IS NULL`).
+- `ended_at` is `null` when the session is still active.
+- `working_dir` and `summary` are `null` when not set.
+- Read-only — no rate-limit, no content filter.
+
+**Error responses**
+
+| Condition | Code |
+|---|---|
+| `session_id` not a valid UUID | `IsError: true`, plain message |
+| `session_id` not found | `policy/session-not-found` |
+
+---
+
 ## Semantic classification
 
 ### 13. `suggest_node_type`
@@ -680,6 +831,8 @@ A rate-limited call returns `policy/rate-limited` with a `retry_after_seconds` f
 | `policy/cross-project-relation` | `project` | A relation is attempted between nodes in different projects, or the explicit `project` hint does not match the nodes' actual project. |
 | `policy/node-not-found` | `project` | A node name provided to `find_conflicts` or `mark_superseded` does not match any active node. |
 | `policy/relation-already-exists` | `project` | `mark_superseded` is called for a `(new, old)` pair that already has a `supersedes` relation. |
+| `policy/session-not-found` | `session` | A `session_id` provided to `session_end`, `session_summary`, or `create_nodes` does not match any row in `sessions`. |
+| `policy/session-already-ended` | `session` | `create_nodes` is called with a `session_id` whose `ended_at IS NOT NULL`. |
 
 A policy rejection looks like:
 

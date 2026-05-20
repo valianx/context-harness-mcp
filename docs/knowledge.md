@@ -95,3 +95,10 @@
 - `[restricción]` Cross-project relations rejected server-side (`policy/cross-project-relation`). `relations.project_id` is denormalized for filter speed; consistency enforced at write time. v0.4.0.
 - `[patrón]` `supersedes` and `conflicts_with` are descriptive-only relations. Neither filters reads automatically. To hide the OLD node after `mark_superseded(A → B)`, use `archive_old_observations: true` which soft-deletes the old node's observations (`deleted_at`). There is no read-time filter on `supersedes` or `conflicts_with`. v0.4.0.
 - `[patrón]` `find_conflicts` uses loop-N-queries strategy (one pgvector query per target observation, client-side aggregation) instead of CROSS JOIN. Optimal for N≤10 observations per node and preserves HNSW efficiency. v0.4.0.
+
+## v0.5.0 — Sessions
+
+- `[patrón]` Sessions are tags, not security boundaries. Any caller can call `session_end` / `session_summary` on any session — same trust model as `project_id` (single-deployment trust). v0.5.0.
+- `[patrón]` Cross-project sessions are allowed. `sessions.project_id` is denormalized at `session_start` time for filter speed; it is informational only and does not constrain which projects' nodes can attach to the session. v0.5.0.
+- `[decisión]` `session_summary` includes soft-deleted nodes for audit completeness — callers get the full record of what the session created, not just what is currently active. v0.5.0.
+- `[restricción]` `create_nodes` with a `session_id` whose `ended_at IS NOT NULL` is rejected with `policy/session-already-ended`. Pre-Phase-4 nodes (no `session_id`) and calls without `session_id` continue to work unchanged. v0.5.0.

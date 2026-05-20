@@ -42,9 +42,9 @@ func TestMigrationsApplyCleanly(t *testing.T) {
 		"goose version debe ser >= 5 — 00004 y 00005 deben estar aplicados; versión actual: %d", current)
 }
 
-// TestMigrationsApplyCleanlyFreshContainer verifica que las migraciones 00004
-// y 00005 aterrizan limpiamente en un contenedor efímero que parte desde cero,
-// independientemente del estado del pool compartido.
+// TestMigrationsApplyCleanlyFreshContainer verifica que las migraciones 00004,
+// 00005, y sucesoras aterrizan limpiamente en un contenedor efímero que parte
+// desde cero, independientemente del estado del pool compartido.
 func TestMigrationsApplyCleanlyFreshContainer(t *testing.T) {
 	ctx := context.Background()
 	if err := checkDockerAvailable(ctx); err != nil {
@@ -83,12 +83,12 @@ func TestMigrationsApplyCleanlyFreshContainer(t *testing.T) {
 	require.NoError(t, goose.Up(db, migrationsDir),
 		"goose.Up debe aplicar todas las migraciones sin error")
 
-	// Confirmar que se llegó a la versión actual (00001..00008 aplicados).
-	// Updated in v0.4.0 when migrations 00007 and 00008 were added.
+	// Confirmar que se llegó a la versión actual (00001..00009 aplicados).
+	// Updated in v0.5.0 when migration 00009 (sessions) was added.
 	version, err := goose.GetDBVersion(db)
 	require.NoError(t, err, "goose.GetDBVersion")
-	assert.Equal(t, int64(8), version,
-		"versión final de goose debe ser 8 (00001..00008 aplicados); versión actual: %d", version)
+	assert.Equal(t, int64(9), version,
+		"versión final de goose debe ser 9 (00001..00009 aplicados); versión actual: %d", version)
 }
 
 // ── AC-2: TestUsersTableSchema ────────────────────────────────────────────────

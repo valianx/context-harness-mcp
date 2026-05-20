@@ -15,7 +15,7 @@ const (
 	serverVersion = "0.1.0"
 )
 
-// New returns a configured *server.MCPServer with all 13 MCP tools registered.
+// New returns a configured *server.MCPServer with all 16 MCP tools registered.
 // pool must be non-nil — the server requires DB access for all write and read
 // tool handlers. limiter enforces per-IP write-tool rate limits; pass a non-nil
 // *ratelimit.Limiter for HTTP deployments.
@@ -27,6 +27,7 @@ func New(pool *pgxpool.Pool, limiter *ratelimit.Limiter) *server.MCPServer {
 	RegisterQuery(s, pool)
 	RegisterConflicts(s, pool, limiter)
 	RegisterSuggestNodeType(s, pool)
+	RegisterSessions(s, pool, limiter)
 	return s
 }
 

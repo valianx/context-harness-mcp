@@ -130,17 +130,18 @@ type NodeRow struct {
 // the operation idempotent.
 //
 // projectID must always be provided (handlers resolve the default "global"
-// before calling). userID and email carry optional attribution from the
-// authenticated request context. Pass nil for both when the caller has no auth
-// context (stdio path, MCP_AUTH=none) — the nullable columns accept NULL safely.
-func Create(ctx context.Context, tx pgx.Tx, name, nodeType, projectID string, userID, email *string) (string, error) {
+// before calling). sessionID, userID and email carry optional context values.
+// Pass nil for sessionID when the caller has no session context. Pass nil for
+// both userID and email when the caller has no auth context (stdio path,
+// MCP_AUTH=none) — the nullable columns accept NULL safely.
+func Create(ctx context.Context, tx pgx.Tx, name, nodeType, projectID string, sessionID *string, userID, email *string) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx,
-		`INSERT INTO nodes (name, node_type, project_id, created_by_user_id, created_by_email)
-		 VALUES ($1, $2, $3, $4::uuid, $5)
+		`INSERT INTO nodes (name, node_type, project_id, session_id, created_by_user_id, created_by_email)
+		 VALUES ($1, $2, $3, $4::uuid, $5::uuid, $6)
 		 ON CONFLICT (project_id, name) DO NOTHING
 		 RETURNING id`,
-		name, nodeType, projectID, userID, email,
+		name, nodeType, projectID, sessionID, userID, email,
 	).Scan(&id)
 
 	if err == nil {

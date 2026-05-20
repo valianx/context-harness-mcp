@@ -114,7 +114,7 @@ func insertNodeInProject(t *testing.T, name, nodeType, projectID string) string 
 
 	tx, err := pool.Begin(ctx)
 	require.NoError(t, err, "insertNodeInProject: begin tx")
-	id, err := store.Create(ctx, tx, name, nodeType, projectID, nil, nil)
+	id, err := store.Create(ctx, tx, name, nodeType, projectID, nil, nil, nil)
 	require.NoError(t, err, "insertNodeInProject: store.Create %q in project %q", name, projectID)
 	require.NoError(t, tx.Commit(ctx), "insertNodeInProject: commit")
 	return id
