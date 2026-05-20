@@ -107,6 +107,37 @@ Each script exits 0 and prints `PASS` on success. If `MCP_AUTH=enabled`, set `MC
 
 ---
 
+## Metrics
+
+The server exposes Prometheus-format metrics at `GET /metrics` when the env var `MCP_EXPOSE_METRICS=1` is set. By default the endpoint is **disabled** — enable it only on deployments where Prometheus can scrape it over an internal network (VPC, private subnet, sidecar). Do not expose `/metrics` publicly without a firewall or network-level access control.
+
+| Env var | Default | Notes |
+|---|---|---|
+| `MCP_EXPOSE_METRICS` | unset (disabled) | Set to `1` to enable the `/metrics` endpoint. |
+
+### Metrics exposed
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `mcp_tool_calls_total` | counter | `tool`, `status` | Tool invocations. `status`: `success`, `error`, `policy_reject`, `rate_limited`. |
+| `mcp_tool_duration_seconds` | histogram | `tool` | Tool handler latency. |
+| `mcp_content_filter_rejects_total` | counter | `code`, `layer` | Content-Filter rejections by policy code and layer. |
+| `mcp_embedder_duration_seconds` | histogram | — | ONNX embedder Encode wall-clock duration. |
+| `mcp_jwt_validations_total` | counter | `result` | JWT validation outcomes. `result`: `valid`, `expired`, `invalid_signature`. |
+| `mcp_jwt_validation_duration_seconds` | histogram | — | JWT validation latency (signature verify + revocation cache lookup). |
+
+### Prometheus scrape config example
+
+```yaml
+scrape_configs:
+  - job_name: context-harness-mcp
+    static_configs:
+      - targets: ["<internal-host>:7654"]
+    metrics_path: /metrics
+```
+
+---
+
 ## Pointing Claude Code at the server
 
 Add to `~/.claude.json` under `mcpServers`:

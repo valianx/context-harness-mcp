@@ -34,7 +34,7 @@ func RegisterConflicts(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelim
 			mcplib.WithNumber("min_similarity", mcplib.Description("Minimum cosine similarity threshold in [0, 1]. Default 0.85.")),
 			mcplib.WithString("project", mcplib.Description("Optional project filter. When set, scopes the search to that project.")),
 		),
-		findConflictsHandler(pool),
+		instrumentTool("find_conflicts", findConflictsHandler(pool)),
 	)
 
 	s.AddTool(
@@ -46,7 +46,7 @@ func RegisterConflicts(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelim
 			mcplib.WithBoolean("archive_old_observations", mcplib.Description("When true, soft-delete all active observations of the old node (sets deleted_at). Default false.")),
 			mcplib.WithString("project", mcplib.Description("Optional project scoping hint. Must match the project of both nodes if provided.")),
 		),
-		markSupersededHandler(pool, limiter),
+		instrumentTool("mark_superseded", markSupersededHandler(pool, limiter)),
 	)
 }
 

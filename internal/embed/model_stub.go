@@ -10,6 +10,9 @@ package embed
 import (
 	"context"
 	"errors"
+	"time"
+
+	"github.com/mariogutierrez/context-harness-mcp/internal/metrics"
 )
 
 // FastEmbedder is a no-op stub used when the ONNX runtime is unavailable.
@@ -25,5 +28,7 @@ var errONXUnavailable = errors.New("embed: ONNX runtime unavailable (CGO disable
 
 // Encode always returns errONXUnavailable when compiled without CGO.
 func (e *FastEmbedder) Encode(_ context.Context, _ []string) ([][]float32, error) {
+	start := time.Now()
+	defer func() { metrics.EmbedderDuration.Observe(time.Since(start).Seconds()) }()
 	return nil, errONXUnavailable
 }
