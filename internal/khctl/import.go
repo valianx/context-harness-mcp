@@ -20,20 +20,24 @@ const ExpectedEmbeddingDims = 384
 
 // ImportNode is the JSON shape for a node in the import payload.
 // It accepts both the new "nodeType" vocabulary and the legacy "entityType"
-// field (normalized at parse time).
+// field (normalized at parse time). ProjectID defaults to "global" when
+// absent from the JSON (back-compat with pre-Phase-2 exports).
 type ImportNode struct {
 	Name         string      `json:"name"`
 	NodeType     string      `json:"nodeType"`
+	ProjectID    string      `json:"project_id"`
 	Observations []string    `json:"observations"`
 	Embeddings   [][]float32 `json:"embeddings"`
 	DeletedAt    interface{} `json:"deleted_at"`
 }
 
 // ImportRelation is the JSON shape for a relation in the import payload.
+// ProjectID defaults to "global" when absent (back-compat with pre-Phase-2 exports).
 type ImportRelation struct {
 	From         string      `json:"from"`
 	To           string      `json:"to"`
 	RelationType string      `json:"relationType"`
+	ProjectID    string      `json:"project_id"`
 	DeletedAt    interface{} `json:"deleted_at"`
 }
 
@@ -80,7 +84,19 @@ func ParseImportPayload(data []byte) ([]ImportNode, []ImportRelation, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return nodes, raw.Relations, nil
+	relations := defaultRelationProjectIDs(raw.Relations)
+	return nodes, relations, nil
+}
+
+// defaultRelationProjectIDs sets ProjectID to "global" on any relation that
+// omits the field (back-compat with pre-Phase-2 exports).
+func defaultRelationProjectIDs(rels []ImportRelation) []ImportRelation {
+	for i := range rels {
+		if rels[i].ProjectID == "" {
+			rels[i].ProjectID = "global"
+		}
+	}
+	return rels
 }
 
 // decodeNodes decodes raw node JSON messages and normalizes legacy field names.
@@ -97,6 +113,10 @@ func decodeNodes(raws []json.RawMessage) ([]ImportNode, error) {
 				m["nodeType"] = et
 				delete(m, "entityType")
 			}
+		}
+		// Default project_id to "global" for pre-Phase-2 exports that omit the field.
+		if _, hasProjectID := m["project_id"]; !hasProjectID {
+			m["project_id"] = json.RawMessage(`"global"`)
 		}
 		normalized, err := json.Marshal(m)
 		if err != nil {
@@ -146,7 +166,8 @@ func RunImport(
 	return
 }
 
-// importNodes inserts nodes using ON CONFLICT DO NOTHING.
+// importNodes inserts nodes using ON CONFLICT DO NOTHING against the composite
+// unique constraint nodes_project_name_key (project_id, name) added by 00007.
 func importNodes(ctx context.Context, tx pgx.Tx, nodes []ImportNode) (int, error) {
 	inserted := 0
 	for _, n := range nodes {
@@ -155,17 +176,17 @@ func importNodes(ctx context.Context, tx pgx.Tx, nodes []ImportNode) (int, error
 		}
 		var id string
 		err := tx.QueryRow(ctx,
-			`INSERT INTO nodes (name, node_type)
-			 VALUES ($1, $2)
-			 ON CONFLICT (name) DO NOTHING
+			`INSERT INTO nodes (name, node_type, project_id)
+			 VALUES ($1, $2, $3)
+			 ON CONFLICT ON CONSTRAINT nodes_project_name_key DO NOTHING
 			 RETURNING id`,
-			n.Name, n.NodeType,
+			n.Name, n.NodeType, n.ProjectID,
 		).Scan(&id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
 			}
-			return inserted, fmt.Errorf("insert node %q: %w", n.Name, err)
+			return inserted, fmt.Errorf("insert node %q (project %q): %w", n.Name, n.ProjectID, err)
 		}
 		inserted++
 	}
@@ -182,12 +203,13 @@ func importObservations(ctx context.Context, tx pgx.Tx, nodes []ImportNode) (int
 
 		var nodeID string
 		if err := tx.QueryRow(ctx,
-			`SELECT id FROM nodes WHERE name = $1 AND deleted_at IS NULL`, n.Name,
+			`SELECT id FROM nodes WHERE project_id = $1 AND name = $2 AND deleted_at IS NULL`,
+			n.ProjectID, n.Name,
 		).Scan(&nodeID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
 			}
-			return inserted, deduped, fmt.Errorf("resolve node %q: %w", n.Name, err)
+			return inserted, deduped, fmt.Errorf("resolve node %q (project %q): %w", n.Name, n.ProjectID, err)
 		}
 
 		for idx, text := range n.Observations {
@@ -243,20 +265,22 @@ func importRelations(ctx context.Context, tx pgx.Tx, relations []ImportRelation)
 
 		var fromID, toID string
 		if err := tx.QueryRow(ctx,
-			`SELECT id FROM nodes WHERE name = $1 AND deleted_at IS NULL`, r.From,
+			`SELECT id FROM nodes WHERE project_id = $1 AND name = $2 AND deleted_at IS NULL`,
+			r.ProjectID, r.From,
 		).Scan(&fromID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
 			}
-			return inserted, deduped, fmt.Errorf("resolve from-node %q: %w", r.From, err)
+			return inserted, deduped, fmt.Errorf("resolve from-node %q (project %q): %w", r.From, r.ProjectID, err)
 		}
 		if err := tx.QueryRow(ctx,
-			`SELECT id FROM nodes WHERE name = $1 AND deleted_at IS NULL`, r.To,
+			`SELECT id FROM nodes WHERE project_id = $1 AND name = $2 AND deleted_at IS NULL`,
+			r.ProjectID, r.To,
 		).Scan(&toID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				continue
 			}
-			return inserted, deduped, fmt.Errorf("resolve to-node %q: %w", r.To, err)
+			return inserted, deduped, fmt.Errorf("resolve to-node %q (project %q): %w", r.To, r.ProjectID, err)
 		}
 
 		var id string

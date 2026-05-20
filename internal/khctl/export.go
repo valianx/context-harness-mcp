@@ -15,6 +15,7 @@ const ExportFormatVersion = "2"
 type ExportNode struct {
 	Name         string      `json:"name"`
 	NodeType     string      `json:"nodeType"`
+	ProjectID    string      `json:"project_id"`
 	Observations []string    `json:"observations"`
 	Embeddings   [][]float32 `json:"embeddings,omitempty"`
 }
@@ -24,6 +25,7 @@ type ExportRelation struct {
 	From         string `json:"from"`
 	To           string `json:"to"`
 	RelationType string `json:"relationType"`
+	ProjectID    string `json:"project_id"`
 }
 
 // ExportPayload is the top-level JSON shape emitted by khctl export.
@@ -60,10 +62,10 @@ func BuildExportPayload(ctx context.Context, pool *pgxpool.Pool) (*ExportPayload
 // fetchExportNodes returns all active nodes with their observations and embeddings.
 func fetchExportNodes(ctx context.Context, pool *pgxpool.Pool) ([]ExportNode, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT id, name, node_type
+		`SELECT id, name, node_type, project_id
 		 FROM nodes
 		 WHERE deleted_at IS NULL
-		 ORDER BY name`)
+		 ORDER BY project_id, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -71,15 +73,15 @@ func fetchExportNodes(ctx context.Context, pool *pgxpool.Pool) ([]ExportNode, er
 
 	var nodes []ExportNode
 	for rows.Next() {
-		var id, name, nodeType string
-		if err := rows.Scan(&id, &name, &nodeType); err != nil {
+		var id, name, nodeType, projectID string
+		if err := rows.Scan(&id, &name, &nodeType, &projectID); err != nil {
 			return nil, err
 		}
 		obs, embs, err := fetchNodeObservations(ctx, pool, id)
 		if err != nil {
 			return nil, fmt.Errorf("observations for node %q: %w", name, err)
 		}
-		n := ExportNode{Name: name, NodeType: nodeType, Observations: obs}
+		n := ExportNode{Name: name, NodeType: nodeType, ProjectID: projectID, Observations: obs}
 		for _, e := range embs {
 			if e != nil {
 				n.Embeddings = embs
@@ -125,14 +127,14 @@ func fetchNodeObservations(ctx context.Context, pool *pgxpool.Pool, nodeID strin
 // fetchExportRelations returns all active relations using node names.
 func fetchExportRelations(ctx context.Context, pool *pgxpool.Pool) ([]ExportRelation, error) {
 	rows, err := pool.Query(ctx,
-		`SELECT fn.name, tn.name, r.relation_type
+		`SELECT fn.name, tn.name, r.relation_type, r.project_id
 		 FROM relations r
 		 JOIN nodes fn ON fn.id = r.from_node_id
 		 JOIN nodes tn ON tn.id = r.to_node_id
 		 WHERE r.deleted_at IS NULL
 		   AND fn.deleted_at IS NULL
 		   AND tn.deleted_at IS NULL
-		 ORDER BY fn.name, tn.name, r.relation_type`)
+		 ORDER BY r.project_id, fn.name, tn.name, r.relation_type`)
 	if err != nil {
 		return nil, err
 	}
@@ -140,11 +142,11 @@ func fetchExportRelations(ctx context.Context, pool *pgxpool.Pool) ([]ExportRela
 
 	var relations []ExportRelation
 	for rows.Next() {
-		var from, to, relType string
-		if err := rows.Scan(&from, &to, &relType); err != nil {
+		var from, to, relType, projectID string
+		if err := rows.Scan(&from, &to, &relType, &projectID); err != nil {
 			return nil, err
 		}
-		relations = append(relations, ExportRelation{From: from, To: to, RelationType: relType})
+		relations = append(relations, ExportRelation{From: from, To: to, RelationType: relType, ProjectID: projectID})
 	}
 	return relations, rows.Err()
 }

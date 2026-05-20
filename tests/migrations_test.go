@@ -83,11 +83,12 @@ func TestMigrationsApplyCleanlyFreshContainer(t *testing.T) {
 	require.NoError(t, goose.Up(db, migrationsDir),
 		"goose.Up debe aplicar todas las migraciones sin error")
 
-	// Confirmar que se llegó a la versión 5.
+	// Confirmar que se llegó a la versión actual (00001..00008 aplicados).
+	// Updated in v0.4.0 when migrations 00007 and 00008 were added.
 	version, err := goose.GetDBVersion(db)
 	require.NoError(t, err, "goose.GetDBVersion")
-	assert.Equal(t, int64(6), version,
-		"versión final de goose debe ser 6 (00001..00006 aplicados)")
+	assert.Equal(t, int64(8), version,
+		"versión final de goose debe ser 8 (00001..00008 aplicados); versión actual: %d", version)
 }
 
 // ── AC-2: TestUsersTableSchema ────────────────────────────────────────────────

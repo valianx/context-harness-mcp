@@ -37,6 +37,20 @@ jobs:
         with:
           go-version: "1.23"
 
+      # Install the ONNX Runtime C++ shared library that fastembed-go links
+      # against via CGO. The version must match Dockerfile's ONNX_RUNTIME_VERSION
+      # so CI exercises the same embedder path as production. Without this,
+      # every write-path test that depends on the embedder silently skips via
+      # requireEmbedder() and the CI green is misleading.
+      - name: Install ONNX Runtime
+        env:
+          ONNX_RUNTIME_VERSION: "1.20.0"
+        run: |
+          curl -fsSL "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_RUNTIME_VERSION}/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}.tgz" -o /tmp/onnx.tgz
+          sudo tar -xzf /tmp/onnx.tgz -C /usr/local --strip-components=1
+          sudo ldconfig
+          echo "LD_LIBRARY_PATH=/usr/local/lib" >> "$GITHUB_ENV"
+
       - name: go vet
         run: go vet ./...
 

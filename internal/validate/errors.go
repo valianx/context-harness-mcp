@@ -23,6 +23,25 @@ const (
 	// limit (10 writes per 10 seconds). Clients should back off for the number
 	// of seconds indicated in the retry_after_seconds field of the response.
 	CodeRateLimited = "policy/rate-limited"
+
+	// CodeProjectNamingViolation rechaza un `project` field que no matchea
+	// ^[a-z][a-z0-9-]{0,63}$. Aplicado en handlers de write antes del
+	// Content Filter (no es un layer del filter).
+	CodeProjectNamingViolation = "policy/project-naming-violation"
+
+	// CodeCrossProjectRelation rechaza una relación entre dos nodos cuyos
+	// project_id no coinciden. Aplicado en create_relations y mark_superseded.
+	CodeCrossProjectRelation = "policy/cross-project-relation"
+
+	// CodeNodeNotFound es el sentinel structured para "node not found" usado
+	// por find_conflicts, mark_superseded, y opcionalmente para reemplazar
+	// los errorResult libres de add_observations/update_observations.
+	CodeNodeNotFound = "policy/node-not-found"
+
+	// CodeRelationAlreadyExists indica que mark_superseded encontró la
+	// relación supersedes(new → old) ya creada. No es un fallo grave —
+	// permite al caller manejar idempotencia limpia.
+	CodeRelationAlreadyExists = "policy/relation-already-exists"
 )
 
 // Layer names for the Layer field.
@@ -34,6 +53,9 @@ const (
 	// It is separate from the Content Filter layers — rate-limit enforcement
 	// happens before the Content Filter runs.
 	LayerRateLimit = "rate-limit"
+	// LayerProject identifies project-scoping validation errors (naming
+	// violations and cross-project relation attempts).
+	LayerProject = "project"
 )
 
 // RedactionMarker is the replacement text inserted in place of a matched secret
