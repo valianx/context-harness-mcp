@@ -62,6 +62,26 @@ func MarkDeletedByNodeAndTexts(ctx context.Context, tx pgx.Tx, nodeID string, te
 	return int(tag.RowsAffected()), nil
 }
 
+// MarkObservationDeletedByText soft-deletes the active observation matching
+// nodeID and text exactly. Returns the count of rows updated (0 if the
+// observation did not exist or was already soft-deleted, 1 on success).
+//
+// Used exclusively by the update_observations MCP tool handler to atomically
+// remove the old observation text within a pgx.Tx before inserting the new one.
+func MarkObservationDeletedByText(ctx context.Context, tx pgx.Tx, nodeID string, text string) (int, error) {
+	tag, err := tx.Exec(ctx,
+		`UPDATE observations SET deleted_at = now()
+		 WHERE node_id = $1
+		   AND text = $2
+		   AND deleted_at IS NULL`,
+		nodeID, text,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
 // ListByNodeIDs returns the active observation texts for each node id in the
 // provided slice. The result is a map of node_id → []text, preserving
 // insertion order via ORDER BY id. Node ids with no active observations are

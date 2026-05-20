@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `internal/store/observations.go` + `internal/mcp/nodes.go` — `update_observations` tool: atomically replaces an existing observation on a node via soft-delete of old text + insert of new text with fresh embedding, all within a single `pgx.Tx`. Runs the full Content Filter (size, secrets, taxonomy) on `new_text` before opening any transaction; `old_text` is a lookup-only key. Rejects `old_text == new_text` before opening Tx (AC-5). Attribution (`created_by_user_id`/`created_by_email`) persisted on the new observation row. Error on node-not-found or observation-not-found triggers full rollback (AC-3, AC-4). Rate-limited (write tool, same bucket as `add_observations`).
+
 - `internal/healthz/healthz.go` + `internal/mcp/server.go` + `internal/validate/secrets.go` — `doctor` MCP tool: runs 5 deep operational probes in order (`db_ping`, `pgvector_extension`, `embedder`, `gitleaks_detector`, `row_counts`), each with a 5 s per-check timeout. Always returns `IsError:false` — degradation is reported in the body via `degraded:true` and per-check `status:"fail"`. Read-only, no rate-limit, no content filter.
 
 - `internal/mcp/query.go` + `internal/store/nodes.go` + `migrations/00006_nodes_created_at_idx.sql` — `timeline` tool: chronological node listing with optional RFC3339 `since`/`until` date bounds, offset-based pagination (`limit` default 50 max 200, `offset` default 0 max 100000), stable `ORDER BY created_at DESC, id DESC`, `has_more` flag via LIMIT N+1 strategy, and relations scoped to the result set. Read-only, no rate-limit, no content filter.

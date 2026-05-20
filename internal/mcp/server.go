@@ -15,7 +15,7 @@ const (
 	serverVersion = "0.1.0"
 )
 
-// New returns a configured *server.MCPServer with all 7 MCP tools registered.
+// New returns a configured *server.MCPServer with all 10 MCP tools registered.
 // pool must be non-nil — the server requires DB access for all write and read
 // tool handlers. limiter enforces per-IP write-tool rate limits; pass a non-nil
 // *ratelimit.Limiter for HTTP deployments.
