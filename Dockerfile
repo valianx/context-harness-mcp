@@ -38,6 +38,7 @@ ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
+        postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL \
         "https://github.com/microsoft/onnxruntime/releases/download/v${ONNX_RUNTIME_VERSION}/onnxruntime-linux-x64-${ONNX_RUNTIME_VERSION}.tgz" \
