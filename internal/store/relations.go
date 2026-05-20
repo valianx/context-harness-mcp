@@ -109,6 +109,42 @@ func ListActiveRelations(ctx context.Context, pool *pgxpool.Pool) ([]RelationRow
 	return result, rows.Err()
 }
 
+// RelationsForNodeIDs returns all active relations where AT LEAST ONE endpoint
+// (from_node_id OR to_node_id) is in the provided set. This is wider than
+// ListActiveRelationsForNodeIDs (which requires BOTH endpoints in the set) and
+// is used by the viewer search handler to display all edges touching a result
+// node — including edges to nodes outside the result set.
+func RelationsForNodeIDs(ctx context.Context, pool *pgxpool.Pool, nodeIDs []string) ([]RelationRow, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+
+	rows, err := pool.Query(ctx,
+		`SELECT nf.name AS "from", nt.name AS "to", r.relation_type
+		 FROM relations r
+		 JOIN nodes nf ON nf.id = r.from_node_id AND nf.deleted_at IS NULL
+		 JOIN nodes nt ON nt.id = r.to_node_id   AND nt.deleted_at IS NULL
+		 WHERE (r.from_node_id::text = ANY($1) OR r.to_node_id::text = ANY($1))
+		   AND r.deleted_at IS NULL
+		 ORDER BY nf.name, nt.name, r.relation_type`,
+		nodeIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []RelationRow
+	for rows.Next() {
+		var r RelationRow
+		if err := rows.Scan(&r.From, &r.To, &r.RelationType); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, rows.Err()
+}
+
 // ListActiveRelationsForNodeIDs returns active relations where both the from
 // and to node ids are within the provided set. Used by open_nodes and
 // search_nodes to filter relations to only those connecting the result set.

@@ -176,8 +176,11 @@ func checkProjectNames(p Payload) *Error {
 	return nil
 }
 
-// SortedNodeTypes returns all 9 nodeType values in alphabetical order. Used by
-// the suggest_node_type tool to enumerate which types have no centroid yet.
+// SortedNodeTypes returns the 9 allowed nodeType values in alphabetical order.
+// Used by the suggest_node_type tool (to enumerate types with no centroid) and
+// by the viewer (to populate the nodeType filter dropdown). Callers that need a
+// stable list for API responses or UI should use this rather than iterating the
+// map directly (map iteration order is random).
 func SortedNodeTypes() []string {
 	types := make([]string, 0, len(NodeTypes))
 	for t := range NodeTypes {
@@ -191,12 +194,7 @@ func SortedNodeTypes() []string {
 // for use in error messages. Sorted output ensures message stability across Go
 // versions (map iteration order is intentionally random).
 func joinNodeTypes() string {
-	types := make([]string, 0, len(NodeTypes))
-	for t := range NodeTypes {
-		types = append(types, t)
-	}
-	sort.Strings(types)
-	return strings.Join(types, ", ")
+	return strings.Join(SortedNodeTypes(), ", ")
 }
 
 // joinRelationTypes returns a sorted, comma-separated list of allowed relation

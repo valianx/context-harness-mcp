@@ -10,6 +10,11 @@
     --ch-fg:#e6e6ea; --ch-fg-mute:#8a8a96; --ch-fg-dim:#56565f;
     --ch-border:#1f1f27; --ch-accent:#f59e0b; --ch-accent-soft:#f59e0b22;
     --ch-error:#ef4444;
+    /* amber-accent alias for relation links */
+    --amber-accent:#f59e0b;
+    /* violet-signal alias for superseded badge */
+    --violet-signal:#a78bfa;
+    --violet-signal-soft:#a78bfa22;
     --ch-sans:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
     --ch-mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace;
   }
@@ -29,7 +34,23 @@
   /* ── controls row ───────────────────────────── */
   .ch-controls{display:flex;align-items:center;gap:10px;flex:0 1 auto}
 
-  /* ── project select ─────────────────────────── */
+  /* ── shared filter select style ─────────────── */
+  .ch-filter-select{
+    background:var(--ch-bg-panel);
+    color:var(--ch-fg-mute);
+    border:1px solid var(--ch-border);
+    border-radius:6px;
+    padding:8px 10px;
+    font:400 12px/1.4 var(--ch-mono);
+    outline:none;
+    cursor:pointer;
+    transition:border-color 150ms ease;
+    height:36px;
+  }
+  .ch-filter-select:focus{border-color:var(--ch-accent);color:var(--ch-fg)}
+  .ch-filter-select option{background:var(--ch-bg-panel);color:var(--ch-fg)}
+
+  /* ── project select (legacy alias) ─────────────── */
   .ch-project-filter{
     background:var(--ch-bg-panel);
     color:var(--ch-fg);
@@ -71,6 +92,19 @@
   .ch-badge{font-family:var(--ch-mono);font-size:10px;color:var(--ch-accent);background:var(--ch-accent-soft);padding:3px 7px;border-radius:4px;letter-spacing:.06em;text-transform:uppercase}
   /* project badge — muted grey, WCAG AA (≥4.5:1): #c8c8d0 on #1a1a22 ≈8:1 */
   .ch-badge-project{font-family:var(--ch-mono);font-size:10px;color:#c8c8d0;background:#1a1a22;border:1px solid var(--ch-border);padding:2px 6px;border-radius:4px;letter-spacing:.04em}
+  /* superseded badge — violet signal, WCAG AA: #c4b5fd on #1a1624 ≈6.2:1 */
+  .ch-badge-superseded{
+    font-family:var(--ch-mono);font-size:10px;
+    color:#c4b5fd;
+    background:var(--violet-signal-soft);
+    border:1px solid #a78bfa44;
+    padding:2px 8px;border-radius:4px;
+    letter-spacing:.04em;
+    cursor:pointer;
+    text-transform:uppercase;
+    display:inline-flex;align-items:center;gap:4px;
+  }
+  .ch-badge-superseded:hover{border-color:var(--violet-signal);color:var(--violet-signal)}
   .ch-card-meta{margin-left:auto;display:flex;gap:10px;font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-dim)}
   .ch-similarity{color:var(--ch-accent)}
   .ch-card-preview{color:var(--ch-fg-mute);font-size:13px;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
@@ -88,6 +122,32 @@
   .ch-rel:hover{border-color:var(--ch-accent);color:var(--ch-accent)}
   .ch-rel-arrow{color:var(--ch-fg-dim);font-size:10px}
   .ch-rel-kind{color:var(--ch-accent);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+
+  /* ── relations section (new flat list below observations) ─────────────── */
+  .ch-relations-section{margin-top:14px}
+  .ch-relations-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
+  .ch-relations-list li{display:flex;align-items:center;gap:6px;font-size:12px}
+  /* relation type label: small, dim, monospace — WCAG AA #8a8a96 on #14141a ≈6.5:1 */
+  .ch-link-relation{
+    font-family:var(--ch-mono);font-size:11px;
+    color:var(--ch-fg-mute);
+    text-decoration:none;
+    letter-spacing:.04em;
+    cursor:default;
+    white-space:nowrap;
+  }
+  .ch-link-relation:hover{text-decoration:underline}
+  .ch-rel-sep{color:var(--ch-fg-dim);font-size:10px}
+  /* target node link: amber accent — WCAG AA: #f59e0b on #14141a ≈7.2:1 */
+  .ch-link-target{
+    font-family:var(--ch-mono);font-size:11px;
+    color:var(--amber-accent);
+    text-decoration:none;
+    letter-spacing:.02em;
+    cursor:pointer;
+  }
+  .ch-link-target:hover{text-decoration:underline}
+  .ch-rel-direction{color:var(--ch-fg-dim);font-size:10px;letter-spacing:.04em;font-family:var(--ch-mono)}
 
   /* ── states ─────────────────────────────────── */
   .ch-state{animation:ch-in 200ms ease-out both}
@@ -167,6 +227,9 @@
       <option value="">all projects</option>
       <option value="global">global</option>
     </select>
+    <select class="ch-filter-select" id="nodetype-filter" aria-label="filter by node type">
+      <option value="">all types</option>
+    </select>
     <div class="ch-search-wrap">
       <svg class="ch-search-icon" viewBox="0 0 16 16" fill="none" aria-hidden="true">
         <circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/>
@@ -223,13 +286,15 @@
 <script>
 (() => {
   // ── config ──────────────────────────────────────────────────
-  const SEARCH_API   = '/viewer/api/search';
-  const PROJECTS_API = '/viewer/api/projects';
+  const SEARCH_API     = '/viewer/api/search';
+  const PROJECTS_API   = '/viewer/api/projects';
+  const NODE_TYPES_API = '/viewer/api/node-types';
   const SEARCH_DEBOUNCE_MS = 250;
 
   // ── DOM refs ────────────────────────────────────────────────
   const $search    = document.getElementById('search');
   const $project   = document.getElementById('project-filter');
+  const $nodetype  = document.getElementById('nodetype-filter');
   const $grid      = document.getElementById('grid');
   const $empty     = document.getElementById('empty');
   const $loading   = document.getElementById('loadingrow');
@@ -242,42 +307,45 @@
 
   let allNodes = [];
 
-  // ── project dropdown ────────────────────────────────────────
-  // Fetch /viewer/api/projects on load and populate the <select>.
-  // The HTML already has "all projects" (value="") and "global" as static
-  // options so the page is usable even if the fetch fails.
-  async function loadProjects() {
-    try {
-      const r = await fetch(PROJECTS_API, { headers: { 'Accept': 'application/json' } });
-      if (!r.ok) return;
-      const j = await r.json();
-      const projects = j.projects || [];
+  // ── dropdown loaders ────────────────────────────────────────
+  // Both fetches run in parallel on page load. Silently ignore failures —
+  // static options ("all projects" / "all types") remain available.
+  async function loadDropdowns() {
+    const [projectRes, nodeTypeRes] = await Promise.allSettled([
+      fetch(PROJECTS_API,   { headers: { 'Accept': 'application/json' } }),
+      fetch(NODE_TYPES_API, { headers: { 'Accept': 'application/json' } }),
+    ]);
 
-      // Rebuild options: keep "all projects" first, then dynamically populate.
-      // Remove all existing <option> elements beyond the first ("all projects").
-      while ($project.options.length > 1) {
-        $project.remove(1);
-      }
+    if (projectRes.status === 'fulfilled' && projectRes.value.ok) {
+      const j = await projectRes.value.json();
+      populateSelect($project, j.projects || [], 'all projects');
+    }
 
-      // "global" always comes first (after "all projects"), then others alpha.
-      for (const pid of projects) {
-        const opt = document.createElement('option');
-        opt.value = pid;
-        opt.textContent = pid;
-        $project.appendChild(opt);
-      }
-    } catch (_) {
-      // Silently ignore — static options (all projects / global) still work.
+    if (nodeTypeRes.status === 'fulfilled' && nodeTypeRes.value.ok) {
+      const j = await nodeTypeRes.value.json();
+      populateSelect($nodetype, j.nodeTypes || [], 'all types');
+    }
+  }
+
+  // Rebuilds a <select>'s options (beyond the first "all …" option).
+  function populateSelect(selectEl, values, allLabel) {
+    while (selectEl.options.length > 1) {
+      selectEl.remove(1);
+    }
+    for (const v of values) {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      selectEl.appendChild(opt);
     }
   }
 
   // ── search API client ───────────────────────────────────────
-  // Builds the URL including ?project= when a project is selected.
   function buildSearchURL(query) {
     const parts = [];
-    if (query) parts.push('q=' + encodeURIComponent(query));
-    const p = $project.value;
-    if (p) parts.push('project=' + encodeURIComponent(p));
+    if (query)             parts.push('q='        + encodeURIComponent(query));
+    if ($project.value)    parts.push('project='  + encodeURIComponent($project.value));
+    if ($nodetype.value)   parts.push('nodeType=' + encodeURIComponent($nodetype.value));
     return SEARCH_API + (parts.length ? '?' + parts.join('&') : '');
   }
 
@@ -287,17 +355,13 @@
     if (!r.ok) throw new Error('search → ' + r.status);
     const j = await r.json();
     // Server returns { query, node_count, nodes: [{name, node_type, project_id,
-    // observations, relations_out, relations_in}] }. Normalise to the shape the
-    // rest of this script expects.
+    // observations, relations:[{from_name, to_name, relation_type}]}] }.
     return (j.nodes || []).map(n => ({
-      name:      n.name,
-      nodeType:  n.node_type,
-      projectID: n.project_id || 'global',
+      name:         n.name,
+      nodeType:     n.node_type,
+      projectID:    n.project_id || 'global',
       observations: n.observations || [],
-      relations: [
-        ...(n.relations_out || []).map(r => ({ to: r.to, relationType: r.type })),
-        ...(n.relations_in  || []).map(r => ({ to: r.from, relationType: r.type + ' ← in' })),
-      ],
+      relations:    n.relations    || [],
     }));
   }
 
@@ -315,15 +379,38 @@
     nodes.forEach((n, i) => $grid.appendChild(card(n, i, opts)));
   }
 
+  // ── superseded indicator helper ─────────────────────────────
+  // Returns the name of the node that supersedes this one, or null.
+  // "supersedes" is directional: from=new → to=old. So this node is
+  // superseded when there is a relation with relation_type="supersedes"
+  // and to_name===this node's name.
+  function supersededBy(node) {
+    for (const rel of (node.relations || [])) {
+      if (rel.relation_type === 'supersedes' && rel.to_name === node.name) {
+        return rel.from_name;
+      }
+    }
+    return null;
+  }
+
   function card(node, i, opts) {
     const c = document.createElement('button');
     c.type = 'button'; c.className = 'ch-card ch-state';
     c.style.animationDelay = Math.min(i * 20, 200) + 'ms';
+
     const obsCount    = (node.observations || []).length;
     const previewText = (node.observations && node.observations[0]) || '—';
     const projectID   = node.projectID || 'global';
+    const newNode     = supersededBy(node);
+
+    // Build superseded badge HTML if applicable.
+    const supersededBadgeHTML = newNode
+      ? `<span class="ch-badge-superseded" data-target="${esc(newNode)}" role="button" tabindex="0">superseded by ${esc(newNode)}</span>`
+      : '';
+
     c.innerHTML = `
       <div class="ch-card-head">
+        ${supersededBadgeHTML}
         <span class="ch-card-name">${esc(node.name)}</span>
         <span class="ch-badge">${esc(node.nodeType || 'node')}</span>
         <span class="ch-badge-project">${esc(projectID)}</span>
@@ -334,8 +421,31 @@
       </div>
       <div class="ch-card-preview">${esc(previewText)}</div>
     `;
+
+    // Wire superseded badge click: fills search and re-searches.
+    if (newNode) {
+      const badge = c.querySelector('.ch-badge-superseded');
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        navigateTo(newNode);
+      });
+      badge.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          navigateTo(newNode);
+        }
+      });
+    }
+
     c.addEventListener('click', () => toggleExpand(c, node));
     return c;
+  }
+
+  // navigateTo fills the search box with name and triggers a new search.
+  function navigateTo(name) {
+    $search.value = name;
+    runSearch();
   }
 
   function toggleExpand(cardEl, node) {
@@ -354,38 +464,55 @@
     exp.className = 'ch-expand';
 
     const obs  = node.observations || [];
-    const rels = node.relations || [];
+    const rels = node.relations    || [];
+
+    // Outgoing relations: where this node is the source (from_name === node.name).
+    const outgoing = rels.filter(r => r.from_name === node.name);
 
     exp.innerHTML = `
       <p class="ch-section-label">observations · ${obs.length}</p>
       <ul class="ch-obs-list">
         ${obs.map(o => `<li>${esc(o)}</li>`).join('') || '<li style="color:var(--ch-fg-dim)">—</li>'}
       </ul>
-      <p class="ch-section-label">relations · ${rels.length}</p>
-      ${rels.length ? `<ul class="ch-rel-list">${rels.map(r => `
-        <li><button class="ch-rel" data-target="${esc(r.to)}">
-          <span class="ch-rel-kind">${esc(r.relationType || 'rel')}</span>
-          <span class="ch-rel-arrow">→</span>
-          <span>${esc(r.to)}</span>
-        </button></li>`).join('')}</ul>` : `<p style="color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:12px;margin:0">—</p>`}
+      ${renderRelationsSection(node.name, rels)}
     `;
+
     cardEl.appendChild(exp);
-    exp.querySelectorAll('.ch-rel').forEach(b => {
-      b.addEventListener('click', (e) => {
+
+    // Wire target-name clicks in the relations section.
+    exp.querySelectorAll('.ch-link-target[data-target]').forEach(a => {
+      a.addEventListener('click', (e) => {
         e.stopPropagation();
-        const target = b.dataset.target;
-        const t = allNodes.find(n => n.name === target);
-        if (t) {
-          const cards = [...$grid.querySelectorAll('.ch-card')];
-          const idx   = allNodes.indexOf(t);
-          const tc    = cards[idx];
-          if (tc) {
-            window.scrollTo({ top: tc.offsetTop - 80, behavior: 'smooth' });
-            if (!tc.classList.contains('open')) toggleExpand(tc, t);
-          }
-        }
+        navigateTo(a.dataset.target);
       });
     });
+  }
+
+  // renderRelationsSection builds the flat relations list HTML.
+  // Each item shows: relation_type → to_name (outgoing) or from_name → (incoming).
+  function renderRelationsSection(nodeName, rels) {
+    if (rels.length === 0) {
+      return `<div class="ch-relations-section">
+        <p class="ch-section-label">relations · 0</p>
+        <p style="color:var(--ch-fg-dim);font-family:var(--ch-mono);font-size:12px;margin:0">—</p>
+      </div>`;
+    }
+
+    const items = rels.map(r => {
+      const isOutgoing = r.from_name === nodeName;
+      const direction  = isOutgoing ? '→' : '←';
+      const peer       = isOutgoing ? r.to_name : r.from_name;
+      return `<li>
+        <span class="ch-link-relation">${esc(r.relation_type)}</span>
+        <span class="ch-rel-sep">${direction}</span>
+        <a class="ch-link-target" data-target="${esc(peer)}" role="button" tabindex="0">${esc(peer)}</a>
+      </li>`;
+    }).join('');
+
+    return `<div class="ch-relations-section">
+      <p class="ch-section-label">relations · ${rels.length}</p>
+      <ul class="ch-relations-list">${items}</ul>
+    </div>`;
   }
 
   function esc(s) {
@@ -429,15 +556,17 @@
   $search.addEventListener('input', scheduleSearch);
   $search.addEventListener('search', runSearch); // clear button
 
-  $project.addEventListener('change', () => {
-    // Re-run the current search/list with the new project selection.
+  // Both filter dropdowns re-run the current search/list immediately on change.
+  function onFilterChange() {
     const q = $search.value.trim();
     if (!q) {
       load();
     } else {
       runSearch();
     }
-  });
+  }
+  $project.addEventListener('change', onFilterChange);
+  $nodetype.addEventListener('change', onFilterChange);
 
   async function runSearch() {
     const q = $search.value.trim();
@@ -461,8 +590,8 @@
     }
   });
 
-  // On page load: fetch projects then fetch nodes.
-  loadProjects().then(() => load());
+  // On page load: fetch both dropdowns in parallel, then fetch nodes.
+  loadDropdowns().then(() => load());
 })();
 </script>
 </body>
