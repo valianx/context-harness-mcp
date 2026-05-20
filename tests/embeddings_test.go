@@ -72,8 +72,12 @@ func loadParityBaseline(t *testing.T) []parityRecord {
 
 // TestParityWithChromaDB encodes each text via embed.Default() and asserts
 // cosine similarity >= 0.999 against the sentence-transformers baseline vectors
-// in parity_baseline.json (AC-3).
+// in parity_baseline.json (AC-3). Requires the real ONNX embedder — mock
+// vectors are deterministic but have no relationship to the sentence-transformer
+// baseline.
 func TestParityWithChromaDB(t *testing.T) {
+	requireRealEmbedder(t)
+
 	records := loadParityBaseline(t)
 	ctx := context.Background()
 
@@ -83,7 +87,6 @@ func TestParityWithChromaDB(t *testing.T) {
 	}
 
 	vecs, err := embed.Default().Encode(ctx, texts)
-	skipIfONNXUnavailable(t, err)
 	require.NoError(t, err, "Encode must succeed when ONNX runtime is available")
 	require.Len(t, vecs, len(records), "one vector per input text")
 
@@ -121,82 +124,84 @@ func TestColdStartBudget(t *testing.T) {
 
 // ── AC-2: semantic top-hit ────────────────────────────────────────────────────
 
-// TestSearchSemanticTopHit seeds 10 entities via create_entities, queries for
-// "authentication patterns", and asserts that the entity with auth-related
-// observations is the top-1 result (AC-2). Requires Docker + ONNX runtime.
+// TestSearchSemanticTopHit seeds 10 nodes via create_nodes, queries for
+// "authentication patterns", and asserts that the node with auth-related
+// observations is the top-1 result (AC-2). Requires Docker + ONNX runtime
+// because mock vectors have no semantic structure — only the real embedder
+// produces vectors where "authentication patterns" is closer to "OAuth"
+// than to "Redis" or "Kubernetes".
 func TestSearchSemanticTopHit(t *testing.T) {
 	// Guard: skip if DB container is unavailable.
 	pool := NewTestPool(t)
 	_ = pool
 
-	// Guard: skip if ONNX runtime is unavailable (probe with a single text).
-	ctx := context.Background()
-	_, probeErr := embed.Default().Encode(ctx, []string{"probe"})
-	skipIfONNXUnavailable(t, probeErr)
+	// Swap to real ONNX (default is mock); cleanup restores. Skip if ONNX
+	// unavailable in this environment.
+	requireRealEmbedder(t)
 
 	CleanDB(t)
 	c := newMCPClient(t)
 
-	// Seed 10 entities. Only "auth-entity" has auth-related observations;
+	// Seed 10 nodes. Only "auth-entity" has auth-related observations;
 	// the others cover unrelated topics to make the semantic ranking meaningful.
-	entities := []map[string]any{
+	nodes := []map[string]any{
 		{
 			"name":         "auth-entity",
-			"entityType":   "pattern",
+			"nodeType":   "pattern",
 			"observations": []string{"OAuth refresh tokens and JWT rotation for authentication", "bearer token validation and session management"},
 		},
 		{
 			"name":         "db-entity",
-			"entityType":   "pattern",
+			"nodeType":   "pattern",
 			"observations": []string{"pgvector cosine similarity search for semantic retrieval", "database indexing with HNSW for approximate nearest neighbor"},
 		},
 		{
 			"name":         "deploy-entity",
-			"entityType":   "decision",
+			"nodeType":   "decision",
 			"observations": []string{"Docker container orchestration and Kubernetes deployment", "Render platform for serverless container hosting"},
 		},
 		{
 			"name":         "testing-entity",
-			"entityType":   "pattern",
+			"nodeType":   "pattern",
 			"observations": []string{"testcontainers-go for ephemeral database integration tests", "table-driven tests with subtests in Go testing package"},
 		},
 		{
 			"name":         "storage-entity",
-			"entityType":   "service",
+			"nodeType":   "service",
 			"observations": []string{"Amazon S3 object storage for file persistence", "bucket lifecycle policies and versioning configuration"},
 		},
 		{
 			"name":         "network-entity",
-			"entityType":   "constraint",
+			"nodeType":   "constraint",
 			"observations": []string{"TCP connection pooling and keep-alive configuration", "HTTP/2 multiplexing and request pipelining"},
 		},
 		{
 			"name":         "cache-entity",
-			"entityType":   "pattern",
+			"nodeType":   "pattern",
 			"observations": []string{"Redis distributed cache with TTL-based eviction", "LRU cache invalidation strategy for frequently accessed data"},
 		},
 		{
 			"name":         "logging-entity",
-			"entityType":   "pattern",
+			"nodeType":   "pattern",
 			"observations": []string{"structured JSON logging with log levels and correlation IDs", "centralized log aggregation with search and alerting"},
 		},
 		{
 			"name":         "schema-entity",
-			"entityType":   "decision",
+			"nodeType":   "decision",
 			"observations": []string{"goose migration versioning and rollback strategy", "foreign key constraints with cascade delete for referential integrity"},
 		},
 		{
 			"name":         "mcp-entity",
-			"entityType":   "service",
+			"nodeType":   "service",
 			"observations": []string{"Model Context Protocol stdio transport for Claude Code integration", "MCP tool registration and handler dispatch pattern"},
 		},
 	}
 
-	result := callTool(t, c, "create_entities", map[string]any{
-		"entities": entities,
+	result := callTool(t, c, "create_nodes", map[string]any{
+		"nodes": nodes,
 	})
 	require.False(t, result.IsError,
-		"create_entities must succeed: %s", resultText(t, result))
+		"create_nodes must succeed: %s", resultText(t, result))
 
 	// Query for authentication — "auth-entity" must be the top result.
 	searchResult := callTool(t, c, "search_nodes", map[string]any{
@@ -206,14 +211,14 @@ func TestSearchSemanticTopHit(t *testing.T) {
 		"search_nodes must succeed: %s", resultText(t, searchResult))
 
 	var resp struct {
-		Entities []struct {
+		Nodes []struct {
 			Name string `json:"name"`
-		} `json:"entities"`
+		} `json:"nodes"`
 	}
 	unmarshalResult(t, searchResult, &resp)
 
-	require.NotEmpty(t, resp.Entities, "search must return at least one entity")
-	assert.Equal(t, "auth-entity", resp.Entities[0].Name,
-		"top result must be auth-entity (AC-2); got %v", resp.Entities)
+	require.NotEmpty(t, resp.Nodes, "search must return at least one node")
+	assert.Equal(t, "auth-entity", resp.Nodes[0].Name,
+		"top result must be auth-entity (AC-2); got %v", resp.Nodes)
 }
 

@@ -26,6 +26,10 @@ func TestMigrationRoundTrip(t *testing.T) {
 	if testPool == nil {
 		t.Skip("testPool is nil — Docker daemon was not available when the suite started")
 	}
+	// Clean before AND after to be robust against test-order pollution.
+	// Other tests in this package may leave nodes/relations behind that would
+	// otherwise inflate the export counts in this round-trip check.
+	CleanDB(t)
 	t.Cleanup(func() { CleanDB(t) })
 
 	fixtureInput := filepath.Join("fixtures", "migration_input.json")
@@ -62,6 +66,7 @@ func TestMigrationRoundTrip_LegacyEntitiesShape(t *testing.T) {
 	if testPool == nil {
 		t.Skip("testPool is nil — Docker daemon was not available when the suite started")
 	}
+	CleanDB(t)
 	t.Cleanup(func() { CleanDB(t) })
 
 	fixtureInput := filepath.Join("fixtures", "migration_input_legacy_entities.json")

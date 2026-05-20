@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/healthz"
 )
 
@@ -39,20 +38,18 @@ var expectedCheckNames = []string{
 	"row_counts",
 }
 
-// warmEmbedder pre-initialises the ONNX sync.Once so that subsequent calls to
-// the embedder check inside healthz.Run do not incur the 200–500 ms cold-start
-// penalty. As of the healthz cold-start fix the embedder check no longer
-// enforces a latency gate (cold-start is reported in Detail but does not fail
-// the check), but pre-warming is still useful for deterministic test timing
-// and to ensure a missing model / CGO surfaces as a skip rather than a
-// per-test failure.
+// warmEmbedder swaps the suite-wide mock to the real ONNX embedder and
+// pre-initialises the ONNX sync.Once so that subsequent calls to the embedder
+// check inside healthz.Run do not incur the 200–500 ms cold-start penalty.
+//
+// As of the healthz cold-start fix the embedder check no longer enforces a
+// latency gate (cold-start is reported in Detail but does not fail the
+// check), but pre-warming is still useful for deterministic test timing and
+// to ensure a missing model / CGO surfaces as a skip rather than a per-test
+// failure. The mock is restored via t.Cleanup when the test exits.
 func warmEmbedder(t *testing.T) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if _, err := embed.Default().Encode(ctx, []string{"warmup"}); err != nil {
-		t.Skipf("embedder unavailable (CGO disabled or model missing) — skipping doctor test: %v", err)
-	}
+	requireRealEmbedder(t)
 }
 
 // newPoolForDSN creates a *pgxpool.Pool for the given DSN without the pgvector

@@ -20,6 +20,7 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
 
@@ -102,6 +103,12 @@ func runSuite(m *testing.M) int {
 	}
 	defer pool.Close()
 	testPool = pool
+
+	// Default the embedder to a deterministic mock so the suite does not pay
+	// the ONNX cold-start + per-encode cost. Tests that need semantic
+	// validation opt back into real ONNX via requireRealEmbedder(t).
+	restoreEmbed := embed.SetForTesting(embed.NewMockEncoder())
+	defer restoreEmbed()
 
 	return m.Run()
 }
