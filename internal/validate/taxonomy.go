@@ -176,16 +176,23 @@ func checkProjectNames(p Payload) *Error {
 	return nil
 }
 
-// joinNodeTypes returns a sorted, comma-separated list of allowed node types
-// for use in error messages. Sorted output ensures message stability across Go
-// versions (map iteration order is intentionally random).
-func joinNodeTypes() string {
+// SortedNodeTypes returns the allowed node_type values in alphabetical order.
+// Callers that need a stable list for API responses or UI dropdowns should use
+// this rather than iterating the map directly (map iteration order is random).
+func SortedNodeTypes() []string {
 	types := make([]string, 0, len(NodeTypes))
 	for t := range NodeTypes {
 		types = append(types, t)
 	}
 	sort.Strings(types)
-	return strings.Join(types, ", ")
+	return types
+}
+
+// joinNodeTypes returns a sorted, comma-separated list of allowed node types
+// for use in error messages. Sorted output ensures message stability across Go
+// versions (map iteration order is intentionally random).
+func joinNodeTypes() string {
+	return strings.Join(SortedNodeTypes(), ", ")
 }
 
 // joinRelationTypes returns a sorted, comma-separated list of allowed relation
