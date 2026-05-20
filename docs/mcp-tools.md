@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The server exposes ten knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes twelve knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
 JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
@@ -382,6 +382,113 @@ Read the entire active knowledge graph. Use sparingly — prefer `search_nodes` 
 
 ---
 
+## Conflict detection
+
+> **Semantic note:** `supersedes` and `conflicts_with` are **descriptive-only** relations. Neither triggers automatic filtering of old or conflicting nodes in `search_nodes`, `open_nodes`, `read_graph`, `timeline`, or `stats`. The old node remains fully visible alongside the new one. **To hide the old node's data after marking, pass `archive_old_observations: true`** to `mark_superseded` — this soft-deletes the old node's observations via `deleted_at`. There is no read-time filter on `supersedes` or `conflicts_with`.
+
+### 11. `find_conflicts`
+
+Semantic similarity search scoped to the same project as the target node. Encodes each of the target node's active observations and queries the pgvector HNSW index for similar nodes — one query per target observation, results aggregated client-side (loop-N-queries strategy). Useful for detecting accidental duplicates or nodes describing overlapping topics.
+
+**Arguments**
+
+```json
+{
+  "nodeName": "rotacion-claves-oauth",
+  "top_k": 5,
+  "min_similarity": 0.85,
+  "project": "zippy-backoffice"
+}
+```
+
+- `nodeName` — required. Name of the target node to compare against.
+- `top_k` — optional, default `5`, max `50`. Values outside `[1, 50]` are silently clamped.
+- `min_similarity` — optional, default `0.85`. Cosine similarity threshold; values outside `[0, 1]` return a validation error.
+- `project` — optional. When set, scopes the target node lookup to that project.
+
+**Success response**
+
+```json
+{
+  "candidates": [
+    {
+      "name": "token-refresh-strategy",
+      "node_type": "pattern",
+      "similarity": 0.91,
+      "matching_observations_pair": {
+        "own_obs": "Rotación de claves OAuth cada 90 días vía Vault.",
+        "other_obs": "Token refresh strategy: 90-day rotation via Vault, MiniLM embed."
+      }
+    }
+  ]
+}
+```
+
+- `candidates` is ordered by `similarity` descending (most similar first).
+- `matching_observations_pair.own_obs` is the target node's observation that produced the maximum similarity; `other_obs` is the matching observation from the candidate.
+- Returns an empty `candidates` array when the target node has no embeddings or no candidates exceed `min_similarity`.
+- Read-only — no rate-limit, no content filter.
+
+**Error responses**
+
+| Condition | Code |
+|---|---|
+| `nodeName` not found | `policy/node-not-found` |
+| `min_similarity` outside `[0, 1]` | `IsError: true`, message `"min_similarity must be in [0, 1]"` |
+
+### 12. `mark_superseded`
+
+Create a `supersedes` relation from the new node to the old node (`new → old`). Optionally soft-delete the old node's active observations so they no longer appear in search results.
+
+> **Direction**: the `supersedes` edge points from `new` to `old`. Semantically: "new supersedes old".
+>
+> **`reason` field**: logged via `slog.Info` as structured JSON — it is NOT persisted in the database in v0.4.0. Do not include secrets or personal data in `reason`.
+>
+> **Descriptive-only**: after `mark_superseded`, the old node is still returned by `search_nodes`, `open_nodes`, `read_graph`, `timeline`, and `stats` unless you pass `archive_old_observations: true`. The `supersedes` relation appears as an edge in `read_graph` output.
+
+**Arguments**
+
+```json
+{
+  "old": "rotacion-claves-oauth",
+  "new": "token-refresh-strategy",
+  "reason": "The new node describes the same strategy in canonical terms.",
+  "archive_old_observations": false,
+  "project": "zippy-backoffice"
+}
+```
+
+- `old` — required. Name of the node being superseded.
+- `new` — required. Name of the superseding node.
+- `reason` — optional free text (≤500 chars). Logged only — not persisted in DB.
+- `archive_old_observations` — optional, default `false`. When `true`, all active observations of the `old` node are soft-deleted (`deleted_at = now()`). This is the only mechanism for hiding old node content — there is no read-time filter on `supersedes`.
+- `project` — optional. When set, must match the project of both nodes.
+
+**Success response**
+
+```json
+{ "relation_created": true, "observations_archived": 3 }
+```
+
+- `observations_archived` is 0 when `archive_old_observations` is false.
+- The `supersedes` row carries attribution (`created_by_user_id` / `created_by_email`) from the request context.
+
+**Calling again (idempotency)**
+
+A second call with the same `old` / `new` pair returns `policy/relation-already-exists` — the relation already exists and no change is made.
+
+**Error responses**
+
+| Condition | Code |
+|---|---|
+| `old` node not found | `policy/node-not-found` |
+| `new` node not found | `policy/node-not-found` |
+| `old` and `new` in different projects | `policy/cross-project-relation` |
+| Relation `supersedes(new → old)` already exists | `policy/relation-already-exists` |
+| Rate limit exceeded | `policy/rate-limited` |
+
+---
+
 ## Administrative deletions
 
 Soft-delete operations (`delete_nodes`, `delete_observations`, `delete_relations`) are **not** exposed as MCP tools. Exposing destructive operations on an unauthenticated public endpoint would allow any caller to irreversibly soft-delete graph content without access controls.
@@ -507,6 +614,10 @@ A rate-limited call returns `policy/rate-limited` with a `retry_after_seconds` f
 | `policy/secret-detected` | `secrets` | A secret is detected and `SECRET_MODE=reject` (default). |
 | `policy/taxonomy-violation` | `taxonomy` | `nodeType` or `relationType` not in the closed enums, or an observation contains an absolute Windows/WSL/Unix path with a user name, or a `project` node name is not bare-repo-name. |
 | `policy/rate-limited` | `rate-limit` | The client IP has exceeded 10 writes in 10 seconds. |
+| `policy/project-naming-violation` | `project` | The `project` field fails the regex `^[a-z]([a-z0-9-]{0,62}[a-z0-9])?$`. |
+| `policy/cross-project-relation` | `project` | A relation is attempted between nodes in different projects, or the explicit `project` hint does not match the nodes' actual project. |
+| `policy/node-not-found` | `project` | A node name provided to `find_conflicts` or `mark_superseded` does not match any active node. |
+| `policy/relation-already-exists` | `project` | `mark_superseded` is called for a `(new, old)` pair that already has a `supersedes` relation. |
 
 A policy rejection looks like:
 
