@@ -176,9 +176,11 @@ func checkProjectNames(p Payload) *Error {
 	return nil
 }
 
-// SortedNodeTypes returns the allowed node_type values in alphabetical order.
-// Callers that need a stable list for API responses or UI dropdowns should use
-// this rather than iterating the map directly (map iteration order is random).
+// SortedNodeTypes returns the 9 allowed nodeType values in alphabetical order.
+// Used by the suggest_node_type tool (to enumerate types with no centroid) and
+// by the viewer (to populate the nodeType filter dropdown). Callers that need a
+// stable list for API responses or UI should use this rather than iterating the
+// map directly (map iteration order is random).
 func SortedNodeTypes() []string {
 	types := make([]string, 0, len(NodeTypes))
 	for t := range NodeTypes {

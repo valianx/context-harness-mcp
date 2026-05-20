@@ -6,18 +6,16 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	fastembed "github.com/anush008/fastembed-go"
+
+	"github.com/mariogutierrez/context-harness-mcp/internal/metrics"
 )
 
-// defaultEmbedder is the package-level singleton.
+// defaultEmbedder is the package-level singleton used by encoder.go's Default()
+// and RealEmbedder(). The ONNX session is initialized lazily on first Encode.
 var defaultEmbedder = &FastEmbedder{}
-
-// Default returns the package-level *FastEmbedder singleton.
-// The ONNX session is initialized lazily on the first Encode call.
-func Default() *FastEmbedder {
-	return defaultEmbedder
-}
 
 // FastEmbedder wraps fastembed-go's FlagEmbedding configured for
 // all-MiniLM-L6-v2 (384 dims). Thread-safe: the ONNX session is
@@ -36,6 +34,9 @@ type FastEmbedder struct {
 // surfaces the error as an MCP error so a broken embedder degrades cleanly
 // per-call rather than crashing the server.
 func (e *FastEmbedder) Encode(_ context.Context, texts []string) ([][]float32, error) {
+	start := time.Now()
+	defer func() { metrics.EmbedderDuration.Observe(time.Since(start).Seconds()) }()
+
 	e.once.Do(func() {
 		showProgress := false
 		opts := &fastembed.InitOptions{

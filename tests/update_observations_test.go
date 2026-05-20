@@ -11,7 +11,7 @@
 //     before any Tx is opened.
 //
 // Design note: tests that exercise the write path (embedding required) call
-// requireEmbedder(t) first so they skip cleanly when the ONNX runtime is
+// requireRealEmbedder(t) first so they skip cleanly when the ONNX runtime is
 // unavailable (CGO-disabled environments, Windows dev boxes, etc.).
 //
 // FK constraint: created_by_user_id references users.supabase_user_id. Where
@@ -177,7 +177,7 @@ func resultPolicyCode(t *testing.T, result *mcp.CallToolResult) string {
 // is invoked with auth ctx, Then response={"updated":1}, O1.deleted_at!=NULL,
 // O2="text-B" active with embedding and correct attribution.
 func TestUpdateObservations_HappyPath(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	insertUpdUser(t)
 
@@ -241,7 +241,7 @@ func TestUpdateObservations_HappyPath(t *testing.T) {
 // AC-2: Given the AC-1 scenario, When search_nodes(query="text-A") and
 // read_graph(), Then O1 text does NOT appear in either response.
 func TestUpdateObservations_HidesFromSearchAndReadGraph(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	insertUpdUser(t)
 
@@ -298,7 +298,7 @@ func TestUpdateObservations_HidesFromSearchAndReadGraph(t *testing.T) {
 // AC-3: Given node N with O1, When updates contain [NODE-NO-EXISTE, N], Then
 // IsError=true with "node not found", DB unchanged.
 func TestUpdateObservations_TxRollbackOnMissingNode(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 
 	c := newMCPClientForUpdate(t)
@@ -353,7 +353,7 @@ func TestUpdateObservations_TxRollbackOnMissingNode(t *testing.T) {
 // AC-4: Given node N with O1, When old_text="INEXISTENTE", Then
 // IsError=true with "observation not found", DB unchanged.
 func TestUpdateObservations_TxRollbackOnMissingObservation(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 
 	c := newMCPClientForUpdate(t)
@@ -443,7 +443,7 @@ func TestUpdateObservations_IdenticalTextRejected(t *testing.T) {
 // Design note: seeding via create_nodes requires the embedder. However, the
 // Content Filter runs before batchEmbed and before any node lookup — so the
 // policy error fires regardless of whether a real node exists. This test does
-// NOT call requireEmbedder(t) so it executes in all environments. The DB
+// NOT call requireRealEmbedder(t) so it executes in all environments. The DB
 // unchanged assertion uses the total row count which is zero in a clean DB.
 func TestUpdateObservations_PolicySecretDetected(t *testing.T) {
 	CleanDB(t)

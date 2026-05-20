@@ -30,11 +30,9 @@ type Report struct {
 	Degraded bool   `json:"degraded"` // true when any check has status "fail"
 }
 
-// embedderLatencyLimit is the maximum acceptable latency for the embedder
-// check. Exceeding it marks the check as fail even when no error is returned.
-const embedderLatencyLimit = 200 * time.Millisecond
-
 // perCheckTimeout is the per-check context deadline applied by runCheck.
+// The embedder cold-start can take up to ~500 ms; warm calls are <40 ms.
+// 5 s covers both with comfortable margin and matches the historical timeout.
 const perCheckTimeout = 5 * time.Second
 
 // Run executes the 5 operational probes in order and returns a Report.
@@ -113,9 +111,14 @@ func checkPgvectorExtension(ctx context.Context, pool *pgxpool.Pool) (string, er
 	return extversion, nil
 }
 
-// checkEmbedder runs a single test encode through the ONNX pipeline and
-// measures latency. Fails when Encode returns an error or when wall-clock
-// time exceeds embedderLatencyLimit (200 ms).
+// checkEmbedder runs a single test encode through the ONNX pipeline. Fails
+// only when Encode returns an error — latency is reported in Detail but not
+// treated as a failure. The 200 ms threshold that previously gated this
+// check would systematically fail on the first post-boot /healthz request
+// because the ONNX sync.Once cold-start takes ~300-500 ms, while warm calls
+// are <40 ms. Platform healthchecks (Railway, Render, Fly) probe within
+// seconds of container boot and would mark the deployment unhealthy on what
+// is actually a transient initialization cost, not a health problem.
 func checkEmbedder(ctx context.Context) (string, error) {
 	start := time.Now()
 	vecs, err := embed.Default().Encode(ctx, []string{"healthcheck"})
@@ -125,15 +128,11 @@ func checkEmbedder(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("embedder error: %w", err)
 	}
 
-	if latency > embedderLatencyLimit {
-		return "", fmt.Errorf("embedder latency %dms exceeded 200ms limit", latency.Milliseconds())
-	}
-
 	dims := 0
 	if len(vecs) > 0 {
 		dims = len(vecs[0])
 	}
-	return fmt.Sprintf("all-MiniLM-L6-v2 %d dims", dims), nil
+	return fmt.Sprintf("all-MiniLM-L6-v2 %d dims (%dms)", dims, latency.Milliseconds()), nil
 }
 
 // checkGitleaksDetector fires the gitleaks sync.Once and reports the rule count.

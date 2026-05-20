@@ -31,7 +31,7 @@ func RegisterNodes(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelimit.L
 			mcplib.WithDescription("Create new nodes in the knowledge graph. Each node must have name, nodeType, and observations. Idempotent on (project, name)."),
 			mcplib.WithArray("nodes", mcplib.Required()),
 		),
-		createNodesHandler(pool, limiter),
+		instrumentTool("create_nodes", createNodesHandler(pool, limiter)),
 	)
 
 	s.AddTool(
@@ -39,7 +39,7 @@ func RegisterNodes(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelimit.L
 			mcplib.WithDescription("Add observations to existing nodes. Each item must have nodeName and contents (array of strings)."),
 			mcplib.WithArray("observations", mcplib.Required()),
 		),
-		addObservationsHandler(pool, limiter),
+		instrumentTool("add_observations", addObservationsHandler(pool, limiter)),
 	)
 
 	s.AddTool(
@@ -47,7 +47,7 @@ func RegisterNodes(s *server.MCPServer, pool *pgxpool.Pool, limiter *ratelimit.L
 			mcplib.WithDescription("Atomically replace an existing observation text with new text on a node. Each update must have nodeName, old_text (exact match), and new_text. old_text is soft-deleted and new_text is inserted with a fresh embedding in a single transaction. Rolls back entirely on any error."),
 			mcplib.WithArray("updates", mcplib.Required()),
 		),
-		updateObservationsHandler(pool, limiter),
+		instrumentTool("update_observations", updateObservationsHandler(pool, limiter)),
 	)
 }
 

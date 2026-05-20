@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"github.com/mariogutierrez/context-harness-mcp/internal/metrics"
 )
 
 const (
@@ -56,7 +58,36 @@ func IssueMCPToken(sub, email string) (string, error) {
 // It enforces HS256-only (algorithm-confusion prevention), issuer, and expiry.
 // Returns the parsed Claims on success, or an error whose code can be mapped
 // with ClassifyJWTError.
+// Side-effects: increments mcp_jwt_validations_total{result} and records
+// latency in mcp_jwt_validation_duration_seconds.
 func ValidateMCPToken(tokenString string) (*Claims, error) {
+	start := time.Now()
+
+	claims, err := validateMCPToken(tokenString)
+
+	metrics.JWTValidationDuration.Observe(time.Since(start).Seconds())
+	if err != nil {
+		metrics.JWTValidations.WithLabelValues(jwtResultLabel(err)).Inc()
+	} else {
+		metrics.JWTValidations.WithLabelValues("valid").Inc()
+	}
+
+	return claims, err
+}
+
+// jwtResultLabel maps a JWT validation error to a Prometheus result label value.
+func jwtResultLabel(err error) string {
+	switch classifyTokenError(err) {
+	case CodeExpired:
+		return "expired"
+	default:
+		return "invalid_signature"
+	}
+}
+
+// validateMCPToken is the internal implementation of ValidateMCPToken without
+// metrics instrumentation, making it testable in isolation.
+func validateMCPToken(tokenString string) (*Claims, error) {
 	secret, err := jwtSecret()
 	if err != nil {
 		return nil, err

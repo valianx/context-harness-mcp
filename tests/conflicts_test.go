@@ -12,7 +12,7 @@
 //   - AC-8: supersedes is descriptive-only — old node still searchable; edge visible in read_graph.
 //   - AC-9: mark_superseded emits a structured slog JSON line with the 10 required keys.
 //
-// ONNX-gated tests: AC-1, AC-2, AC-6, AC-8 — call requireEmbedder(t).
+// ONNX-gated tests: AC-1, AC-2, AC-6, AC-8 — call requireRealEmbedder(t).
 // Non-ONNX tests:   AC-3, AC-4, AC-5, AC-7, AC-9.
 //
 // Design notes:
@@ -121,7 +121,7 @@ func insertNodeInProject(t *testing.T, name, nodeType, projectID string) string 
 }
 
 // insertObsWithVec inserts an observation with a real embedding vector for the
-// given node ID. The caller must have already called requireEmbedder(t).
+// given node ID. The caller must have already called requireRealEmbedder(t).
 func insertObsWithVec(t *testing.T, nodeID, text string, vec []float32) {
 	t.Helper()
 	pool := NewTestPool(t)
@@ -135,7 +135,7 @@ func insertObsWithVec(t *testing.T, nodeID, text string, vec []float32) {
 }
 
 // encodeText encodes a single text string using the default ONNX embedder and
-// returns the float32 vector. The caller must have already called requireEmbedder(t).
+// returns the float32 vector. The caller must have already called requireRealEmbedder(t).
 func encodeText(t *testing.T, text string) []float32 {
 	t.Helper()
 	ctx := context.Background()
@@ -233,7 +233,7 @@ func mapKeys(m map[string]any) []string {
 // AC-1: find_conflicts returns at least 1 candidate with similarity >= 0.85 and
 // non-empty matching_observations_pair.own_obs / other_obs.
 func TestFindConflicts_SemanticallySimilar(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 
 	// Seed node A with a real embedding.
@@ -293,7 +293,7 @@ func TestFindConflicts_SemanticallySimilar(t *testing.T) {
 //
 // AC-2: find_conflicts scopes the search to the target node's own project only.
 func TestFindConflicts_SameProjectIsolation(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 
 	const obsText = "Rotación de claves OAuth cada 90 días vía Vault"
@@ -446,7 +446,7 @@ func TestMarkSuperseded_Idempotent(t *testing.T) {
 // AC-6: mark_superseded with archive_old_observations=true soft-deletes all
 // active observations of the old node and reports the correct count.
 func TestMarkSuperseded_ArchivesObservations(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	insertConflictsUser(t)
 
@@ -536,7 +536,7 @@ func TestMarkSuperseded_CrossProjectRejected(t *testing.T) {
 // AC-8: supersedes is descriptive-only — old node remains searchable; the
 // edge appears in read_graph.relations.
 func TestSupersedes_IsDescriptiveOnly(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 
 	const uniqueText = "Distributed tracing with Jaeger and OpenTelemetry spans"

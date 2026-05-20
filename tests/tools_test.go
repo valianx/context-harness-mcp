@@ -17,14 +17,25 @@ import (
 
 // ── embedder guard ────────────────────────────────────────────────────────────
 
-// requireEmbedder skips the test when the ONNX embedder is unavailable (e.g.
-// CGO-disabled Windows dev boxes). Tests that exercise the write path must call
-// this before any create_nodes or add_observations invocation — batchEmbed
-// now returns an error on model failure rather than degrading silently to NULL.
-func requireEmbedder(t *testing.T) {
+// requireRealEmbedder swaps the suite-wide mock back to the real ONNX embedder
+// for the duration of this test, then restores the mock via t.Cleanup. If the
+// real embedder is unavailable (CGO disabled or model missing) the test is
+// skipped so non-ONNX environments stay green.
+//
+// Tests that exercise the write path (create_nodes, add_observations) or any
+// semantic-similarity assertion must call this before interacting with the MCP
+// tools — batchEmbed returns an error on model failure rather than degrading
+// silently to NULL.
+func requireRealEmbedder(t *testing.T) {
 	t.Helper()
-	if _, err := embed.Default().Encode(context.Background(), []string{"probe"}); err != nil {
-		t.Skipf("embedder unavailable, skipping write-path test: %v", err)
+	real := embed.RealEmbedder()
+	restore := embed.SetForTesting(real)
+	t.Cleanup(restore)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := real.Encode(ctx, []string{"warmup"}); err != nil {
+		t.Skipf("real embedder unavailable (CGO disabled or model missing) — skipping: %v", err)
 	}
 }
 
@@ -117,7 +128,7 @@ func countAllRows(t *testing.T, table string) int {
 // TestCreateNodes_SingleNode verifies that a clean DB insert of one node with
 // one observation produces exactly one nodes row and one observations row (AC-1).
 func TestCreateNodes_SingleNode(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	c := newMCPClient(t)
 
@@ -148,7 +159,7 @@ func TestCreateNodes_SingleNode(t *testing.T) {
 // TestAddObservations_Dedup verifies that duplicate observations are deduped at
 // the DB level via the (node_id, text) unique constraint (AC-2).
 func TestAddObservations_Dedup(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	c := newMCPClient(t)
 
@@ -187,7 +198,7 @@ func TestAddObservations_Dedup(t *testing.T) {
 // This replaces the former MCP-level delete_entities test — the tool no longer
 // exists on the public endpoint.
 func TestStoreMarkDeleted_SoftDelete(t *testing.T) {
-	requireEmbedder(t)
+	requireRealEmbedder(t)
 	CleanDB(t)
 	c := newMCPClient(t)
 
