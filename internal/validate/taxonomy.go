@@ -176,6 +176,17 @@ func checkProjectNames(p Payload) *Error {
 	return nil
 }
 
+// SortedNodeTypes returns all 9 nodeType values in alphabetical order. Used by
+// the suggest_node_type tool to enumerate which types have no centroid yet.
+func SortedNodeTypes() []string {
+	types := make([]string, 0, len(NodeTypes))
+	for t := range NodeTypes {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	return types
+}
+
 // joinNodeTypes returns a sorted, comma-separated list of allowed node types
 // for use in error messages. Sorted output ensures message stability across Go
 // versions (map iteration order is intentionally random).

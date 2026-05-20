@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The server exposes twelve knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes thirteen knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
 JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
@@ -486,6 +486,68 @@ A second call with the same `old` / `new` pair returns `policy/relation-already-
 | `old` and `new` in different projects | `policy/cross-project-relation` |
 | Relation `supersedes(new → old)` already exists | `policy/relation-already-exists` |
 | Rate limit exceeded | `policy/rate-limited` |
+
+---
+
+## Semantic classification
+
+### 13. `suggest_node_type`
+
+Returns the top-3 most likely `nodeType` values for a free-form text, ranked by cosine similarity to per-type centroids computed from all active observations. Read-only — no rate limit, no content filter.
+
+**How it works:** for each `nodeType` that has at least one active observation with a non-null embedding, the tool computes the element-wise mean of all those observation vectors (the centroid). The input text is embedded with the same model (`all-MiniLM-L6-v2`). Cosine similarity is computed between the query vector and each centroid; the top-3 are returned sorted by score descending.
+
+**Arguments**
+
+```json
+{
+  "text": "How do I handle session timeouts gracefully?",
+  "project": "foo"
+}
+```
+
+- `text` — required. Free-form text to classify. Max 8192 characters. Whitespace-trimmed.
+- `project` — optional. Scope the centroid computation to one project. Omitting it spans all projects.
+
+**Success response**
+
+```json
+{
+  "suggestions": [
+    {"node_type": "pattern", "score": 0.78},
+    {"node_type": "decision", "score": 0.62},
+    {"node_type": "constraint", "score": 0.41}
+  ],
+  "stats": {
+    "centroids_computed": 5,
+    "types_unseen": ["service", "stack-profile", "project", "tool-gotcha"]
+  }
+}
+```
+
+- `score` is cosine similarity in `[-1, 1]`; higher = closer match.
+- `centroids_computed` = number of nodeType values that had at least one active observation to average.
+- `types_unseen` = nodeType values that had no active observations (no centroid available).
+- Always ≤ 3 suggestions (capped at `min(3, centroids_computed)`).
+
+**Empty corpus**
+
+When no active observations with embeddings exist, the tool returns successfully (not an error):
+
+```json
+{
+  "suggestions": [],
+  "stats": {"centroids_computed": 0, "types_unseen": ["constraint", "decision", ...all 9...]}
+}
+```
+
+**Error responses**
+
+| Condition | Result |
+|---|---|
+| `text` is empty or whitespace-only | MCP error |
+| `text` exceeds 8192 characters | MCP error |
+| `project` fails naming regex | `policy/project-naming-violation` |
 
 ---
 
