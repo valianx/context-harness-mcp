@@ -96,6 +96,25 @@ func getGitleaksDetector() (*detect.Detector, error) {
 	return gitleaksDetector, gitleaksInitErr
 }
 
+// InitDetector fires the gitleaks sync.Once and reports the number of rules
+// loaded. It is safe to call concurrently — repeated calls return instantly
+// after the first initialization completes.
+//
+// Returns (rulesCount, nil) when initialization succeeds, or (0, err) when
+// the gitleaks detector could not be constructed (e.g. missing rule config).
+// Even when InitDetector returns an error the inline regex fallbacks remain
+// active; write tools still have basic secret detection coverage.
+func InitDetector() (rulesCount int, err error) {
+	detector, err := getGitleaksDetector()
+	if err != nil {
+		return 0, err
+	}
+	if detector == nil {
+		return 0, nil
+	}
+	return len(detector.Config.Rules), nil
+}
+
 // ── Layer 2: checkSecrets ────────────────────────────────────────────────────
 
 // checkSecrets is Layer 2 of the Content Filter. It runs the inline regex

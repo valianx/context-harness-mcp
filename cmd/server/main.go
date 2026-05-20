@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"expvar"
 	"flag"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
 	"github.com/mariogutierrez/context-harness-mcp/internal/config"
+	"github.com/mariogutierrez/context-harness-mcp/internal/healthz"
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
@@ -219,11 +221,18 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
 	// Plain HTTP health check consumed by container-host healthchecks (any platform).
-	// Intentionally returns "db":"not-configured" — a DB ping is not added here
-	// per the anti-scope contract in PR-4.
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	// Returns HTTP 200 when all checks pass, HTTP 503 when any check fails (degraded).
+	// Container hosts (Railway, Render, Fly, Docker compose) interpret 5xx as unhealthy.
+	// Body shape is identical to the "doctor" MCP tool response.
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		report := healthz.Run(r.Context(), pool)
+		status := http.StatusOK
+		if report.Degraded {
+			status = http.StatusServiceUnavailable
+		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"status":"ok","db":"not-configured"}`)
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(report)
 	})
 	viewer.Register(mux, pool)
 
