@@ -51,13 +51,24 @@ func newLoginHandler() *loginHandler {
 // ServeHTTP responds to GET /auth/login with the rendered login HTML.
 // Non-GET methods receive 405 Method Not Allowed.
 //
-// PR-1 additions: reads ?next= from the query string, validates it via IsSafe,
-// and passes it to the template as {{.Next}}. The login page's JS uses Next to
-// build the Supabase redirect_to URL so the ?next= value threads through the
-// magic-link flow to /auth/callback and ultimately to /auth/exchange.
+// PR-1: reads ?next= from the query string, validates it via IsSafe, and passes
+// it to the template as {{.Next}}.
+// PR-2: if a valid ch_session is already present, 302-redirects to next (when
+// safe) or /dashboard so the user bypasses the login form (AC-8).
 func (h *loginHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// PR-2: already-authenticated users are forwarded directly to the dashboard
+	// (or to their intended destination when ?next= is valid).
+	if _, err := Read(r); err == nil {
+		dest := "/dashboard"
+		if n := safeNext(r); n != "" {
+			dest = n
+		}
+		http.Redirect(w, r, dest, http.StatusFound)
 		return
 	}
 

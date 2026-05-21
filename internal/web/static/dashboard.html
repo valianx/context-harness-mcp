@@ -42,6 +42,12 @@
   .ch-divider{border:none;border-top:1px solid var(--ch-border);margin:24px 0}
   .ch-sign-out-row{display:flex;align-items:center;justify-content:space-between}
   .ch-sign-out-label{font-size:13px;color:var(--ch-fg-dim)}
+  .ch-code{position:relative;background:var(--ch-bg-code);border:1px solid var(--ch-border);border-radius:8px;padding:16px 48px 16px 16px;font:400 12px/1.55 var(--ch-mono);color:var(--ch-fg);overflow-x:auto;word-break:break-all;white-space:pre-wrap}
+  .ch-code-copy{position:absolute;top:8px;right:8px;background:transparent;border:0;color:var(--ch-fg-mute);cursor:pointer;padding:6px 8px;border-radius:4px;display:inline-flex;align-items:center;gap:6px;font:500 12px/1 var(--ch-sans);transition:color 150ms ease,background 150ms ease}
+  .ch-code-copy:hover{color:var(--ch-accent);background:#0a0a0d}
+  .ch-code-copy svg{width:13px;height:13px;display:block}
+  .ch-toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);background:var(--ch-bg-panel);border:1px solid var(--ch-border);color:var(--ch-fg);padding:9px 16px;border-radius:6px;font:500 13px/1 var(--ch-sans);z-index:10;animation:ch-toast 1600ms ease-out forwards;pointer-events:none}
+  @keyframes ch-toast{0%{opacity:0;transform:translate(-50%,8px)}15%,75%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,-4px)}}
   @media (prefers-reduced-motion:reduce){
     *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
   }
@@ -136,6 +142,40 @@
       <input type="hidden" name="csrf_token" value="{{.CSRFToken}}"/>
       <button class="ch-btn-primary" type="submit">Generate MCP Token</button>
     </form>
+
+    {{if .GeneratedToken}}
+    <div class="ch-card" style="margin-top:16px">
+      <p class="ch-card-label">Your MCP Token — save this now</p>
+      <div class="ch-code" id="token-block" style="position:relative;margin-top:8px;white-space:pre-wrap;word-break:break-all">
+        <button class="ch-code-copy" type="button" id="copy-token-btn" aria-label="copy token">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="4" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="var(--ch-bg-code)"/></svg>
+          <span id="copy-token-label">Copy</span>
+        </button><code id="generated-token">{{.GeneratedToken}}</code></div>
+      <p class="ch-sub" style="margin-top:10px;margin-bottom:0;color:var(--ch-error)">Save this now — it won&#39;t be shown again.</p>
+    </div>
+    <script>
+    (() => {
+      document.getElementById('copy-token-btn').addEventListener('click', async () => {
+        const text = document.getElementById('generated-token').textContent;
+        try { await navigator.clipboard.writeText(text); }
+        catch {
+          const r = document.createRange();
+          r.selectNode(document.getElementById('generated-token'));
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(r);
+          document.execCommand('copy');
+          window.getSelection().removeAllRanges();
+        }
+        const lbl = document.getElementById('copy-token-label');
+        lbl.textContent = 'Copied';
+        const t = document.createElement('div');
+        t.className = 'ch-toast'; t.textContent = 'Copied'; t.setAttribute('role','status');
+        document.body.appendChild(t);
+        setTimeout(() => { t.remove(); lbl.textContent = 'Copy'; }, 1600);
+      });
+    })();
+    </script>
+    {{end}}
 
     <hr class="ch-divider"/>
 
