@@ -75,4 +75,4 @@ Full working agreements in [CLAUDE.md §6](CLAUDE.md).
 
 ## License
 
-Not yet declared. Treat as proprietary until a `LICENSE` file lands.
+[MIT](./LICENSE) © 2026 Mario Gutierrez. Contributions welcome — open an issue or PR.

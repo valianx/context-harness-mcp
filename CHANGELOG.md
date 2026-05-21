@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `LICENSE` (MIT, © 2026 Mario Gutierrez). The repo was previously marked "LICENSE pending" with `README.md` calling it proprietary by default. The goal is open-source and collaborative — applying MIT now to match the sibling `team-harness` repo (also MIT) and to remove the legal ambiguity that blocked external contributions. Landing footer updated: `Context Harness MCP (LICENSE pending)` → `Context Harness MCP (MIT)`. `README.md` License section rewritten to reflect MIT + invite contributions.
+
 ### Changed
 
 - `docs/email-templates/invite-email.html` + `recovery-email.html`: brand wordmark `context-harness` → `team-harness` (mono lowercase) in the header mark text, the SVG aria-label, and the outside footer. Aligns the email surface with the unified "Team Harness" brand declared on the landing.
