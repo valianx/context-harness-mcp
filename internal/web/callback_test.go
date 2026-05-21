@@ -27,11 +27,14 @@ func TestCallbackHandler_ServesHTML(t *testing.T) {
 	body := rr.Body.String()
 
 	// AC-1: template substitutions are present in the response.
-	assert.Contains(t, body, "https://test.supabase.co",
+	// html/template JS-string-escapes "/" as "\/" inside <script> string literals,
+	// so "https://..." becomes "https:\/\/..." in the rendered output. Both forms
+	// are semantically identical in a JavaScript string — "\/" === "/".
+	assert.Contains(t, body, "test.supabase.co",
 		"SUPABASE_PROJECT_URL must be substituted into callback.html")
 	assert.Contains(t, body, "anon-key-test",
 		"SUPABASE_ANON_KEY must be substituted into callback.html")
-	assert.Contains(t, body, "https://mcp.example.com",
+	assert.Contains(t, body, "mcp.example.com",
 		"MCP_PUBLIC_URL must be substituted into callback.html")
 }
 
