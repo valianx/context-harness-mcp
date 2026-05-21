@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Auth security hardening: `login.html` collapses to invariant "Check your inbox" panel on any Supabase HTTP response to prevent user enumeration (SEC-001). Migrated `internal/web/login.go`, `callback.go`, `landing.go`, `dashboard.go` from `text/template` to `html/template` for contextual JS-string escaping of server-injected values like `{{.Next}}` (SEC-002). Existing MCP JWT and `ch_session` cookie contracts intact.
 - Auth UX: switched login from Supabase recovery endpoint to magic-link (`/auth/v1/otp`), removed the post-callback "Set your access password" step. Callback now accepts only `type=magiclink` and goes directly to `/auth/exchange`. Existing MCP JWT tokens unaffected.
 
 ### Added
