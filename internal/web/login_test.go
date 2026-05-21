@@ -165,3 +165,85 @@ func TestSupabaseRedirectTo_NoNext(t *testing.T) {
 	url := supabaseRedirectTo("https://mcp.example.com", "")
 	assert.Equal(t, "https://mcp.example.com/auth/callback", url)
 }
+
+// ── already-signed-in redirect (PR-2 additions) ───────────────────────────────
+
+// TestLoginHandler_AlreadySignedIn_RedirectsToDashboard verifies that a user
+// with a valid ch_session is 302-redirected to /dashboard (AC-8).
+func TestLoginHandler_AlreadySignedIn_RedirectsToDashboard(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	req.AddCookie(issueSessionCookie(t, testSessionSub))
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusFound, rr.Code,
+		"valid session must 302-redirect away from login")
+	assert.Equal(t, "/dashboard", rr.Header().Get("Location"),
+		"must redirect to /dashboard by default")
+}
+
+// TestLoginHandler_AlreadySignedIn_WithSafeNext_RedirectsToNext verifies that
+// an authenticated user is redirected to a valid ?next= target (AC-8).
+func TestLoginHandler_AlreadySignedIn_WithSafeNext_RedirectsToNext(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login?next=%2Fviewer%2F", nil)
+	req.AddCookie(issueSessionCookie(t, testSessionSub))
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusFound, rr.Code)
+	assert.Equal(t, "/viewer/", rr.Header().Get("Location"),
+		"must redirect to safe ?next= value when signed in")
+}
+
+// TestLoginHandler_AlreadySignedIn_WithUnsafeNext_RedirectsToDashboard verifies
+// that an unsafe ?next= is ignored and the user goes to /dashboard (AC-8).
+func TestLoginHandler_AlreadySignedIn_WithUnsafeNext_RedirectsToDashboard(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login?next=https%3A%2F%2Fevil.com", nil)
+	req.AddCookie(issueSessionCookie(t, testSessionSub))
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusFound, rr.Code)
+	assert.Equal(t, "/dashboard", rr.Header().Get("Location"),
+		"unsafe ?next= must be ignored — fallback to /dashboard")
+}
+
+// TestLoginHandler_MalformedCookie_ServesForm verifies that a malformed session
+// cookie doesn't cause a 5xx — the form is served normally (AC-8).
+func TestLoginHandler_MalformedCookie_ServesForm(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "not-a-valid-cookie"})
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code,
+		"malformed session cookie must not 5xx — form serves normally")
+}

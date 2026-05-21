@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -147,20 +148,7 @@ func TestDashboardHandler_CSRFCookie_Reused(t *testing.T) {
 	assert.Empty(t, rr.Header().Get("Set-Cookie"), "no new Set-Cookie when csrf already present")
 }
 
-// ── generate-token stub ───────────────────────────────────────────────────────
-
-func TestDashboardHandler_GenerateToken_Returns501(t *testing.T) {
-	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
-	h := buildDashboardHandler()
-
-	req := httptest.NewRequest(http.MethodPost, "/dashboard/generate-token", nil)
-	req.AddCookie(issueSessionCookie(t, testSessionSub))
-	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusNotImplemented, rr.Code,
-		"POST /dashboard/generate-token must return 501 in PR-1")
-}
+// ── generate-token: session check ────────────────────────────────────────────
 
 func TestDashboardHandler_GenerateToken_NoCookie_Redirects(t *testing.T) {
 	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
@@ -172,6 +160,87 @@ func TestDashboardHandler_GenerateToken_NoCookie_Redirects(t *testing.T) {
 
 	assert.Equal(t, http.StatusFound, rr.Code,
 		"unauthenticated POST to generate-token must redirect to login")
+}
+
+// ── generate-token: CSRF guard ────────────────────────────────────────────────
+
+// TestDashboardHandler_GenerateToken_MissingCSRFToken verifies that a POST
+// without a csrf_token form field returns 403 (AC-5).
+func TestDashboardHandler_GenerateToken_MissingCSRFToken_Returns403(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
+	h := buildDashboardHandler()
+
+	csrfToken := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/generate-token", nil)
+	req.AddCookie(issueSessionCookie(t, testSessionSub))
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrfToken})
+	// No csrf_token form field.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code,
+		"missing csrf_token form field must return 403")
+}
+
+// TestDashboardHandler_GenerateToken_MissingCSRFCookie verifies that a POST
+// without a ch_csrf cookie returns 403 (AC-5).
+func TestDashboardHandler_GenerateToken_MissingCSRFCookie_Returns403(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
+	h := buildDashboardHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/generate-token",
+		strings.NewReader("csrf_token=sometoken"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(issueSessionCookie(t, testSessionSub))
+	// No ch_csrf cookie.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code,
+		"missing ch_csrf cookie must return 403")
+}
+
+// TestDashboardHandler_GenerateToken_MismatchedCSRF verifies that a CSRF
+// mismatch returns 403 (AC-5).
+func TestDashboardHandler_GenerateToken_MismatchedCSRF_Returns403(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSessionSecret)
+	h := buildDashboardHandler()
+
+	csrfCookie := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	csrfForm := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	req := httptest.NewRequest(http.MethodPost, "/dashboard/generate-token",
+		strings.NewReader("csrf_token="+csrfForm))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(issueSessionCookie(t, testSessionSub))
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrfCookie})
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code,
+		"mismatched CSRF tokens must return 403 (constant-time compare)")
+}
+
+// ── csrfValid helper: constant-time compare ────────────────────────────────────
+
+// TestCSRFValid_ConstantTimeCompare verifies csrfValid uses constant-time compare
+// by testing that tokens differing only in the last byte are rejected,
+// and that equal tokens are accepted.
+func TestCSRFValid_ConstantTimeCompare(t *testing.T) {
+	good := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	badLast := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab"
+
+	// Different last byte — must be rejected.
+	req1 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("csrf_token="+badLast))
+	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req1.AddCookie(&http.Cookie{Name: csrfCookieName, Value: good})
+	assert.False(t, csrfValid(req1), "tokens differing by one byte must be rejected")
+
+	// Equal — must be accepted.
+	req2 := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("csrf_token="+good))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req2.AddCookie(&http.Cookie{Name: csrfCookieName, Value: good})
+	assert.True(t, csrfValid(req2), "equal tokens must be accepted")
 }
 
 // ── method guard ──────────────────────────────────────────────────────────────

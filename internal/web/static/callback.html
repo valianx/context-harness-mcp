@@ -27,7 +27,6 @@
   /* ── shell ──────────────────────────────────── */
   main{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;padding:24px}
   .ch-panel{width:100%;max-width:440px;background:var(--ch-bg-panel);border:1px solid var(--ch-border);border-radius:10px;padding:32px}
-  .ch-success-panel{max-width:560px}
   .ch-title{font-size:24px;line-height:1.25;font-weight:500;margin:0 0 6px;letter-spacing:-.01em}
   .ch-sub{color:var(--ch-fg-mute);font-size:13px;margin:0 0 24px}
   /* ── form ───────────────────────────────────── */
@@ -59,10 +58,6 @@
   .ch-state{animation:ch-in 200ms ease-out both}
   @keyframes ch-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
   [hidden]{display:none!important}
-  /* ── success-specific ───────────────────────── */
-  .ch-success-line{display:flex;align-items:center;gap:8px;color:var(--ch-accent);font-size:13px;font-family:var(--ch-mono);margin:0 0 18px}
-  .ch-success-line svg{width:14px;height:14px}
-  .ch-footer-link{display:block;margin-top:18px;color:var(--ch-fg-dim);font-size:12px;text-align:center}
   /* ── toast ──────────────────────────────────── */
   .ch-toast{position:fixed;left:50%;bottom:32px;transform:translateX(-50%);background:var(--ch-bg-panel);border:1px solid var(--ch-border);color:var(--ch-fg);padding:9px 16px;border-radius:6px;font:500 13px/1 var(--ch-sans);z-index:10;animation:ch-toast 1500ms ease-out forwards;pointer-events:none}
   @keyframes ch-toast{
@@ -175,29 +170,7 @@
     </form>
   </section>
 
-  <!-- ── 3. SUCCESS / SNIPPET ───────────────────────────────── -->
-  <section class="ch-panel ch-state ch-success-panel" id="view-success" hidden>
-    <p class="ch-success-line">
-      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      access ready
-    </p>
-    <h1 class="ch-title">Drop this into your client</h1>
-    <p class="ch-sub">Add the block below to your MCP client config, then restart it.</p>
-
-    <div class="ch-code" id="snippet-block">
-      <button class="ch-code-copy" type="button" id="copy-btn" aria-label="copy snippet">
-        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="4" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="var(--ch-bg-code)"/></svg>
-        <span id="copy-label">Copy</span>
-      </button><code id="snippet"></code></div>
-
-    <p class="ch-footer-link">Restart your AI client and you're in.</p>
-    <div class="ch-success-nav" style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap">
-      <a class="ch-btn-primary" href="/dashboard">Go to dashboard →</a>
-      <a class="ch-btn-secondary" href="/">Back to home</a>
-    </div>
-  </section>
-
-  <!-- ── 4. ERROR ───────────────────────────────────────────── -->
+  <!-- ── 3. ERROR ───────────────────────────────────────────── -->
   <section class="ch-panel ch-state" id="view-error" hidden>
     <h1 class="ch-title" style="color:var(--ch-error)">Something broke</h1>
     <p class="ch-sub" id="error-detail">Token missing or invalid.</p>
@@ -217,7 +190,7 @@
   const MCP_PUBLIC_URL       = "{{.MCPPublicURL}}";
 
   // ── view switching ──────────────────────────────────────────
-  const views = ['loading','form','success','error'];
+  const views = ['loading','form','error'];
   function show(name){
     views.forEach(v => {
       const el = document.getElementById('view-'+v);
@@ -235,11 +208,14 @@
     el.hidden = false;
   }
 
-  // ── parse fragment ──────────────────────────────────────────
+  // ── parse fragment and query string ────────────────────────
   const frag = window.location.hash.replace(/^#/,'');
   const params = new URLSearchParams(frag);
   const accessToken = params.get('access_token');
   const type = params.get('type');
+  // next= from the query string is forwarded to /auth/exchange so the server
+  // can validate it and echo a safe redirect_to (AC-7). Never trust client-side.
+  const nextParam = new URLSearchParams(window.location.search).get('next') || '';
 
   setTimeout(() => {
     if(!accessToken || !['invite','recovery'].includes(type||'')){
@@ -278,19 +254,22 @@
         const err = await r1.json().catch(() => ({}));
         throw new Error(err.msg || err.error_description || `set-password failed (${r1.status})`);
       }
-      // 2. exchange for server bearer
+      // 2. exchange for server bearer + session cookie.
+      // Include next so the server can validate it and echo a safe redirect_to.
+      const exchangeBody = { access_token: accessToken };
+      if(nextParam){ exchangeBody.next = nextParam; }
       const r2 = await fetch('/auth/exchange', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ access_token: accessToken })
+        body: JSON.stringify(exchangeBody)
       });
       if(!r2.ok){
         const err = await r2.json().catch(() => ({}));
         throw new Error(err.error || `exchange failed (${r2.status})`);
       }
-      const { snippet } = await r2.json();
-      document.getElementById('snippet').textContent = snippet || defaultSnippet();
-      show('success');
+      const { redirect_to } = await r2.json();
+      // The server validates redirect_to before echoing it — trust it directly (AC-7).
+      window.location.replace(redirect_to || '/dashboard');
     } catch(err){
       submit.disabled = false;
       label.textContent = 'Continue';
@@ -298,38 +277,6 @@
     }
   });
 
-  function defaultSnippet(){
-    return `{
-  "mcpServers": {
-    "memory": {
-      "type": "http",
-      "url": "${MCP_PUBLIC_URL}/mcp",
-      "headers": {
-        "Authorization": "Bearer <your-token>"
-      }
-    }
-  }
-}`;
-  }
-
-  // ── copy snippet ────────────────────────────────────────────
-  document.getElementById('copy-btn').addEventListener('click', async () => {
-    const text = document.getElementById('snippet').textContent;
-    try { await navigator.clipboard.writeText(text); }
-    catch { /* fallback selection */
-      const r = document.createRange(); r.selectNode(document.getElementById('snippet'));
-      window.getSelection().removeAllRanges(); window.getSelection().addRange(r);
-      document.execCommand('copy'); window.getSelection().removeAllRanges();
-    }
-    toast('Copied');
-  });
-
-  function toast(msg){
-    const t = document.createElement('div');
-    t.className = 'ch-toast'; t.textContent = msg; t.setAttribute('role','status');
-    document.body.appendChild(t);
-    setTimeout(() => t.remove(), 1600);
-  }
 })();
 </script>
 </body>

@@ -1,4 +1,4 @@
-<!doctype html>
+{{define "landing.html"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
@@ -208,7 +208,11 @@
       <a href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">Claude Dev Team</a>
       <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">Context Harness MCP</a>
       <a href="/viewer">Viewer</a>
+      {{if .Authenticated}}
+      <a class="ch-nav-cta" href="/dashboard">Dashboard →</a>
+      {{else}}
       <a class="ch-nav-cta" href="/auth/login">Sign in →</a>
+      {{end}}
     </nav>
   </div>
 </header>
@@ -411,7 +415,11 @@
       <a href="https://github.com/valianx/claude-dev-team" target="_blank" rel="noopener">Claude Dev Team</a>
       <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">Context Harness MCP</a>
       <a href="/viewer">Viewer</a>
+      {{if .Authenticated}}
+      <a href="/dashboard">Dashboard</a>
+      {{else}}
       <a href="/auth/login">Sign in</a>
+      {{end}}
     </nav>
   </div>
 </footer>
@@ -431,4 +439,4 @@
 })();
 </script>
 </body>
-</html>
+</html>{{end}}

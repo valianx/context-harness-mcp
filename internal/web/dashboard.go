@@ -2,6 +2,7 @@ package web
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
 
@@ -27,7 +29,7 @@ const (
 type dashboardTemplateData struct {
 	Email          string
 	CSRFToken      string
-	GeneratedToken string // empty in PR-1 (generate-token is 501)
+	GeneratedToken string // non-empty only after POST /dashboard/generate-token; empty on GET
 }
 
 // dashboardHandler handles GET /dashboard and POST /dashboard/generate-token.
@@ -90,16 +92,51 @@ func (h *dashboardHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGenerateToken handles POST /dashboard/generate-token.
-// In PR-1 this returns 501 Not Implemented — the real implementation lands in PR-2.
-// The form is rendered in dashboard.html so the button is visible but non-functional
-// during the coexistence window (token issuance continues via the legacy callback path).
+// Flow: session check → CSRF check → issue JWT → re-render dashboard with token.
+// The token is never stored server-side; subsequent GETs show the empty state (AC-4).
 func (h *dashboardHandler) handleGenerateToken(w http.ResponseWriter, r *http.Request) {
-	// Session check still runs so an unauthenticated POST gets a clean redirect.
-	if _, err := Read(r); err != nil {
+	sess, err := Read(r)
+	if err != nil {
 		http.Redirect(w, r, "/auth/login", http.StatusFound)
 		return
 	}
-	http.Error(w, "Not Implemented", http.StatusNotImplemented)
+
+	if !csrfValid(r) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	email, err := h.lookupEmail(r, sess.Sub)
+	if err != nil {
+		slog.Error("dashboard: user lookup failed on generate-token", "error", err, "sub_prefix", subPrefix(sess.Sub))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	token, err := issueToken(sess.Sub, email)
+	if err != nil {
+		slog.Error("dashboard: IssueMCPToken failed", "error", err, "sub_prefix", subPrefix(sess.Sub))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// The CSRF token in the cookie is still valid — pass it back so the
+	// re-rendered forms (generate-token and sign-out) remain functional.
+	csrfToken, err := ensureCSRFCookie(w, r)
+	if err != nil {
+		slog.Error("dashboard: csrf cookie error on generate-token", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.tmpl.ExecuteTemplate(w, "dashboard.html", dashboardTemplateData{
+		Email:          email,
+		CSRFToken:      csrfToken,
+		GeneratedToken: token,
+	}); err != nil {
+		slog.Error("dashboard: template render failed after token gen", "error", err)
+	}
 }
 
 // lookupEmail returns the email address for the given Supabase user UUID.
@@ -154,6 +191,29 @@ func clearCSRFCookie(w http.ResponseWriter, r *http.Request) {
 		Secure:   isHTTPS(r),
 		SameSite: http.SameSiteStrictMode,
 	})
+}
+
+// csrfValid implements the double-submit cookie check: both the ch_csrf cookie
+// and the csrf_token form field must be present and equal (constant-time compare).
+// Identical logic lives in logoutHandler.csrfValid — kept co-located for reviewability.
+func csrfValid(r *http.Request) bool {
+	cookie, err := r.Cookie(csrfCookieName)
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+	formToken := r.FormValue("csrf_token")
+	if formToken == "" {
+		return false
+	}
+	// subtle.ConstantTimeCompare returns 1 on equal, 0 on not-equal.
+	return subtle.ConstantTimeCompare([]byte(formToken), []byte(cookie.Value)) == 1
+}
+
+// issueToken wraps auth.IssueMCPToken so tests can verify the call in isolation.
+// Production wiring always calls the real issuer; the function-level indirection
+// keeps handleGenerateToken testable without exposing a field on dashboardHandler.
+func issueToken(sub, email string) (string, error) {
+	return auth.IssueMCPToken(sub, email)
 }
 
 // RegisterDashboard registers GET /dashboard and POST /dashboard/generate-token
