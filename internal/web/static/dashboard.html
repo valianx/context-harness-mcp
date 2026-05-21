@@ -43,6 +43,8 @@
   .ch-sign-out-row{display:flex;align-items:center;justify-content:space-between}
   .ch-sign-out-label{font-size:13px;color:var(--ch-fg-dim)}
   .ch-code{position:relative;background:var(--ch-bg-code);border:1px solid var(--ch-border);border-radius:8px;padding:16px 48px 16px 16px;font:400 12px/1.55 var(--ch-mono);color:var(--ch-fg);overflow-x:auto;word-break:break-all;white-space:pre-wrap}
+  .ch-code .k{color:#a78bfa}
+  .ch-code .s{color:#f59e0b}
   .ch-code-copy{position:absolute;top:8px;right:8px;background:transparent;border:0;color:var(--ch-fg-mute);cursor:pointer;padding:6px 8px;border-radius:4px;display:inline-flex;align-items:center;gap:6px;font:500 12px/1 var(--ch-sans);transition:color 150ms ease,background 150ms ease}
   .ch-code-copy:hover{color:var(--ch-accent);background:#0a0a0d}
   .ch-code-copy svg{width:13px;height:13px;display:block}
@@ -145,28 +147,38 @@
 
     {{if .GeneratedToken}}
     <div class="ch-card" style="margin-top:16px">
-      <p class="ch-card-label">Your MCP Token — save this now</p>
-      <div class="ch-code" id="token-block" style="position:relative;margin-top:8px;white-space:pre-wrap;word-break:break-all">
-        <button class="ch-code-copy" type="button" id="copy-token-btn" aria-label="copy token">
+      <p class="ch-card-label">Your MCP snippet — paste into <code>~/.claude.json</code></p>
+      <div class="ch-code" id="snippet-block" style="position:relative;margin-top:8px;white-space:pre-wrap;word-break:break-all">
+        <button class="ch-code-copy" type="button" id="copy-snippet-btn" aria-label="copy snippet">
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="4" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="var(--ch-bg-code)"/></svg>
-          <span id="copy-token-label">Copy</span>
-        </button><code id="generated-token">{{.GeneratedToken}}</code></div>
-      <p class="ch-sub" style="margin-top:10px;margin-bottom:0;color:var(--ch-error)">Save this now — it won&#39;t be shown again.</p>
+          <span id="copy-snippet-label">Copy</span>
+        </button><code id="snippet-text">{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"memory"</span>: {
+      <span class="k">"type"</span>: <span class="s">"http"</span>,
+      <span class="k">"url"</span>: <span class="s">"{{.MCPURL}}"</span>,
+      <span class="k">"headers"</span>: {
+        <span class="k">"Authorization"</span>: <span class="s">"Bearer {{.GeneratedToken}}"</span>
+      }
+    }
+  }
+}</code></div>
+      <p class="ch-sub" style="margin-top:10px;margin-bottom:0;color:var(--ch-error)">Save this now — the token won&#39;t be shown again.</p>
     </div>
     <script>
     (() => {
-      document.getElementById('copy-token-btn').addEventListener('click', async () => {
-        const text = document.getElementById('generated-token').textContent;
+      document.getElementById('copy-snippet-btn').addEventListener('click', async () => {
+        const text = document.getElementById('snippet-text').textContent;
         try { await navigator.clipboard.writeText(text); }
         catch {
           const r = document.createRange();
-          r.selectNode(document.getElementById('generated-token'));
+          r.selectNode(document.getElementById('snippet-text'));
           window.getSelection().removeAllRanges();
           window.getSelection().addRange(r);
           document.execCommand('copy');
           window.getSelection().removeAllRanges();
         }
-        const lbl = document.getElementById('copy-token-label');
+        const lbl = document.getElementById('copy-snippet-label');
         lbl.textContent = 'Copied';
         const t = document.createElement('div');
         t.className = 'ch-toast'; t.textContent = 'Copied'; t.setAttribute('role','status');

@@ -13,6 +13,7 @@ package tests
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -166,6 +167,23 @@ func TestDashboardE2E_GenerateToken_ValidCSRF_Returns200WithToken(t *testing.T) 
 		"valid CSRF must generate a token and return 200")
 	assert.Contains(t, resp.Header.Get("Content-Type"), "text/html",
 		"generate-token response must be HTML (dashboard re-render)")
+
+	// Snippet contract: the dashboard now renders a paste-ready ~/.claude.json
+	// snippet that wraps the token in {mcpServers.memory.{type,url,headers.Authorization}}.
+	// Confirm the four load-bearing pieces appear in the rendered HTML.
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	html := string(body)
+	assert.Contains(t, html, `"mcpServers"`,
+		"snippet must include the mcpServers key")
+	assert.Contains(t, html, `"memory"`,
+		"snippet must include the memory key")
+	assert.Contains(t, html, `"Authorization"`,
+		"snippet must include the Authorization header key")
+	assert.Contains(t, html, `Bearer `,
+		"snippet must include the literal 'Bearer ' prefix wrapping the JWT")
+	assert.Contains(t, html, `https://mcp.test/mcp`,
+		"snippet must include the MCP URL derived from MCP_PUBLIC_URL")
 }
 
 // ── AC-6 (CSRF side): logout CSRF guard ──────────────────────────────────────
