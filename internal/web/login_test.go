@@ -72,6 +72,16 @@ func TestLoginHandler_ContainsExpectedElements(t *testing.T) {
 		"login.html must set email_redirect_to pointing to /auth/callback")
 	assert.NotContains(t, strings.ToLower(body), "password",
 		"login.html must not contain any password-related copy or inputs")
+
+	// AC-1: page title and visible heading must reference "Sign in"; old labels must be absent.
+	assert.Contains(t, strings.ToLower(body), "sign in",
+		"login.html title/heading must say 'Sign in'")
+	assert.NotContains(t, strings.ToLower(body), "re-authenticate",
+		"login.html must not reference the old 'Re-authenticate' label")
+	assert.NotContains(t, strings.ToLower(body), "recovery",
+		"login.html must not reference 'Recovery' anywhere")
+	assert.NotContains(t, strings.ToLower(body), "reset password",
+		"login.html must not reference 'Reset password'")
 }
 
 func TestRegisterLogin_RoutesCorrectly(t *testing.T) {
