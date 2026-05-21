@@ -243,6 +243,47 @@ func TestCSRFValid_ConstantTimeCompare(t *testing.T) {
 	assert.True(t, csrfValid(req2), "equal tokens must be accepted")
 }
 
+// ── mcpURL helper ─────────────────────────────────────────────────────────────
+
+// TestMCPURL_EnvSet verifies that MCP_PUBLIC_URL is the canonical source and
+// gets the /mcp suffix appended.
+func TestMCPURL_EnvSet(t *testing.T) {
+	t.Setenv("MCP_PUBLIC_URL", "https://team-harness.up.railway.app")
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	got := mcpURL(req)
+	assert.Equal(t, "https://team-harness.up.railway.app/mcp", got)
+}
+
+// TestMCPURL_EnvSetWithTrailingSlash verifies that trailing slashes on
+// MCP_PUBLIC_URL are trimmed so we never emit a double-slash URL.
+func TestMCPURL_EnvSetWithTrailingSlash(t *testing.T) {
+	t.Setenv("MCP_PUBLIC_URL", "https://team-harness.up.railway.app/")
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	got := mcpURL(req)
+	assert.Equal(t, "https://team-harness.up.railway.app/mcp", got)
+}
+
+// TestMCPURL_FallbackToRequestHost verifies that when MCP_PUBLIC_URL is unset
+// (typical local development), we fall back to deriving the URL from the
+// request host + scheme.
+func TestMCPURL_FallbackToRequestHost(t *testing.T) {
+	t.Setenv("MCP_PUBLIC_URL", "")
+	req := httptest.NewRequest(http.MethodGet, "http://localhost:7654/dashboard", nil)
+	got := mcpURL(req)
+	assert.Equal(t, "http://localhost:7654/mcp", got)
+}
+
+// TestMCPURL_FallbackHTTPSViaXForwardedProto verifies that PaaS/proxy setups
+// signalling HTTPS via X-Forwarded-Proto produce an https:// URL.
+func TestMCPURL_FallbackHTTPSViaXForwardedProto(t *testing.T) {
+	t.Setenv("MCP_PUBLIC_URL", "")
+	req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+	req.Host = "mcp.example.com"
+	req.Header.Set("X-Forwarded-Proto", "https")
+	got := mcpURL(req)
+	assert.Equal(t, "https://mcp.example.com/mcp", got)
+}
+
 // ── method guard ──────────────────────────────────────────────────────────────
 
 func TestDashboardHandler_WrongMethod(t *testing.T) {

@@ -6,9 +6,11 @@ import (
 	"embed"
 	"encoding/hex"
 	"errors"
+	"html/template"
 	"log/slog"
 	"net/http"
-	"html/template"
+	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -30,6 +32,7 @@ type dashboardTemplateData struct {
 	Email          string
 	CSRFToken      string
 	GeneratedToken string // non-empty only after POST /dashboard/generate-token; empty on GET
+	MCPURL         string // public MCP endpoint, used to render the paste-ready snippet
 }
 
 // dashboardHandler handles GET /dashboard and POST /dashboard/generate-token.
@@ -86,6 +89,7 @@ func (h *dashboardHandler) handleGet(w http.ResponseWriter, r *http.Request) {
 	if err := h.tmpl.ExecuteTemplate(w, "dashboard.html", dashboardTemplateData{
 		Email:     email,
 		CSRFToken: csrfToken,
+		MCPURL:    mcpURL(r),
 	}); err != nil {
 		slog.Error("dashboard: template render failed", "error", err)
 	}
@@ -134,9 +138,31 @@ func (h *dashboardHandler) handleGenerateToken(w http.ResponseWriter, r *http.Re
 		Email:          email,
 		CSRFToken:      csrfToken,
 		GeneratedToken: token,
+		MCPURL:         mcpURL(r),
 	}); err != nil {
 		slog.Error("dashboard: template render failed after token gen", "error", err)
 	}
+}
+
+// mcpURL returns the public MCP endpoint URL used to populate the paste-ready
+// snippet rendered next to a freshly-generated token.
+//
+// Resolution order:
+//  1. MCP_PUBLIC_URL env var (the canonical operator config) + "/mcp".
+//  2. Request-derived fallback (scheme + r.Host + "/mcp") — supports local
+//     development where MCP_PUBLIC_URL is unset.
+//
+// Trailing slashes on MCP_PUBLIC_URL are trimmed so we never produce
+// "https://x.example.com//mcp".
+func mcpURL(r *http.Request) string {
+	if publicURL := strings.TrimRight(os.Getenv("MCP_PUBLIC_URL"), "/"); publicURL != "" {
+		return publicURL + "/mcp"
+	}
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	return scheme + "://" + r.Host + "/mcp"
 }
 
 // lookupEmail returns the email address for the given Supabase user UUID.
