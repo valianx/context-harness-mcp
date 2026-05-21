@@ -72,14 +72,14 @@ El **diferenciador** vs engram. Su FTS5 sólo encuentra conflictos léxicos; nue
 - Extender `relationType` enum con `supersedes` y `conflicts_with`.
 - Tool `find_conflicts(nodeName, top_k, min_similarity)` — devuelve top-K nodos del mismo project con observaciones semánticamente parecidas (cosine via pgvector).
 - Tool `mark_superseded(old, new, reason)` — crea relación + opt-in archive de observaciones del viejo.
-- Hook en `claude-dev-team` (skill `memory.md`): `check-conflicts <name>` invoca el tool y propone al agente decidir `supersedes` / `conflicts_with` / `relates_to`.
+- Hook en `team-harness` (skill `memory.md`): `check-conflicts <name>` invoca el tool y propone al agente decidir `supersedes` / `conflicts_with` / `relates_to`.
 
 ### Phase 4 — Sessions + passive capture (~2 días)
 
 - Tabla `sessions(id, user_id, project_id, working_dir, started_at, ended_at, summary)`.
 - Columna `session_id` nullable en `nodes`/`observations`.
 - Tools `session_start` / `session_end` / `session_summary`.
-- Hook en `claude-dev-team` (PostToolUse en `delivery` agent): captura pasiva al cerrar una task con AC validados → emite `create_nodes` con un `process-insight` describiendo qué se aprendió.
+- Hook en `team-harness` (PostToolUse en `delivery` agent): captura pasiva al cerrar una task con AC validados → emite `create_nodes` con un `process-insight` describiendo qué se aprendió.
 
 ### Phase 5 — Polish operacional (~3-4 días)
 
