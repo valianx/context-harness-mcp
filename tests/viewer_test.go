@@ -11,30 +11,173 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/viewer"
+	"github.com/mariogutierrez/context-harness-mcp/internal/web"
 )
 
-// ── TestViewerIndex ───────────────────────────────────────────────────────────
+const testUserSub = "550e8400-e29b-41d4-a716-446655440099"
+const testUserEmail = "viewer-test@example.com"
+const viewerTestSecret = "viewer-test-secret-32-bytes-xxxx"
 
-// TestViewerIndex verifies that GET /viewer/ returns 200 with the HTML page.
-func TestViewerIndex(t *testing.T) {
+// ── session helpers ───────────────────────────────────────────────────────────
+
+// withSession returns a request copy with a valid ch_session cookie attached.
+// It calls web.Issue against an httptest.ResponseRecorder and copies the
+// Set-Cookie value into the outgoing request, simulating the browser cookie jar.
+func withSession(t *testing.T, req *http.Request) *http.Request {
+	t.Helper()
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
+
+	rr := httptest.NewRecorder()
+	issueReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	require.NoError(t, web.Issue(rr, issueReq, testUserSub), "withSession: Issue must succeed")
+
+	for _, c := range rr.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	return req
+}
+
+// seedTestUser inserts a user row in the test DB so /dashboard email lookups work.
+func seedTestUser(t *testing.T, sub, email string) {
+	t.Helper()
 	pool := NewTestPool(t)
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	require.NoError(t, store.UpsertUser(ctx, tx, sub, email))
+	require.NoError(t, tx.Commit(ctx))
+}
 
+// buildViewerMux builds a test mux with viewer routes registered.
+func buildViewerMux(t *testing.T) *http.ServeMux {
+	t.Helper()
+	pool := NewTestPool(t)
 	mux := http.NewServeMux()
 	viewer.Register(mux, pool)
+	return mux
+}
+
+// ── auth-gating: unauthenticated ─────────────────────────────────────────────
+
+// TestViewerIndex_NoSession verifies that GET /viewer/ without a session cookie
+// returns 302 redirecting to /auth/login with the preserved next param (AC-9).
+func TestViewerIndex_NoSession(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
+	mux := buildViewerMux(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/viewer/", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
 	resp := w.Result()
+	assert.Equal(t, http.StatusFound, resp.StatusCode,
+		"GET /viewer/ without session must 302")
+	assert.Contains(t, resp.Header.Get("Location"), "/auth/login",
+		"redirect must go to /auth/login")
+	assert.Contains(t, resp.Header.Get("Location"), "next=%2Fviewer%2F",
+		"?next= must include /viewer/ URL-encoded")
+}
+
+// TestViewerIndex_NoSession_QueryPreserved verifies that ?q= is preserved in next.
+func TestViewerIndex_NoSession_QueryPreserved(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
+	mux := buildViewerMux(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/?q=foo", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	resp := w.Result()
+	assert.Equal(t, http.StatusFound, resp.StatusCode)
+	// The Location header should contain the encoded original path with query string.
+	loc := resp.Header.Get("Location")
+	assert.Contains(t, loc, "/auth/login")
+	assert.Contains(t, loc, "viewer", "next param should contain viewer path")
+}
+
+// TestViewerSearchAPI_NoSession verifies that /viewer/api/search without a session
+// returns 401 with JSON body (AC-9).
+func TestViewerSearchAPI_NoSession(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
+	mux := buildViewerMux(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/api/search", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	resp := w.Result()
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode,
+		"GET /viewer/api/search without session must 401")
+	assert.Contains(t, resp.Header.Get("Content-Type"), "application/json",
+		"401 response must be JSON")
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, "authentication required", body["error"])
+}
+
+// TestViewerProjectsAPI_NoSession verifies 401 for /viewer/api/projects.
+func TestViewerProjectsAPI_NoSession(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
+	mux := buildViewerMux(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/api/projects", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+}
+
+// TestViewerNodeTypesAPI_NoSession verifies 401 for /viewer/api/node-types.
+func TestViewerNodeTypesAPI_NoSession(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
+	mux := buildViewerMux(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/api/node-types", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+}
+
+// TestViewerAPI_TamperedSession_Returns401 verifies that a tampered cookie is
+// treated the same as no cookie (AC-9).
+func TestViewerAPI_TamperedSession_Returns401(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
+	mux := buildViewerMux(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/api/search", nil)
+	req.AddCookie(&http.Cookie{Name: "ch_session", Value: "tampered.bad"})
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+}
+
+// ── TestViewerIndex ───────────────────────────────────────────────────────────
+
+// TestViewerIndex verifies that GET /viewer/ with a valid session returns 200
+// with the HTML page (regression: payload shape unchanged).
+func TestViewerIndex(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
+	pool := NewTestPool(t)
+
+	mux := http.NewServeMux()
+	viewer.Register(mux, pool)
+
+	req := httptest.NewRequest(http.MethodGet, "/viewer/", nil)
+	req = withSession(t, req)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	resp := w.Result()
 	assert.Equal(t, http.StatusOK, resp.StatusCode,
-		"GET /viewer/ must return 200")
+		"GET /viewer/ with valid session must return 200")
 	assert.Contains(t, resp.Header.Get("Content-Type"), "text/html",
 		"Content-Type must be text/html")
-	// The new design uses "context-harness" lowercase as the wordmark
-	// (see internal/viewer/templates/index.html). The previous design's
-	// "Context Harness MCP" title was retired in the agent-sphere refactor.
 	body := w.Body.String()
 	assert.Contains(t, body, "context-harness",
 		"body must contain the wordmark")
@@ -45,8 +188,9 @@ func TestViewerIndex(t *testing.T) {
 // ── TestViewerSearchAPI_Empty ─────────────────────────────────────────────────
 
 // TestViewerSearchAPI_Empty verifies that GET /viewer/api/search (no q param)
-// returns 200 with a valid JSON body and an array nodes field.
+// with a valid session returns 200 with a valid JSON body (regression).
 func TestViewerSearchAPI_Empty(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
 	pool := NewTestPool(t)
 	CleanDB(t)
 
@@ -54,12 +198,13 @@ func TestViewerSearchAPI_Empty(t *testing.T) {
 	viewer.Register(mux, pool)
 
 	req := httptest.NewRequest(http.MethodGet, "/viewer/api/search", nil)
+	req = withSession(t, req)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
 	resp := w.Result()
 	assert.Equal(t, http.StatusOK, resp.StatusCode,
-		"GET /viewer/api/search must return 200")
+		"GET /viewer/api/search with session must return 200")
 	assert.Contains(t, resp.Header.Get("Content-Type"), "application/json",
 		"Content-Type must be application/json")
 
@@ -79,6 +224,7 @@ func TestViewerSearchAPI_Empty(t *testing.T) {
 // search query surfaces the matching node in the results. Skips when the ONNX
 // embedder is unavailable (CGO-disabled environments / Windows dev boxes).
 func TestViewerSearchAPI_WithQuery(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
 	pool := NewTestPool(t)
 	CleanDB(t)
 
@@ -121,12 +267,13 @@ func TestViewerSearchAPI_WithQuery(t *testing.T) {
 
 	// Search for "oauth authentication" — should surface viewer-test-node-alpha.
 	req := httptest.NewRequest(http.MethodGet, "/viewer/api/search?q=oauth+authentication", nil)
+	req = withSession(t, req)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
 	resp := w.Result()
 	assert.Equal(t, http.StatusOK, resp.StatusCode,
-		"GET /viewer/api/search?q= must return 200")
+		"GET /viewer/api/search?q= with session must return 200")
 
 	var body struct {
 		Query     string `json:"query"`

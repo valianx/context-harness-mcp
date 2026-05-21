@@ -20,6 +20,8 @@
   .ch-header{position:relative;z-index:2;display:flex;align-items:center;gap:12px;padding:28px 32px;color:var(--ch-fg-mute)}
   .ch-mark{color:var(--ch-fg);height:22px;width:22px;display:block;flex:0 0 auto}
   .ch-wordmark{font-family:var(--ch-mono);font-size:12px;letter-spacing:.02em;color:var(--ch-fg-mute)}
+  .ch-home-link{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;border-radius:4px;padding:2px 4px;margin:-2px -4px;transition:background 150ms ease}
+  .ch-home-link:hover{background:var(--ch-bg-panel)}
   main{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;padding:24px}
   .ch-panel{width:100%;max-width:420px;background:var(--ch-bg-panel);border:1px solid var(--ch-border);border-radius:10px;padding:32px}
   .ch-title{font-size:24px;line-height:1.25;font-weight:500;margin:0 0 6px;letter-spacing:-.01em}
@@ -83,6 +85,7 @@
 </svg>
 
 <header class="ch-header">
+  <a class="ch-home-link" href="/" aria-label="home">
   <svg class="ch-mark" viewBox="0 0 32 32" role="img" aria-label="context-harness mark" xmlns="http://www.w3.org/2000/svg">
     <g fill="none" stroke="currentColor" stroke-width="0.8" opacity=".85">
       <circle cx="16" cy="16" r="13"/>
@@ -115,6 +118,7 @@
     </circle>
   </svg>
   <span class="ch-wordmark">context-harness</span>
+  </a>
 </header>
 
 <main>
@@ -154,6 +158,9 @@
   const SUPABASE_PROJECT_URL = "{{.SupabaseProjectURL}}";
   const SUPABASE_ANON_KEY    = "{{.SupabaseAnonKey}}";
   const MCP_PUBLIC_URL       = "{{.MCPPublicURL}}";
+  // NEXT is server-validated via IsSafe before being rendered here.
+  // An empty string means no next param or an unsafe value was supplied.
+  const NEXT = "{{.Next}}";
 
   function show(name){
     ['form','success'].forEach(v => {
@@ -184,7 +191,7 @@
       const r = await fetch(`${SUPABASE_PROJECT_URL}/auth/v1/recover`, {
         method:'POST',
         headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
-        body: JSON.stringify({ email, options:{ redirectTo:`${MCP_PUBLIC_URL}/auth/callback` } })
+        body: JSON.stringify({ email, options:{ redirectTo: NEXT ? `${MCP_PUBLIC_URL}/auth/callback?next=${encodeURIComponent(NEXT)}` : `${MCP_PUBLIC_URL}/auth/callback` } })
       });
       if(!r.ok){
         const err = await r.json().catch(() => ({}));

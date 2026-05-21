@@ -1,14 +1,15 @@
-// Package viewer serves a public single-page web UI for browsing the knowledge
-// graph. It registers four routes on the caller's mux:
+// Package viewer serves an authenticated single-page web UI for browsing the
+// knowledge graph. It registers four routes on the caller's mux:
 //
-//   - GET /viewer/              — serves the embedded HTML page
-//   - GET /viewer/api/search    — returns JSON (node list or semantic search results)
-//   - GET /viewer/api/projects  — returns the list of distinct project IDs
-//   - GET /viewer/api/node-types — returns the static list of valid node types
+//   - GET /viewer/              — serves the embedded HTML page (session-gated)
+//   - GET /viewer/api/search    — returns JSON (session-gated)
+//   - GET /viewer/api/projects  — returns the list of distinct project IDs (session-gated)
+//   - GET /viewer/api/node-types — returns the static list of valid node types (session-gated)
 //
-// Access is intentionally unauthenticated — same exposure level as the MCP read
-// tools (search_nodes, read_graph). User chose Option A (public, no auth) in the
-// feature brief.
+// Access requires a valid ch_session cookie (AC-9 — STAGE-GATE-1 override of the
+// v0.2.0 "viewer stays public read-only" convention in CLAUDE.md §5).
+// HTML paths (/viewer/, non-api) → 302 /auth/login?next=<path> on missing/invalid session.
+// JSON paths (/viewer/api/*) → 401 {"error":"authentication required"}.
 package viewer
 
 import (
@@ -18,6 +19,7 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -27,6 +29,7 @@ import (
 	embedpkg "github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
+	"github.com/mariogutierrez/context-harness-mcp/internal/web"
 )
 
 //go:embed templates/*
@@ -34,14 +37,45 @@ var templateFS embed.FS
 
 // Register adds the viewer routes to mux. pool must be non-nil — the search
 // and projects handlers require DB access. The node-types handler is static.
+// All routes are wrapped by sessionGate (AC-9).
 func Register(mux *http.ServeMux, pool *pgxpool.Pool) {
 	h := &handler{pool: pool}
 	h.initTemplates()
 
-	mux.HandleFunc("/viewer/", h.handleIndex)
-	mux.HandleFunc("/viewer/api/search", h.handleSearchAPI)
-	mux.HandleFunc("/viewer/api/projects", h.handleProjectsAPI)
-	mux.HandleFunc("/viewer/api/node-types", h.handleNodeTypesAPI)
+	mux.Handle("/viewer/", sessionGate(http.HandlerFunc(h.handleIndex)))
+	mux.Handle("/viewer/api/search", sessionGate(http.HandlerFunc(h.handleSearchAPI)))
+	mux.Handle("/viewer/api/projects", sessionGate(http.HandlerFunc(h.handleProjectsAPI)))
+	mux.Handle("/viewer/api/node-types", sessionGate(http.HandlerFunc(h.handleNodeTypesAPI)))
+}
+
+// sessionGate wraps next with a ch_session cookie check. Discrimination is
+// purely path-based (no Accept-header sniffing — fetch() defaults to */*):
+//   - /viewer/api/* paths → 401 application/json {"error":"authentication required"}
+//   - all other /viewer/* paths → 302 /auth/login?next=<url-encoded current path>
+//
+// When the session is valid the request passes through to next unchanged.
+func sessionGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := web.Read(r); err == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.HasPrefix(r.URL.Path, "/viewer/api/") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"authentication required"}`))
+			return
+		}
+
+		// HTML branch: preserve the original path (including query string) in
+		// the ?next= param so the user lands back here after logging in.
+		next := r.URL.Path
+		if r.URL.RawQuery != "" {
+			next += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, "/auth/login?next="+url.QueryEscape(next), http.StatusFound)
+	})
 }
 
 // handler holds shared state for the viewer routes.

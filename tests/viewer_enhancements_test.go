@@ -16,22 +16,24 @@ import (
 
 // ── TestViewer_NodeTypesAPI ───────────────────────────────────────────────────
 
-// TestViewer_NodeTypesAPI verifies that GET /viewer/api/node-types returns 200
-// with a JSON body containing exactly the 9 canonical node types in alphabetical
-// order. The list is static (no DB required).
+// TestViewer_NodeTypesAPI verifies that GET /viewer/api/node-types with a valid
+// session returns 200 with a JSON body containing exactly the 9 canonical node
+// types in alphabetical order. The list is static (no DB required).
 func TestViewer_NodeTypesAPI(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
 	pool := NewTestPool(t)
 
 	mux := http.NewServeMux()
 	viewer.Register(mux, pool)
 
 	req := httptest.NewRequest(http.MethodGet, "/viewer/api/node-types", nil)
+	req = withSession(t, req)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
 	resp := w.Result()
 	assert.Equal(t, http.StatusOK, resp.StatusCode,
-		"GET /viewer/api/node-types must return 200")
+		"GET /viewer/api/node-types with session must return 200")
 	assert.Contains(t, resp.Header.Get("Content-Type"), "application/json",
 		"Content-Type must be application/json")
 
@@ -53,8 +55,8 @@ func TestViewer_NodeTypesAPI(t *testing.T) {
 
 	// Spot-check known values.
 	assert.Contains(t, body.NodeTypes, "constraint", "must include 'constraint'")
-	assert.Contains(t, body.NodeTypes, "decision",   "must include 'decision'")
-	assert.Contains(t, body.NodeTypes, "pattern",    "must include 'pattern'")
+	assert.Contains(t, body.NodeTypes, "decision", "must include 'decision'")
+	assert.Contains(t, body.NodeTypes, "pattern", "must include 'pattern'")
 }
 
 // ── TestViewer_SearchWithNodeTypeFilter ───────────────────────────────────────
@@ -62,6 +64,7 @@ func TestViewer_NodeTypesAPI(t *testing.T) {
 // TestViewer_SearchWithNodeTypeFilter seeds nodes of different types and verifies
 // that ?nodeType=pattern returns only pattern-typed nodes.
 func TestViewer_SearchWithNodeTypeFilter(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
 	pool := NewTestPool(t)
 	CleanDB(t)
 
@@ -81,12 +84,13 @@ func TestViewer_SearchWithNodeTypeFilter(t *testing.T) {
 	viewer.Register(mux, pool)
 
 	req := httptest.NewRequest(http.MethodGet, "/viewer/api/search?nodeType=pattern", nil)
+	req = withSession(t, req)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
 	resp := w.Result()
 	assert.Equal(t, http.StatusOK, resp.StatusCode,
-		"GET /viewer/api/search?nodeType=pattern must return 200")
+		"GET /viewer/api/search?nodeType=pattern with session must return 200")
 
 	var body struct {
 		NodeCount int `json:"node_count"`
@@ -120,6 +124,7 @@ func TestViewer_SearchWithNodeTypeFilter(t *testing.T) {
 // TestViewer_SearchIncludesRelations seeds nodes and a relation, then verifies
 // that the search response includes the relation on the relevant node.
 func TestViewer_SearchIncludesRelations(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
 	pool := NewTestPool(t)
 	CleanDB(t)
 
@@ -148,6 +153,7 @@ func TestViewer_SearchIncludesRelations(t *testing.T) {
 	viewer.Register(mux, pool)
 
 	req := httptest.NewRequest(http.MethodGet, "/viewer/api/search", nil)
+	req = withSession(t, req)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
@@ -192,23 +198,25 @@ func TestViewer_SearchIncludesRelations(t *testing.T) {
 		"'rel-source' must have at least one relation in the response")
 
 	rel := sourceNode.Relations[0]
-	assert.Equal(t, "rel-source",  rel.FromName,     "from_name must be rel-source")
-	assert.Equal(t, "rel-target",  rel.ToName,       "to_name must be rel-target")
-	assert.Equal(t, "relates_to",  rel.RelationType, "relation_type must be relates_to")
+	assert.Equal(t, "rel-source", rel.FromName, "from_name must be rel-source")
+	assert.Equal(t, "rel-target", rel.ToName, "to_name must be rel-target")
+	assert.Equal(t, "relates_to", rel.RelationType, "relation_type must be relates_to")
 }
 
 // ── TestViewer_RendersUpdatedHTML ─────────────────────────────────────────────
 
-// TestViewer_RendersUpdatedHTML verifies that GET /viewer/ returns HTML that
-// contains the new nodetype-filter select element and the relations-related
-// CSS class names introduced in Phase 5 Item D.
+// TestViewer_RendersUpdatedHTML verifies that GET /viewer/ with a valid session
+// returns HTML that contains the nodetype-filter select element and the
+// relations-related CSS class names introduced in Phase 5 Item D.
 func TestViewer_RendersUpdatedHTML(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", viewerTestSecret)
 	pool := NewTestPool(t)
 
 	mux := http.NewServeMux()
 	viewer.Register(mux, pool)
 
 	req := httptest.NewRequest(http.MethodGet, "/viewer/", nil)
+	req = withSession(t, req)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 

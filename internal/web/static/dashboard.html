@@ -1,0 +1,153 @@
+{{define "dashboard.html"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>context-harness — dashboard</title>
+<style>
+  :root{
+    --ch-bg:#0a0a0d; --ch-bg-panel:#14141a; --ch-bg-code:#050507;
+    --ch-fg:#e6e6ea; --ch-fg-mute:#8a8a96; --ch-fg-dim:#56565f;
+    --ch-border:#1f1f27; --ch-accent:#f59e0b; --ch-accent-soft:#f59e0b22;
+    --ch-error:#ef4444;
+    --ch-sans:"Inter",-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    --ch-mono:"JetBrains Mono","SF Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--ch-bg);color:var(--ch-fg);font-family:var(--ch-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;flex-direction:column;position:relative;overflow-x:hidden}
+  .ch-lattice{position:fixed;inset:auto 0 0 0;height:60vh;width:100%;pointer-events:none;opacity:.06;z-index:0;color:var(--ch-fg)}
+  .ch-header{position:relative;z-index:2;display:flex;align-items:center;gap:12px;padding:20px 32px;color:var(--ch-fg-mute);border-bottom:1px solid var(--ch-border)}
+  .ch-header-left{display:flex;align-items:center;gap:12px;flex:1}
+  .ch-header-right{display:flex;align-items:center;gap:16px}
+  .ch-home-link{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;border-radius:4px;padding:2px 4px;margin:-2px -4px;transition:background 150ms ease}
+  .ch-home-link:hover{background:var(--ch-bg-panel)}
+  .ch-mark{color:var(--ch-fg);height:22px;width:22px;display:block;flex:0 0 auto}
+  .ch-wordmark{font-family:var(--ch-mono);font-size:12px;letter-spacing:.02em;color:var(--ch-fg-mute)}
+  .ch-nav-link{font-family:var(--ch-mono);font-size:12px;color:var(--ch-fg-mute);text-decoration:none;letter-spacing:.02em}
+  .ch-nav-link:hover{color:var(--ch-fg)}
+  .ch-email-nav{font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-dim)}
+  main{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;padding:24px}
+  .ch-panel{width:100%;max-width:520px;background:var(--ch-bg-panel);border:1px solid var(--ch-border);border-radius:10px;padding:32px}
+  .ch-title{font-size:24px;line-height:1.25;font-weight:500;margin:0 0 6px;letter-spacing:-.01em}
+  .ch-sub{color:var(--ch-fg-mute);font-size:13px;margin:0 0 24px}
+  .ch-card{background:var(--ch-bg);border:1px solid var(--ch-border);border-radius:8px;padding:14px 16px;margin:0 0 16px}
+  .ch-card-label{font-family:var(--ch-mono);font-size:11px;color:var(--ch-fg-dim);letter-spacing:.08em;text-transform:uppercase;margin:0 0 6px}
+  .ch-email-shown{font-family:var(--ch-mono);font-size:13px;color:var(--ch-fg);word-break:break-all;margin:0}
+  .ch-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 18px;border-radius:6px;font:500 14px/1 var(--ch-sans);cursor:pointer;border:1px solid transparent;transition:all 150ms ease;width:100%;background:var(--ch-accent);color:#0a0a0d}
+  .ch-btn-primary:hover:not(:disabled){box-shadow:0 0 0 4px var(--ch-accent-soft)}
+  .ch-btn-primary:disabled{opacity:.55;cursor:default}
+  .ch-btn-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 16px;border-radius:6px;font:500 13px/1 var(--ch-sans);cursor:pointer;border:1px solid var(--ch-border);transition:all 150ms ease;background:transparent;color:var(--ch-fg-mute)}
+  .ch-btn-secondary:hover{border-color:var(--ch-fg-mute);color:var(--ch-fg)}
+  .ch-divider{border:none;border-top:1px solid var(--ch-border);margin:24px 0}
+  .ch-sign-out-row{display:flex;align-items:center;justify-content:space-between}
+  .ch-sign-out-label{font-size:13px;color:var(--ch-fg-dim)}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  }
+</style>
+</head>
+<body>
+
+<svg class="ch-lattice" aria-hidden="true" preserveAspectRatio="xMidYMax slice" viewBox="0 0 1600 1000">
+  <g fill="currentColor" opacity=".75">
+    <circle cx="120"  cy="80"   r="1"/><circle cx="240"  cy="180"  r="1.2"/>
+    <circle cx="380"  cy="60"   r="0.8"/><circle cx="520"  cy="220"  r="1"/>
+    <circle cx="680"  cy="120"  r="1.4"/><circle cx="840"  cy="280"  r="1"/>
+    <circle cx="1000" cy="80"   r="0.9"/><circle cx="1180" cy="200"  r="1.1"/>
+    <circle cx="1340" cy="100"  r="1"/><circle cx="1500" cy="240"  r="0.8"/>
+    <circle cx="80"   cy="380"  r="1"/><circle cx="260"  cy="520"  r="1.3"/>
+    <circle cx="440"  cy="420"  r="0.9"/><circle cx="620"  cy="600"  r="1"/>
+    <circle cx="820"  cy="480"  r="1.4"/><circle cx="1020" cy="640"  r="1"/>
+    <circle cx="1200" cy="520"  r="1.1"/><circle cx="1380" cy="680"  r="0.9"/>
+    <circle cx="1540" cy="580"  r="1"/><circle cx="60"   cy="780"  r="1.2"/>
+    <circle cx="220"  cy="900"  r="1"/><circle cx="400"  cy="820"  r="0.8"/>
+    <circle cx="580"  cy="940"  r="1.1"/><circle cx="760"  cy="780"  r="1"/>
+    <circle cx="940"  cy="900"  r="1.3"/><circle cx="1140" cy="820"  r="0.9"/>
+    <circle cx="1320" cy="940"  r="1"/><circle cx="1480" cy="860"  r="1.1"/>
+  </g>
+  <g fill="#f59e0b" opacity=".9">
+    <circle cx="380"  cy="540"  r="2.4"/>
+    <circle cx="1100" cy="340"  r="2.4"/>
+  </g>
+  <g stroke="currentColor" stroke-width=".5" stroke-dasharray="3 5" fill="none" opacity=".5">
+    <line x1="380"  y1="540"  x2="1100" y2="340"/>
+    <line x1="120"  y1="80"   x2="380"  y2="540"/>
+    <line x1="1100" y1="340"  x2="1540" y2="580"/>
+    <line x1="220"  y1="900"  x2="380"  y2="540"/>
+    <line x1="1100" y1="340"  x2="680"  y2="120"/>
+  </g>
+</svg>
+
+<header class="ch-header">
+  <div class="ch-header-left">
+    <a class="ch-home-link" href="/" aria-label="home">
+    <svg class="ch-mark" viewBox="0 0 32 32" role="img" aria-label="context-harness mark" xmlns="http://www.w3.org/2000/svg">
+      <g fill="none" stroke="currentColor" stroke-width="0.8" opacity=".85">
+        <circle cx="16" cy="16" r="13"/>
+        <ellipse cx="16" cy="16" rx="13" ry="4.5"/>
+        <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(60 16 16)"/>
+        <ellipse cx="16" cy="16" rx="13" ry="4.5" transform="rotate(-60 16 16)"/>
+      </g>
+      <g fill="currentColor">
+        <circle cx="3" cy="16" r="1.1"/>
+        <circle cx="29" cy="16" r="1.1"/>
+        <circle cx="9.5" cy="4.74" r="1.1"/>
+        <circle cx="22.5" cy="4.74" r="1.1"/>
+        <circle cx="9.5" cy="27.26" r="1.1"/>
+        <circle cx="22.5" cy="27.26" r="1.1"/>
+      </g>
+      <circle cx="16" cy="16" r="2.8" fill="#f59e0b">
+        <animate attributeName="r" values="2.8;3.4;2.8" dur="2.4s" repeatCount="indefinite"/>
+      </circle>
+      <circle r="1" fill="#a78bfa" opacity="0">
+        <animateMotion path="M3,16 L29,16" dur="2.4s" repeatCount="indefinite" begin="0s"/>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="0s"/>
+      </circle>
+      <circle r="1" fill="#a78bfa" opacity="0">
+        <animateMotion path="M9.5,4.74 L22.5,27.26" dur="2.4s" repeatCount="indefinite" begin="0.8s"/>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="0.8s"/>
+      </circle>
+      <circle r="1" fill="#a78bfa" opacity="0">
+        <animateMotion path="M22.5,4.74 L9.5,27.26" dur="2.4s" repeatCount="indefinite" begin="1.6s"/>
+        <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="2.4s" repeatCount="indefinite" begin="1.6s"/>
+      </circle>
+    </svg>
+    <span class="ch-wordmark">context-harness</span>
+    </a>
+    <a class="ch-nav-link" href="/viewer/" style="margin-left:16px">Viewer</a>
+  </div>
+  <div class="ch-header-right">
+    <span class="ch-email-nav">{{.Email}}</span>
+  </div>
+</header>
+
+<main>
+  <div class="ch-panel">
+    <h1 class="ch-title">Your dashboard</h1>
+    <p class="ch-sub">Generate an MCP token to drop into your <code>~/.claude.json</code>.</p>
+
+    <div class="ch-card">
+      <p class="ch-card-label">Signed in as</p>
+      <p class="ch-email-shown">{{.Email}}</p>
+    </div>
+
+    <form method="POST" action="/dashboard/generate-token">
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}"/>
+      <button class="ch-btn-primary" type="submit">Generate MCP Token</button>
+    </form>
+
+    <hr class="ch-divider"/>
+
+    <div class="ch-sign-out-row">
+      <span class="ch-sign-out-label">End your session</span>
+      <form method="POST" action="/auth/logout">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}"/>
+        <button class="ch-btn-secondary" type="submit">Sign Out</button>
+      </form>
+    </div>
+  </div>
+</main>
+
+</body>
+</html>{{end}}

@@ -219,6 +219,11 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	// a webhook event immediately invalidates the cached revocation state,
 	// reducing effective revocation latency from 1h (TTL) to ~1s.
 	web.RegisterWebhook(mux, pool, revocationCache)
+	// Session-authenticated routes: /dashboard and /auth/logout.
+	// These use ch_session cookie auth, not bearer JWT — they sit outside the
+	// auth.Middleware wrap on /mcp deliberately.
+	web.RegisterDashboard(mux, pool)
+	web.RegisterLogout(mux)
 	// Landing page at GET / — fully static, presents both products in the
 	// agent stack (claude-dev-team + context-harness-mcp). Registered LAST so
 	// it doesn't shadow any earlier exact route; mux's longest-prefix match
