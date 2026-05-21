@@ -1,7 +1,10 @@
-// Package tests — auth exchange E2E integration tests for PR-3.
+// Package tests — auth exchange E2E integration tests for PR-3 / auth-ux-redesign.
 //
 // Covers:
-//   - AC-2: happy path POST /auth/exchange → 200, token+expires_at+snippet, no Set-Cookie,
+//   - AC-1 (auth-ux-redesign PR-1): happy path POST /auth/exchange now also issues
+//     a ch_session cookie alongside the MCP JWT. The "Set-Cookie must be absent"
+//     assertion was updated to reflect the STAGE-GATE-1 ratified change.
+//   - AC-2: happy path POST /auth/exchange → 200, token+expires_at+snippet,
 //     users row created, token validates with auth.ValidateMCPToken.
 //   - AC-5: atomicity — JWT issuance failure → ROLLBACK → no orphan row (new user),
 //     and existing user row is UNCHANGED after failure.
@@ -185,9 +188,11 @@ func TestAuthE2E_HappyPath(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode,
 		"happy path must return 200 (AC-2)")
 
-	// 2. No Set-Cookie header (viewer public locked decision).
-	assert.Empty(t, resp.Header.Get("Set-Cookie"),
-		"Set-Cookie must be absent — viewer is public read-only (AC-2 locked decision)")
+	// 2. Set-Cookie: ch_session must be present (AC-1 — session cookie issued alongside JWT).
+	// The "viewer public read-only" locked decision was overridden at STAGE-GATE-1 of
+	// auth-ux-redesign. The session cookie is now issued unconditionally on success.
+	assert.Contains(t, resp.Header.Get("Set-Cookie"), "ch_session=",
+		"Set-Cookie must include ch_session cookie (AC-1)")
 
 	// 3. Response body has token, expires_at, snippet.
 	var body exchangeResponseBody

@@ -26,7 +26,7 @@ func TestLoginHandler_ServesHTML(t *testing.T) {
 
 	body := rr.Body.String()
 
-	// AC-6: template substitutions are present in the response.
+	// Template substitutions are present in the response.
 	assert.Contains(t, body, "https://logintest.supabase.co",
 		"SUPABASE_PROJECT_URL must be substituted into login.html")
 	assert.Contains(t, body, "login-anon-key",
@@ -59,7 +59,7 @@ func TestLoginHandler_ContainsExpectedElements(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 
-	// AC-6: the login page must have an email input and call /auth/v1/recover.
+	// The login page must have an email input and call /auth/v1/recover.
 	assert.True(t, strings.Contains(body, `type="email"`) || strings.Contains(body, "email"),
 		"login.html must contain an email input")
 	assert.Contains(t, body, "/auth/v1/recover",
@@ -81,4 +81,87 @@ func TestRegisterLogin_RoutesCorrectly(t *testing.T) {
 	mux.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+// ── ?next= plumbing (PR-1 additions) ─────────────────────────────────────────
+
+func TestLoginHandler_SafeNext_AppearsInTemplate(t *testing.T) {
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login?next=%2Fviewer%2F", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	// The safe next value must appear in the JS (as NEXT constant).
+	assert.Contains(t, body, "/viewer/",
+		"safe ?next=/viewer/ must appear in the rendered template")
+}
+
+func TestLoginHandler_UnsafeNext_IsDropped(t *testing.T) {
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login?next=https%3A%2F%2Fevil.com", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	// The unsafe value must NOT appear in the rendered output.
+	assert.NotContains(t, body, "evil.com",
+		"unsafe ?next= must not appear in the template — IsSafe dropped it")
+}
+
+func TestLoginHandler_Dashboard_Next_IsAccepted(t *testing.T) {
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login?next=%2Fdashboard", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, "/dashboard",
+		"safe ?next=/dashboard must appear in the template")
+}
+
+// TestSafeNext_Logic tests the safeNext helper directly.
+func TestSafeNext_Logic(t *testing.T) {
+	tests := []struct {
+		rawQuery string
+		want     string
+	}{
+		{"next=%2Fviewer%2F", "/viewer/"},
+		{"next=%2Fdashboard", "/dashboard"},
+		{"next=https%3A%2F%2Fevil.com", ""},
+		{"next=%2Fadmin", ""},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		req := httptest.NewRequest(http.MethodGet, "/auth/login?"+tc.rawQuery, nil)
+		got := safeNext(req)
+		assert.Equal(t, tc.want, got, "safeNext with query %q", tc.rawQuery)
+	}
+}
+
+// TestSupabaseRedirectTo_WithNext verifies the redirect_to URL includes next.
+func TestSupabaseRedirectTo_WithNext(t *testing.T) {
+	url := supabaseRedirectTo("https://mcp.example.com", "/viewer/")
+	assert.Equal(t, "https://mcp.example.com/auth/callback?next=%2Fviewer%2F", url)
+}
+
+// TestSupabaseRedirectTo_NoNext verifies the redirect_to URL without next.
+func TestSupabaseRedirectTo_NoNext(t *testing.T) {
+	url := supabaseRedirectTo("https://mcp.example.com", "")
+	assert.Equal(t, "https://mcp.example.com/auth/callback", url)
 }

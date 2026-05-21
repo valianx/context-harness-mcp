@@ -318,7 +318,7 @@ El TTL de 1h era 30s en el diseño inicial y fue subido a 1h por decisión del u
 
 ### ¿El viewer necesita auth?
 
-No. `/viewer/*` permanece público read-only por decisión de diseño (v0.1, sin cambio en v0.2.0). No se envía cookie, no se verifica bearer. El viewer solo expone operaciones de lectura del KG.
+Sí. A partir de la feature `auth-ux-redesign` (PR-1), `/viewer/*` require una cookie `ch_session` válida (ver §f abajo y AC-9 en `session-docs/auth-ux-redesign/00-task-intake.md`). Antes de esta feature, el viewer era público — esa convención fue anulada en STAGE-GATE-1 por decisión del operador.
 
 ### ¿Qué pasa si el webhook no llega (Supabase cold start, red, etc.)?
 
@@ -339,3 +339,65 @@ LIMIT 20;
 Si `status_code` es `200` para POST a `<MCP_PUBLIC_URL>/auth/webhook`, el webhook está llegando. Si hay `error_msg` o status 4xx/5xx, investigar la URL y el header `X-Webhook-Secret`.
 
 En el server, el metric counter `auth_webhook_received_total` (expvar, accesible en `/debug/vars` si `MCP_EXPOSE_EXPVAR=1`) muestra el conteo total de webhooks recibidos desde el último restart.
+
+---
+
+## (f) Dual Credential Model — Web Session Cookie vs MCP JWT
+
+`context-harness-mcp` uses two distinct credentials for two distinct surfaces. They share `MCP_JWT_SECRET` but use different HMAC inputs to prevent cross-protocol confusion.
+
+### At a glance
+
+| Property | `ch_session` cookie | MCP JWT (Bearer) |
+|---|---|---|
+| **Surface** | Browser: `/dashboard`, `/viewer/*` | MCP client: `/mcp/*` |
+| **Issued by** | `POST /auth/exchange` (alongside JWT) | `POST /auth/exchange` |
+| **Format** | `base64url(JSON payload).hex(HMAC-SHA256)` | HS256 compact JWT |
+| **Lifetime** | 24 hours | 1 year |
+| **Claims** | `sub`, `iat`, `exp` | `sub`, `iat`, `exp`, `email`, `iss` |
+| **HMAC input** | `payload || "\x00ch_session_v1"` | JWT standard (header.payload) |
+| **Transport** | `Cookie: ch_session=<value>` | `Authorization: Bearer <jwt>` |
+| **Revocation** | Cookie expiry (24h) or `POST /auth/logout` | `users.revoked_at` server-side |
+| **State** | Stateless — payload in the cookie | Stateless — payload in the JWT |
+| **DB table** | None — no session table | None — `users.revoked_at` is authoritative |
+
+### Cookie format
+
+```
+ch_session = <base64url(json(payload))>.<hex(hmac_sha256(payload || "\x00ch_session_v1", MCP_JWT_SECRET))>
+```
+
+Payload is compact JSON: `{"sub":"<uuid>","iat":<unix>,"exp":<unix+86400>}`.
+
+The `\x00ch_session_v1` domain-separation suffix prevents a JWT signature (which also uses `MCP_JWT_SECRET`) from validating as a cookie HMAC, even if an attacker gets a JWT into the `Cookie` header. The two parsers also sit on different HTTP fields (`Authorization` vs `Cookie`), providing belt-and-suspenders isolation.
+
+### Cookie attributes
+
+| Attribute | Value | Reason |
+|---|---|---|
+| `Name` | `ch_session` | `ch_` prefix matches design-system convention |
+| `HttpOnly` | `true` | XSS defense — JS never reads the session |
+| `Secure` | conditional | True when `X-Forwarded-Proto: https` OR `r.TLS != nil` OR `MCP_PUBLIC_URL` starts with `https://` |
+| `SameSite` | `Strict` | CSRF defense for the cookie itself |
+| `Path` | `/` | Reaches all authenticated surfaces |
+| `Max-Age` | `86400` (24h) | Aligned with `exp` claim |
+
+### The `?next=` redirect flow (viewer gating)
+
+When an unauthenticated user tries to access `/viewer/`, the session gate redirects them to `/auth/login?next=/viewer/`. The `next` parameter threads through the login flow:
+
+1. `/auth/login` validates `next` via `IsSafe()` and passes it to the template.
+2. The Supabase magic-link `redirect_to` becomes `MCP_PUBLIC_URL/auth/callback?next=<encoded>`.
+3. The callback page reads `next` from the query string and includes it in the `POST /auth/exchange` JSON body.
+4. `/auth/exchange` re-validates `next` via `IsSafe()` and returns it as `redirect_to` in the JSON response.
+5. The callback page calls `window.location.replace(redirect_to)`.
+
+The server validates `next` at **two** points (login template render and exchange response) — defense in depth against open redirect. The allowlist: `/dashboard`, `/viewer/`, `/viewer/*`.
+
+### Secret rotation
+
+Rotating `MCP_JWT_SECRET` simultaneously invalidates **all** web sessions (cookies) AND **all** MCP JWTs. This is by design — both credentials share the same secret. Users must re-authenticate via magic link to get a new session cookie and, if needed, a new MCP JWT via `/dashboard`. See section (d) for the rotation runbook.
+
+### Logout
+
+`POST /auth/logout` clears the `ch_session` cookie (`Max-Age=0`) and the `ch_csrf` cookie, then redirects to `/`. This terminates the browser session only — any MCP JWT the user holds remains valid until its 1-year expiry or until the user's `revoked_at` is set in the `users` table.

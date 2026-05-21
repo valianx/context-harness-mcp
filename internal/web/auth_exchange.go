@@ -20,15 +20,23 @@ import (
 const defaultSnippetServerName = "context-harness"
 
 // exchangeRequest is the expected POST /auth/exchange body.
+// The optional Next field supports the ?next= redirect flow: the callback page
+// reads next from the URL and passes it here; the server validates it via
+// IsSafe and echoes a safe redirect_to in the response.
 type exchangeRequest struct {
 	AccessToken string `json:"access_token"`
+	Next        string `json:"next,omitempty"`
 }
 
 // exchangeResponse is the 200 OK body returned by POST /auth/exchange.
+// RedirectTo is the server-validated destination URL the callback page should
+// navigate to after a successful exchange. Defaults to "/dashboard".
+// Legacy clients that ignore this field continue to work unchanged (AC-10).
 type exchangeResponse struct {
-	Token     string `json:"token"`
-	ExpiresAt string `json:"expires_at"`
-	Snippet   string `json:"snippet"`
+	Token      string `json:"token"`
+	ExpiresAt  string `json:"expires_at"`
+	Snippet    string `json:"snippet"`
+	RedirectTo string `json:"redirect_to"`
 }
 
 // tokenIssuer is the function type for issuing an MCP JWT.
@@ -97,17 +105,23 @@ func (h *exchangeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, expiresAt, ok := h.exchangeWithinTx(w, r.Context(), user)
+	token, expiresAt, ok := h.exchangeWithinTx(w, r, user)
 	if !ok {
 		return
+	}
+
+	redirectTo := "/dashboard"
+	if IsSafe(req.Next) {
+		redirectTo = req.Next
 	}
 
 	snippet := buildSnippet(h.serverName, h.baseURL, r.Host, token)
 
 	writeJSON(w, exchangeResponse{
-		Token:     token,
-		ExpiresAt: expiresAt,
-		Snippet:   snippet,
+		Token:      token,
+		ExpiresAt:  expiresAt,
+		Snippet:    snippet,
+		RedirectTo: redirectTo,
 	})
 }
 
@@ -137,11 +151,18 @@ func (h *exchangeHandler) validateSupabaseToken(w http.ResponseWriter, ctx conte
 	return user, true
 }
 
-// exchangeWithinTx runs the DB transaction: upsert user, issue JWT, commit.
-// On JWT issuance failure it rolls back the transaction so no orphan row is
-// left for new users, and the existing row stays unchanged for returning users.
-// Returns the signed token and RFC3339 expires_at, or writes an error + false.
-func (h *exchangeHandler) exchangeWithinTx(w http.ResponseWriter, ctx context.Context, user *auth.SupabaseUser) (string, string, bool) {
+// exchangeWithinTx runs the DB transaction: upsert user, issue JWT, issue
+// session cookie, commit. On any failure it rolls back the transaction so no
+// orphan row is left for new users, and the existing row stays unchanged for
+// returning users. Returns the signed token and RFC3339 expires_at, or writes
+// an error response and returns false.
+//
+// The session cookie is set on w before Commit so that Set-Cookie appears in
+// the same HTTP response as the JSON body. If cookie issuance fails (missing
+// MCP_JWT_SECRET), the transaction rolls back and a 500 is returned.
+func (h *exchangeHandler) exchangeWithinTx(w http.ResponseWriter, r *http.Request, user *auth.SupabaseUser) (string, string, bool) {
+	ctx := r.Context()
+
 	tx, err := h.pool.Begin(ctx)
 	if err != nil {
 		slog.Error("web: begin transaction failed", "error", err)
@@ -169,6 +190,15 @@ func (h *exchangeHandler) exchangeWithinTx(w http.ResponseWriter, ctx context.Co
 		slog.Error("web: IssueMCPToken failed", "error", err, "sub_prefix", subPrefix(user.ID))
 		auth.WriteError(w, auth.CodeJWTIssuanceFailed, h.baseURL)
 		return "", "", false // defer Rollback fires here
+	}
+
+	// Issue the 24h session cookie alongside the MCP JWT (AC-1). The cookie
+	// rotates on every successful exchange — no "reuse existing" branch —
+	// which eliminates session-fixation by construction.
+	if err := Issue(w, r, user.ID); err != nil {
+		slog.Error("web: session Issue failed", "error", err, "sub_prefix", subPrefix(user.ID))
+		auth.WriteError(w, auth.CodeJWTIssuanceFailed, h.baseURL)
+		return "", "", false
 	}
 
 	if err := tx.Commit(ctx); err != nil {

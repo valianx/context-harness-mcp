@@ -157,30 +157,29 @@ func TestExchangeHandler_JWTIssuanceFails_Returns500(t *testing.T) {
 }
 
 func TestExchangeHandler_Happy_ReturnsToken(t *testing.T) {
-	// AC-2: Supabase returns valid user → 200 with token, expires_at, snippet.
-	// No Set-Cookie header (viewer public locked decision).
-	fakeToken := "eyJfake.token.here"
-	h := buildHandlerNoPool(
-		&mockSupabaseClient{user: confirmedUser()},
-		func(_, _ string) (string, error) { return fakeToken, nil },
-	)
-	// Skip the DB transaction for this unit test by providing a nil pool —
-	// the test relies on buildHandlerNoPool which uses a fake tx path.
-	// Full DB integration is covered in tests/auth_e2e_test.go.
-	_ = h
+	// AC-1+AC-2: Supabase returns valid user → 200 with token, expires_at,
+	// snippet, redirect_to, and a Set-Cookie: ch_session header.
+	t.Setenv("MCP_JWT_SECRET", "test-secret-32-bytes-for-session")
 
-	// For a unit test without DB we use a variant that stubs the tx path.
-	h2 := buildHandlerWithFakeDB(
+	fakeToken := "eyJfake.token.here"
+	h := buildHandlerWithFakeDB(
 		&mockSupabaseClient{user: confirmedUser()},
 		func(_, _ string) (string, error) { return fakeToken, nil },
 	)
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/exchange", exchangeBody("valid-token"))
 	rr := httptest.NewRecorder()
-	h2.ServeHTTP(rr, req)
+	h.ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusOK, rr.Code)
-	assert.Empty(t, rr.Header().Get("Set-Cookie"), "Set-Cookie must be absent (viewer public locked decision)")
+
+	// AC-1: ch_session cookie must be set with correct attributes.
+	setCookie := rr.Header().Get("Set-Cookie")
+	assert.Contains(t, setCookie, "ch_session=", "Set-Cookie must include ch_session")
+	assert.Contains(t, setCookie, "HttpOnly", "HttpOnly must be set")
+	assert.Contains(t, setCookie, "SameSite=Strict", "SameSite=Strict must be set")
+	assert.Contains(t, setCookie, "Max-Age=86400", "Max-Age=86400 must be set")
+	assert.Contains(t, setCookie, "Path=/", "Path=/ must be set")
 
 	var resp exchangeResponse
 	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
@@ -188,6 +187,105 @@ func TestExchangeHandler_Happy_ReturnsToken(t *testing.T) {
 	assert.NotEmpty(t, resp.ExpiresAt)
 	assert.Contains(t, resp.Snippet, "mcpServers")
 	assert.Contains(t, resp.Snippet, "Bearer "+fakeToken)
+
+	// redirect_to must default to /dashboard when no next was sent.
+	assert.Equal(t, "/dashboard", resp.RedirectTo)
+}
+
+func TestExchangeHandler_Next_SafeRedirect(t *testing.T) {
+	// AC-1: valid next=/viewer/ in request → redirect_to=/viewer/ in response.
+	t.Setenv("MCP_JWT_SECRET", "test-secret-32-bytes-for-session")
+
+	body, _ := json.Marshal(map[string]string{
+		"access_token": "valid-token",
+		"next":         "/viewer/",
+	})
+	h := buildHandlerWithFakeDB(
+		&mockSupabaseClient{user: confirmedUser()},
+		func(_, _ string) (string, error) { return "tok", nil },
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/exchange", strings.NewReader(string(body)))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var resp exchangeResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.Equal(t, "/viewer/", resp.RedirectTo)
+}
+
+func TestExchangeHandler_Next_UnsafeRedirect_FallsBack(t *testing.T) {
+	// AC-1: malicious next= value → redirect_to must be /dashboard.
+	t.Setenv("MCP_JWT_SECRET", "test-secret-32-bytes-for-session")
+
+	body, _ := json.Marshal(map[string]string{
+		"access_token": "valid-token",
+		"next":         "https://evil.com/phish",
+	})
+	h := buildHandlerWithFakeDB(
+		&mockSupabaseClient{user: confirmedUser()},
+		func(_, _ string) (string, error) { return "tok", nil },
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/exchange", strings.NewReader(string(body)))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var resp exchangeResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	assert.Equal(t, "/dashboard", resp.RedirectTo,
+		"unsafe next= must be replaced with /dashboard")
+}
+
+func TestExchangeHandler_FailurePaths_NoCookie(t *testing.T) {
+	// Failure paths (4xx) must NOT set the ch_session cookie.
+	t.Setenv("MCP_JWT_SECRET", "test-secret-32-bytes-for-session")
+
+	cases := []struct {
+		name string
+		h    http.Handler
+		body string
+	}{
+		{
+			name: "malformed_body",
+			h: buildHandlerNoPool(
+				&mockSupabaseClient{user: confirmedUser()},
+				func(_, _ string) (string, error) { return "tok", nil },
+			),
+			body: `{}`,
+		},
+		{
+			name: "supabase_rejects",
+			h: buildHandlerNoPool(
+				&mockSupabaseClient{err: auth.ErrSupabaseUnauthorized},
+				func(_, _ string) (string, error) { return "tok", nil },
+			),
+			body: `{"access_token":"bad"}`,
+		},
+		{
+			name: "email_not_confirmed",
+			h: buildHandlerNoPool(
+				&mockSupabaseClient{user: unconfirmedUser()},
+				func(_, _ string) (string, error) { return "tok", nil },
+			),
+			body: `{"access_token":"any"}`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/auth/exchange", strings.NewReader(tc.body))
+			rr := httptest.NewRecorder()
+			tc.h.ServeHTTP(rr, req)
+
+			assert.Empty(t, rr.Header().Get("Set-Cookie"),
+				"failure path must not set Set-Cookie")
+		})
+	}
 }
 
 func TestExchangeHandler_RejectsNonPost(t *testing.T) {
@@ -333,13 +431,22 @@ func (h *inMemoryExchangeHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Issue session cookie (mirrors production exchangeWithinTx).
+	_ = Issue(w, r, user.ID)
+
+	redirectTo := "/dashboard"
+	if IsSafe(req.Next) {
+		redirectTo = req.Next
+	}
+
 	expiresAt := time.Now().Add(jwtExpiry()).Format(time.RFC3339)
 	snippet := buildSnippet(h.serverName, h.baseURL, r.Host, token)
 
 	writeJSON(w, exchangeResponse{
-		Token:     token,
-		ExpiresAt: expiresAt,
-		Snippet:   snippet,
+		Token:      token,
+		ExpiresAt:  expiresAt,
+		Snippet:    snippet,
+		RedirectTo: redirectTo,
 	})
 }
 
