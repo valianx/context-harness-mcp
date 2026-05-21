@@ -97,6 +97,11 @@
   .ch-section-intro .step{font-family:var(--ch-mono);font-size:11px;color:var(--ch-accent);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
   .ch-section-intro h2{font-size:30px;line-height:1.15;font-weight:500;margin:0 0 14px;letter-spacing:-.015em;max-width:640px}
   .ch-section-intro p{margin:0;color:var(--ch-fg-mute);font-size:15px;max-width:680px}
+  .ch-section-intro p code{font-family:var(--ch-mono);font-size:13px;background:var(--ch-bg-code);color:var(--ch-fg);padding:1px 6px;border-radius:4px;border:1px solid var(--ch-border)}
+  .ch-chip-row{max-width:1200px;margin:0 auto;padding:0 28px 72px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .ch-chip{font-family:var(--ch-mono);font-size:12px;color:var(--ch-fg-mute);background:var(--ch-bg-panel);border:1px solid var(--ch-border);border-radius:4px;padding:8px 12px;letter-spacing:.04em}
+  .ch-chip-cta{margin-left:auto;color:var(--ch-accent);font-family:var(--ch-mono);font-size:12px;text-decoration:none;letter-spacing:.04em;padding:8px 14px;border-radius:4px;border:1px solid var(--ch-accent);transition:background 150ms ease;display:inline-flex;align-items:center;gap:6px}
+  .ch-chip-cta:hover{background:var(--ch-accent-soft)}
   .ch-code{position:relative;background:var(--ch-bg-code);border:1px solid var(--ch-border);border-radius:8px;padding:20px 20px 20px 22px;font:400 13px/1.65 var(--ch-mono);color:var(--ch-fg);overflow-x:auto;white-space:pre}
   .ch-code-tag{position:absolute;top:-1px;right:14px;background:var(--ch-bg-code);color:var(--ch-fg-dim);font:500 10px/1 var(--ch-mono);padding:6px 8px;border:1px solid var(--ch-border);border-top:0;border-radius:0 0 4px 4px;letter-spacing:.06em}
   .ch-code .k{color:var(--ch-accent)}
@@ -133,6 +138,8 @@
     .ch-section{grid-template-columns:1fr;padding:48px 24px;gap:24px}
     .ch-section-intro{padding:48px 24px 16px}
     .ch-features{grid-template-columns:1fr;padding:0 24px 64px}
+    .ch-chip-row{padding:0 24px 56px}
+    .ch-chip-cta{margin-left:0;width:100%;justify-content:center}
     .ch-nav a:not(.ch-nav-cta){display:none}
   }
   @media (prefers-reduced-motion:reduce){
@@ -227,22 +234,21 @@
   <!-- ── HERO ──────────────────────────────────────────── -->
   <section class="ch-hero">
     <div>
-      <span class="ch-eyebrow"><span class="ch-eyebrow-dot"></span>open source · two-product agent stack</span>
-      <h1 class="ch-h1">Persistent memory<br/>for your team's <em>agents</em>.</h1>
+      <span class="ch-eyebrow"><span class="ch-eyebrow-dot"></span>open source · agent harness for Claude Code</span>
+      <h1 class="ch-h1">A real dev team.<br/><em>Made of agents.</em></h1>
       <p class="ch-sub">
-        <strong>Team Harness</strong> orchestrates a specialized subagent pipeline for the full dev lifecycle &mdash; architect, implementer, tester, qa, security, delivery. <strong>Context Harness MCP</strong> is their shared memory: a Postgres + pgvector knowledge graph with semantic search and a three-layer write filter. Two products, one stack, fully open source.
+        <strong>Team Harness</strong> turns chat-driven Claude Code into a structured pipeline. Specialized subagents own each phase &mdash; architect, implementer, tester, qa, security, delivery &mdash; with mandatory human gates between stages and full state captured as files.
       </p>
       <div class="ch-cta-row">
         <a class="ch-btn ch-btn-primary" href="https://github.com/valianx/team-harness" target="_blank" rel="noopener">
           <svg class="gh" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.08-2.7-1.08-.36-.92-.89-1.16-.89-1.16-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.71 1.23 1.87.88 2.33.67.07-.52.28-.88.5-1.08-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          Team Harness
+          Install Team Harness&nbsp;&rarr;
         </a>
-        <a class="ch-btn ch-btn-secondary" href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">
-          <svg class="gh" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 005.47 7.59c.4.07.55-.17.55-.38v-1.34c-2.23.48-2.7-1.08-2.7-1.08-.36-.92-.89-1.16-.89-1.16-.73-.5.05-.49.05-.49.81.06 1.24.83 1.24.83.71 1.23 1.87.88 2.33.67.07-.52.28-.88.5-1.08-1.78-.2-3.65-.89-3.65-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-          Context Harness MCP
+        <a class="ch-btn ch-btn-secondary" href="https://github.com/valianx/team-harness#readme" target="_blank" rel="noopener">
+          View on GitHub
         </a>
       </div>
-      <p class="ch-compat">Install one, get both &middot; <code>./bin/install.sh</code></p>
+      <p class="ch-compat">One install &middot; <code>./bin/install.sh</code> &middot; works with any MCP-compatible memory backend</p>
     </div>
 
     <!-- HERO SPHERE -->
@@ -341,44 +347,13 @@
 
   <!-- ── divider ───────────────────────────────────────── -->
   <div class="ch-rail">
-    <span>// drop-in</span>
-    <span class="ch-rail-line"></span>
-  </div>
-
-  <!-- ── DROP-IN SECTION ───────────────────────────────── -->
-  <section class="ch-section">
-    <div>
-      <p class="step">01 · wire it</p>
-      <h2>Three lines in <code style="font-family:var(--ch-mono);font-size:.85em;background:var(--ch-bg-code);padding:2px 7px;border-radius:4px;border:1px solid var(--ch-border);">~/.claude.json</code></h2>
-      <p>The <strong>Team Harness</strong> installer drops the snippet for you. Point Claude Code at your shared MCP and every agent on your team starts reading from the same memory.</p>
-    </div>
-    <div class="ch-code">
-      <span class="ch-code-tag">~/.claude.json</span>
-      <button class="ch-code-copy" type="button" id="copy-btn" aria-label="copy snippet">
-        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="4" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="var(--ch-bg-code)"/></svg>
-        <span id="copy-label">Copy</span>
-      </button><code id="snippet">{
-  <span class="k">"mcpServers"</span>: {
-    <span class="k">"memory"</span>: {
-      <span class="k">"type"</span>: <span class="s">"http"</span>,
-      <span class="k">"url"</span>: <span class="s">"https://memory.team.dev/mcp"</span>,
-      <span class="k">"headers"</span>: {
-        <span class="k">"Authorization"</span>: <span class="s">"Bearer ch_..."</span>
-      }
-    }
-  }
-}</code></div>
-  </section>
-
-  <!-- ── divider ───────────────────────────────────────── -->
-  <div class="ch-rail">
     <span>// how it works</span>
     <span class="ch-rail-line"></span>
   </div>
 
   <!-- ── HOW TEAM HARNESS WORKS — intro ────────────────── -->
   <section class="ch-section-intro">
-    <p class="step">02 · how it works</p>
+    <p class="step">01 · how it works</p>
     <h2>Three stages, mandatory human gates</h2>
     <p>Every feature ships through a spec-driven pipeline. Specialized subagents own each phase, state lives as files, and you stay in control at every gate.</p>
   </section>
@@ -424,56 +399,60 @@
 
   <!-- ── divider ───────────────────────────────────────── -->
   <div class="ch-rail">
-    <span>// what's inside</span>
+    <span>// install</span>
     <span class="ch-rail-line"></span>
   </div>
 
-  <!-- ── FEATURES — Context Harness MCP ────────────────── -->
-  <section class="ch-features">
-
-    <div class="ch-feature">
-      <div class="ch-feature-h">
-        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
-          <g class="net"><circle cx="16" cy="16" r="11"/><ellipse cx="16" cy="16" rx="11" ry="4"/><ellipse cx="16" cy="16" rx="11" ry="4" transform="rotate(60 16 16)"/></g>
-          <g class="sat"><circle cx="5" cy="16" r="1"/><circle cx="27" cy="16" r="1"/></g>
-          <circle cx="16" cy="16" r="2.2" class="hub"/>
-        </svg>
-        <h3>Shared knowledge graph</h3>
-      </div>
-      <p>One graph per team. Every agent reads and writes the same memory — sessions, refactors, and PRs leave a trail the next agent can find.</p>
+  <!-- ── INSTALL SECTION ───────────────────────────────── -->
+  <section class="ch-section">
+    <div>
+      <p class="step">02 · install</p>
+      <h2>Three lines in <code style="font-family:var(--ch-mono);font-size:.85em;background:var(--ch-bg-code);padding:2px 7px;border-radius:4px;border:1px solid var(--ch-border);">~/.claude.json</code></h2>
+      <p>The Team Harness installer drops this snippet for you. Point Claude Code at your team's memory backend and every agent on your team reads from the same graph.</p>
     </div>
+    <div class="ch-code">
+      <span class="ch-code-tag">~/.claude.json</span>
+      <button class="ch-code-copy" type="button" id="copy-btn" aria-label="copy snippet">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4" y="4" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><rect x="6.5" y="1.5" width="9" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="var(--ch-bg-code)"/></svg>
+        <span id="copy-label">Copy</span>
+      </button><code id="snippet">{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"memory"</span>: {
+      <span class="k">"type"</span>: <span class="s">"http"</span>,
+      <span class="k">"url"</span>: <span class="s">"https://memory.team.dev/mcp"</span>,
+      <span class="k">"headers"</span>: {
+        <span class="k">"Authorization"</span>: <span class="s">"Bearer ch_..."</span>
+      }
+    }
+  }
+}</code></div>
+  </section>
 
-    <div class="ch-feature">
-      <div class="ch-feature-h">
-        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
-          <g class="net"><circle cx="7" cy="16" r="1.5"/><circle cx="16" cy="9" r="1.5"/><circle cx="25" cy="16" r="1.5"/><circle cx="16" cy="23" r="1.5"/><line x1="7" y1="16" x2="25" y2="16"/><line x1="16" y1="9" x2="16" y2="23"/><line x1="7" y1="16" x2="16" y2="9"/><line x1="25" y1="16" x2="16" y2="23"/></g>
-          <circle cx="16" cy="16" r="2.2" class="hub"/>
-        </svg>
-        <h3>Semantic search</h3>
-      </div>
-      <p>384-dim embeddings indexed with pgvector HNSW. <code>search_nodes("auth patterns")</code> returns what you mean, not just substring hits.</p>
-    </div>
+  <!-- ── divider ───────────────────────────────────────── -->
+  <div class="ch-rail">
+    <span>// memory backend</span>
+    <span class="ch-rail-line"></span>
+  </div>
 
-    <div class="ch-feature">
-      <div class="ch-feature-h">
-        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
-          <g class="net"><rect x="5" y="6" width="22" height="5" rx="1"/><rect x="5" y="13.5" width="22" height="5" rx="1"/><rect x="5" y="21" width="22" height="5" rx="1"/></g>
-          <circle cx="9" cy="8.5" r="1.2" class="hub"/>
-          <circle cx="9" cy="16" r="1.2" fill="#a78bfa"/>
-          <circle cx="9" cy="23.5" r="1.2" fill="#ef4444"/>
-        </svg>
-        <h3>Three-layer filter</h3>
-      </div>
-      <p>Size + junk denylist → secrets scan (gitleaks) → taxonomy check. Atomic reject before any DB transaction opens. No secrets, ever.</p>
-    </div>
+  <!-- ── MEMORY BACKEND — Context Harness MCP (de-emphasized) ─ -->
+  <section class="ch-section-intro">
+    <p class="step">03 · memory backend</p>
+    <h2>Powered by Context Harness MCP</h2>
+    <p>The shared knowledge graph Team Harness reads from is its own product &mdash; <strong>Context Harness MCP</strong>. Open source, MIT, deploys to any container host (Railway, Render, Fly, Docker). This URL runs one; usable standalone by any MCP-compatible client.</p>
+  </section>
 
+  <section class="ch-chip-row">
+    <span class="ch-chip">Postgres + pgvector HNSW</span>
+    <span class="ch-chip">6 MCP tools</span>
+    <span class="ch-chip">3-layer write filter (size · secrets · taxonomy)</span>
+    <a class="ch-chip-cta" href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">Self-host the memory&nbsp;&rarr;</a>
   </section>
 
 </main>
 
 <footer>
   <div class="ch-footer-inner">
-    <span>open source agent stack &middot; Team Harness (MIT) &middot; Context Harness MCP (MIT)</span>
+    <span>Team Harness &middot; agentic development for Claude Code &middot; MIT</span>
     <nav class="ch-footer-links" aria-label="footer">
       <a href="https://github.com/valianx/team-harness" target="_blank" rel="noopener">Team Harness</a>
       <a href="https://github.com/valianx/context-harness-mcp" target="_blank" rel="noopener">Context Harness MCP</a>
