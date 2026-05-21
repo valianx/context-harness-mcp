@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>context-harness — set up access</title>
+<title>context-harness — signing in…</title>
 <style>
   :root{
     --ch-bg:#0a0a0d; --ch-bg-panel:#14141a; --ch-bg-code:#050507;
@@ -146,31 +146,11 @@
   <section class="ch-panel ch-state" id="view-loading" aria-live="polite">
     <div style="display:flex;align-items:center;gap:10px;color:var(--ch-fg-mute);font-family:var(--ch-mono);font-size:13px">
       <span class="ch-spinner" style="color:var(--ch-accent)"></span>
-      parsing token…
+      signing you in…
     </div>
   </section>
 
-  <!-- ── 2. SET PASSWORD ────────────────────────────────────── -->
-  <section class="ch-panel ch-state" id="view-form" hidden>
-    <h1 class="ch-title">Set your access password</h1>
-    <p class="ch-sub">One-time setup. You'll use this if your bearer ever expires.</p>
-    <div class="ch-error" id="form-error" hidden></div>
-    <form id="setpw-form" novalidate>
-      <div class="ch-field">
-        <label class="ch-label" for="pw">password</label>
-        <input class="ch-input" type="password" id="pw" name="pw" autocomplete="new-password" required minlength="8" placeholder="min. 8 characters"/>
-      </div>
-      <div class="ch-field">
-        <label class="ch-label" for="pw2">confirm</label>
-        <input class="ch-input" type="password" id="pw2" name="pw2" autocomplete="new-password" required minlength="8" placeholder="retype"/>
-      </div>
-      <button class="ch-btn-primary" type="submit" id="setpw-submit">
-        <span id="setpw-label">Continue</span>
-      </button>
-    </form>
-  </section>
-
-  <!-- ── 3. ERROR ───────────────────────────────────────────── -->
+  <!-- ── 2. ERROR ───────────────────────────────────────────── -->
   <section class="ch-panel ch-state" id="view-error" hidden>
     <h1 class="ch-title" style="color:var(--ch-error)">Something broke</h1>
     <p class="ch-sub" id="error-detail">Token missing or invalid.</p>
@@ -190,7 +170,7 @@
   const MCP_PUBLIC_URL       = "{{.MCPPublicURL}}";
 
   // ── view switching ──────────────────────────────────────────
-  const views = ['loading','form','error'];
+  const views = ['loading','error'];
   function show(name){
     views.forEach(v => {
       const el = document.getElementById('view-'+v);
@@ -202,11 +182,6 @@
     document.getElementById('error-detail').textContent = msg || 'Token missing or invalid.';
     show('error');
   }
-  function formError(msg){
-    const el = document.getElementById('form-error');
-    el.textContent = msg;
-    el.hidden = false;
-  }
 
   // ── parse fragment and query string ────────────────────────
   const frag = window.location.hash.replace(/^#/,'');
@@ -214,68 +189,36 @@
   const accessToken = params.get('access_token');
   const type = params.get('type');
   // next= from the query string is forwarded to /auth/exchange so the server
-  // can validate it and echo a safe redirect_to (AC-7). Never trust client-side.
+  // can validate it and echo a safe redirect_to. Never trust client-side.
   const nextParam = new URLSearchParams(window.location.search).get('next') || '';
 
-  setTimeout(() => {
-    if(!accessToken || !['invite','recovery'].includes(type||'')){
+  // ── magic-link exchange ─────────────────────────────────────
+  // Only type=magiclink is accepted. Any other hash type renders the error panel.
+  setTimeout(async () => {
+    if(!accessToken || type !== 'magiclink'){
       showError('Missing or invalid token. Request a new link.');
       return;
     }
-    show('form');
-  }, 200);
-
-  // ── form submit ─────────────────────────────────────────────
-  document.getElementById('setpw-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const pw  = document.getElementById('pw').value;
-    const pw2 = document.getElementById('pw2').value;
-    document.getElementById('form-error').hidden = true;
-    if(pw.length < 8) return formError('Password must be at least 8 characters.');
-    if(pw !== pw2)    return formError('Passwords don\u2019t match.');
-
-    const submit = document.getElementById('setpw-submit');
-    const label  = document.getElementById('setpw-label');
-    submit.disabled = true;
-    label.innerHTML = '<span class="ch-spinner" style="color:#0a0a0d"></span>';
-
     try{
-      // 1. set password via IdP
-      const r1 = await fetch(`${SUPABASE_PROJECT_URL}/auth/v1/user`, {
-        method:'PUT',
-        headers:{
-          'Authorization':`Bearer ${accessToken}`,
-          'apikey':SUPABASE_ANON_KEY,
-          'Content-Type':'application/json'
-        },
-        body: JSON.stringify({ password: pw })
-      });
-      if(!r1.ok){
-        const err = await r1.json().catch(() => ({}));
-        throw new Error(err.msg || err.error_description || `set-password failed (${r1.status})`);
-      }
-      // 2. exchange for server bearer + session cookie.
-      // Include next so the server can validate it and echo a safe redirect_to.
-      const exchangeBody = { access_token: accessToken };
-      if(nextParam){ exchangeBody.next = nextParam; }
-      const r2 = await fetch('/auth/exchange', {
+      const body = { access_token: accessToken };
+      if(nextParam){ body.next = nextParam; }
+      const r = await fetch('/auth/exchange', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(exchangeBody)
+        body: JSON.stringify(body)
       });
-      if(!r2.ok){
-        const err = await r2.json().catch(() => ({}));
-        throw new Error(err.error || `exchange failed (${r2.status})`);
+      if(!r.ok){
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.error || `exchange failed (${r.status})`);
       }
-      const { redirect_to } = await r2.json();
-      // The server validates redirect_to before echoing it — trust it directly (AC-7).
+      const { redirect_to } = await r.json();
+      // The server validates redirect_to before echoing it — trust it directly.
       window.location.replace(redirect_to || '/dashboard');
     } catch(err){
-      submit.disabled = false;
-      label.textContent = 'Continue';
-      formError(err.message || 'Request failed.');
+      showError(err.message || 'Sign-in failed. Try again.');
     }
-  });
+  }, 200);
+
 
 })();
 </script>

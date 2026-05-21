@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>context-harness — re-authenticate</title>
+<title>context-harness — sign in</title>
 <style>
   :root{
     --ch-bg:#0a0a0d; --ch-bg-panel:#14141a;
@@ -125,16 +125,16 @@
 
   <!-- DEFAULT -->
   <section class="ch-panel ch-state" id="view-form">
-    <h1 class="ch-title">Re-authenticate</h1>
-    <p class="ch-sub">We'll mail a new magic link to your address.</p>
+    <h1 class="ch-title">Sign in</h1>
+    <p class="ch-sub">Enter your email — we'll send a magic link.</p>
     <div class="ch-error" id="form-error" hidden></div>
-    <form id="recover-form" novalidate>
+    <form id="signin-form" novalidate>
       <div class="ch-field">
         <label class="ch-label" for="email">email</label>
         <input class="ch-input" type="email" id="email" name="email" autocomplete="email" required placeholder="you@team.dev"/>
       </div>
-      <button class="ch-btn-primary" type="submit" id="recover-submit">
-        <span id="recover-label">Send link</span>
+      <button class="ch-btn-primary" type="submit" id="signin-submit">
+        <span id="signin-label">Send link</span>
       </button>
     </form>
   </section>
@@ -174,7 +174,7 @@
     el.textContent = msg; el.hidden = false;
   }
 
-  document.getElementById('recover-form').addEventListener('submit', async (e) => {
+  document.getElementById('signin-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const email = document.getElementById('email').value.trim();
     document.getElementById('form-error').hidden = true;
@@ -182,16 +182,19 @@
       return formError('Enter a valid email.');
     }
 
-    const submit = document.getElementById('recover-submit');
-    const label  = document.getElementById('recover-label');
+    const submit = document.getElementById('signin-submit');
+    const label  = document.getElementById('signin-label');
     submit.disabled = true;
     label.innerHTML = '<span class="ch-spinner" style="color:#0a0a0d"></span>';
 
     try{
-      const r = await fetch(`${SUPABASE_PROJECT_URL}/auth/v1/recover`, {
+      const redirectTo = NEXT
+        ? `${MCP_PUBLIC_URL}/auth/callback?next=${encodeURIComponent(NEXT)}`
+        : `${MCP_PUBLIC_URL}/auth/callback`;
+      const r = await fetch(`${SUPABASE_PROJECT_URL}/auth/v1/otp`, {
         method:'POST',
         headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
-        body: JSON.stringify({ email, options:{ redirectTo: NEXT ? `${MCP_PUBLIC_URL}/auth/callback?next=${encodeURIComponent(NEXT)}` : `${MCP_PUBLIC_URL}/auth/callback` } })
+        body: JSON.stringify({ email, create_user: false, options:{ email_redirect_to: redirectTo } })
       });
       if(!r.ok){
         const err = await r.json().catch(() => ({}));

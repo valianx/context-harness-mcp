@@ -64,6 +64,14 @@ func TestCallbackHandler_ContainsExpectedElements(t *testing.T) {
 		"callback.html must reference /auth/exchange for the token exchange call")
 	assert.True(t, strings.Contains(body, "access_token") || strings.Contains(body, "fragment"),
 		"callback.html must handle the access_token fragment")
+
+	// AC-3: no password form rendered after removing the "Set your access password" panel.
+	assert.NotContains(t, body, `type="password"`,
+		"callback.html must not render any password input")
+	assert.NotContains(t, body, "setpw",
+		"callback.html must not contain leftover setpw form id or handler")
+	assert.NotContains(t, body, "Set your access password",
+		"callback.html must not contain the old password-set panel copy")
 }
 
 func TestRegisterCallback_RoutesCorrectly(t *testing.T) {

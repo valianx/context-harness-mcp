@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Auth UX: switched login from Supabase recovery endpoint to magic-link (`/auth/v1/otp`), removed the post-callback "Set your access password" step. Callback now accepts only `type=magiclink` and goes directly to `/auth/exchange`. Existing MCP JWT tokens unaffected.
+
 ### Added
 
 - `feat(auth): dashboard token generation, CSRF, and conditional surfaces (PR-2)` — `internal/web/dashboard.go`: replaces the 501 stub at `POST /dashboard/generate-token` with the real handler (CSRF check via `subtle.ConstantTimeCompare` → `auth.IssueMCPToken` → re-render dashboard with one-shot token panel). `internal/web/static/dashboard.html`: adds `{{if .GeneratedToken}}` token-display panel (`.ch-code` block + copy button + "Save this now" warning). `internal/web/static/callback.html`: removes `view-success` section; on exchange success, calls `window.location.replace(redirect_to)` (server-validated destination, AC-7). `internal/web/login.go`: adds already-signed-in redirect (302 to `next`/`/dashboard` when `ch_session` is valid, AC-8). `internal/web/landing.go`: converts from `go:embed []byte` to `text/template`; passes `Authenticated bool` to template. `internal/web/static/landing.html`: adds `{{if .Authenticated}}` conditional on nav CTA and footer link (`Sign in →` → `Dashboard →`, AC-8). `docs/auth.md` §g: documents generate-token flow, CSRF strategy, token properties, and one-shot display (AC-13 complete).

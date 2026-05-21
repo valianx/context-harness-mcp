@@ -59,13 +59,19 @@ func TestLoginHandler_ContainsExpectedElements(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 
-	// The login page must have an email input and call /auth/v1/recover.
+	// The login page must have an email input and call /auth/v1/otp.
 	assert.True(t, strings.Contains(body, `type="email"`) || strings.Contains(body, "email"),
 		"login.html must contain an email input")
-	assert.Contains(t, body, "/auth/v1/recover",
-		"login.html must call POST /auth/v1/recover against Supabase")
+	assert.Contains(t, body, "/auth/v1/otp",
+		"login.html must call POST /auth/v1/otp against Supabase")
+	assert.NotContains(t, body, "/auth/v1/recover",
+		"login.html must not call the old /auth/v1/recover endpoint")
+	assert.Contains(t, body, "create_user: false",
+		"login.html must set create_user:false (snake_case REST field) to block auto-provisioning")
 	assert.Contains(t, body, "/auth/callback",
-		"login.html must set redirect_to pointing to /auth/callback")
+		"login.html must set email_redirect_to pointing to /auth/callback")
+	assert.NotContains(t, strings.ToLower(body), "password",
+		"login.html must not contain any password-related copy or inputs")
 }
 
 func TestRegisterLogin_RoutesCorrectly(t *testing.T) {
