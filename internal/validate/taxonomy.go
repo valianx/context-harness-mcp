@@ -7,7 +7,7 @@ import (
 )
 
 // NodeTypes is the closed enum of allowed node_type values, sourced from
-// claude-dev-team/docs/kg-content-policy.md and mirrored in the `check`
+// team-harness/docs/kg-content-policy.md and mirrored in the `check`
 // constraint in migrations/00001_init.sql. A future policy update must touch
 // all three places atomically.
 var NodeTypes = map[string]bool{

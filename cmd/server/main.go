@@ -225,7 +225,7 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	web.RegisterDashboard(mux, pool)
 	web.RegisterLogout(mux)
 	// Landing page at GET / — fully static, presents both products in the
-	// agent stack (claude-dev-team + context-harness-mcp). Registered LAST so
+	// agent stack (team-harness + context-harness-mcp). Registered LAST so
 	// it doesn't shadow any earlier exact route; mux's longest-prefix match
 	// means /mcp, /auth/*, /healthz, /viewer/* are all hit before "/".
 	web.RegisterLanding(mux)
