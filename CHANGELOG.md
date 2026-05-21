@@ -7,8 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `docs/email-templates/invite-email.html` + `recovery-email.html`: brand wordmark `context-harness` → `team-harness` (mono lowercase) in the header mark text, the SVG aria-label, and the outside footer. Aligns the email surface with the unified "Team Harness" brand declared on the landing.
+
 ### Added
 
+- `docs/email-templates/magic-link.html`: source-of-truth for the Supabase Magic Link email that gets sent on every sign-in. Matches the dark-capable visual identity already established by `invite-email.html` and `recovery-email.html` (light bg default with `prefers-color-scheme: dark` overrides, orbital constellation SVG mark, amber `#f59e0b` CTA, mono wordmark, fallback URL section, security note). Subject line and plain-text fallback live in a `<!-- ... -->` block at the top of the file so the whole artifact (subject + HTML + plain text) is one diff-able unit. New `docs/email-templates/README.md` documents the three templates, the apply-to-Supabase workflow, and the design constraints (inline styles only, table layout for Outlook, no `<script>`, solid backgrounds).
 - Landing page: new "How Team Harness works" section between the install snippet and the existing Context Harness MCP features. Three benefit cards (Specialized subagents · Mandatory human gates · State as files, not memory) modeled on the existing `.ch-feature` grid for visual consistency. New `// how it works` rail divider above the section, new `// what's inside` rail divider above the existing features section so the two product narratives are clearly delimited. Minor CSS addition: `.ch-section-intro` class for the lead block (title + lead paragraph) with responsive variant at the existing 900px breakpoint.
 
 ### Changed

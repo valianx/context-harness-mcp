@@ -1,16 +1,37 @@
 <!doctype html>
 <html lang="en" xmlns="http://www.w3.org/1999/xhtml">
 <head>
+<!--
+  Subject:
+    Sign in to Team Harness
+
+  Where this lives in Supabase:
+    Authentication → Email Templates → Magic Link
+
+  Plain-text fallback (Supabase generates from HTML; override if needed):
+    Sign in to Team Harness
+
+    Click the link below to sign in. It expires in 1 hour and can
+    only be used once.
+
+    {{ .ConfirmationURL }}
+
+    Didn't request this? You can safely ignore it — no account was
+    created or modified.
+
+    — Team Harness
+-->
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="x-apple-disable-message-reformatting"/>
 <meta name="color-scheme" content="light dark"/>
 <meta name="supported-color-schemes" content="light dark"/>
-<title>Reset your access</title>
+<title>Sign in to Team Harness</title>
 <!--[if mso]>
 <style>* { font-family: Arial, sans-serif !important; }</style>
 <![endif]-->
 <style>
+  /* dark-mode capable clients */
   @media (prefers-color-scheme: dark) {
     body, .ch-page { background:#0a0a0d !important; }
     .ch-card { background:#14141a !important; border-color:#1f1f27 !important; }
@@ -20,8 +41,8 @@
     .ch-dim   { color:#56565f !important; }
     .ch-mark-text { color:#e6e6ea !important; }
     .ch-divider { border-color:#1f1f27 !important; }
-    .ch-email-pill { background:#0a0a0d !important; border-color:#1f1f27 !important; color:#e6e6ea !important; }
   }
+  /* mobile stack */
   @media only screen and (max-width: 620px) {
     .ch-shell { width:100% !important; }
     .ch-pad   { padding-left:24px !important; padding-right:24px !important; }
@@ -31,21 +52,25 @@
 </head>
 <body class="ch-page" style="margin:0;padding:0;background:#f2f2f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
 
+<!-- preheader (hidden) -->
 <div style="display:none;font-size:1px;color:transparent;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">
-  Click to regenerate your bearer.
+  Use this link to sign in. Expires in 1 hour.
 </div>
 
 <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f2f2f4;">
   <tr>
     <td align="center" style="padding:32px 16px;">
 
+      <!-- shell -->
       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="600" class="ch-shell" style="width:600px;max-width:600px;">
 
+        <!-- header / mark -->
         <tr>
           <td align="left" class="ch-pad" style="padding:0 32px 24px;">
             <table role="presentation" cellspacing="0" cellpadding="0" border="0">
               <tr>
                 <td valign="middle" style="padding-right:10px;line-height:0;">
+                  <!-- node-graph mark, static for email clients -->
                   <svg width="44" height="44" viewBox="0 0 32 32" role="img" aria-label="team-harness mark" xmlns="http://www.w3.org/2000/svg">
                     <g fill="none" stroke="#56565f" stroke-width="0.8" opacity=".85">
                       <circle cx="16" cy="16" r="13"/>
@@ -74,6 +99,7 @@
           </td>
         </tr>
 
+        <!-- card -->
         <tr>
           <td>
             <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="ch-card" style="background:#ffffff;border:1px solid #e5e5e8;border-radius:10px;">
@@ -81,33 +107,28 @@
               <tr>
                 <td class="ch-pad" style="padding:40px 40px 8px;">
                   <h1 class="ch-title" style="margin:0 0 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:26px;line-height:1.25;font-weight:500;color:#0a0a0d;letter-spacing:-0.01em;">
-                    Reset your access.
+                    Sign in to your dashboard.
                   </h1>
                 </td>
               </tr>
 
               <tr>
-                <td class="ch-pad" style="padding:0 40px 20px;">
-                  <p class="ch-body" style="margin:0 0 14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#3a3a44;">
-                    A reset was requested for
-                  </p>
-                  <p class="ch-email-pill" style="margin:0 0 16px;display:inline-block;font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:13px;color:#0a0a0d;background:#f6f6f8;border:1px solid #e5e5e8;border-radius:6px;padding:8px 12px;word-break:break-all;">
-                    {{ .Email }}
-                  </p>
+                <td class="ch-pad" style="padding:0 40px 28px;">
                   <p class="ch-body" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:15px;line-height:1.55;color:#3a3a44;">
-                    Click below to set a new password — your existing access will be replaced immediately.
+                    Click below to sign in. The link expires in 1 hour and can only be used once.
                   </p>
                 </td>
               </tr>
 
+              <!-- CTA -->
               <tr>
-                <td class="ch-pad" style="padding:8px 40px 32px;">
+                <td class="ch-pad" style="padding:0 40px 32px;">
                   <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                     <tr>
                       <td align="center" style="background:#f59e0b;border-radius:6px;">
                         <a href="{{ .ConfirmationURL }}" target="_blank"
                            style="display:inline-block;padding:12px 22px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#0a0a0d;text-decoration:none;border-radius:6px;letter-spacing:.01em;">
-                          Reset access&nbsp;→
+                          Sign in&nbsp;→
                         </a>
                       </td>
                     </tr>
@@ -115,6 +136,7 @@
                 </td>
               </tr>
 
+              <!-- raw URL fallback -->
               <tr>
                 <td class="ch-pad" style="padding:0 40px 32px;">
                   <p class="ch-mute" style="margin:0 0 6px;font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:11px;color:#8a8a96;letter-spacing:.08em;text-transform:uppercase;">
@@ -126,16 +148,18 @@
                 </td>
               </tr>
 
+              <!-- divider -->
               <tr>
                 <td class="ch-pad" style="padding:0 40px;">
                   <div class="ch-divider" style="height:1px;background:#e5e5e8;line-height:1px;font-size:1px;">&nbsp;</div>
                 </td>
               </tr>
 
+              <!-- footer line -->
               <tr>
                 <td class="ch-pad" style="padding:20px 40px 32px;">
                   <p class="ch-dim" style="margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#8a8a96;">
-                    Didn't request this? Ignore it — the link expires in 1h.
+                    Didn't request this? You can safely ignore it — no account was created or modified.
                   </p>
                 </td>
               </tr>
@@ -144,10 +168,11 @@
           </td>
         </tr>
 
+        <!-- outside footer: recipient + wordmark -->
         <tr>
           <td class="ch-pad" align="left" style="padding:18px 32px 8px;">
             <p class="ch-dim" style="margin:0;font-family:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;font-size:11px;color:#8a8a96;letter-spacing:.04em;">
-              team-harness · access reset
+              sent to {{ .Email }} · team-harness
             </p>
           </td>
         </tr>
