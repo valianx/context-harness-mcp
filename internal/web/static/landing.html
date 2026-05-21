@@ -93,6 +93,10 @@
   .ch-section h2{font-size:30px;line-height:1.15;font-weight:500;margin:0 0 14px;letter-spacing:-.015em}
   .ch-section p{margin:0;color:var(--ch-fg-mute);font-size:15px}
   .ch-section .step{font-family:var(--ch-mono);font-size:11px;color:var(--ch-accent);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
+  .ch-section-intro{max-width:1200px;margin:0 auto;padding:72px 28px 24px}
+  .ch-section-intro .step{font-family:var(--ch-mono);font-size:11px;color:var(--ch-accent);letter-spacing:.1em;text-transform:uppercase;margin-bottom:10px}
+  .ch-section-intro h2{font-size:30px;line-height:1.15;font-weight:500;margin:0 0 14px;letter-spacing:-.015em;max-width:640px}
+  .ch-section-intro p{margin:0;color:var(--ch-fg-mute);font-size:15px;max-width:680px}
   .ch-code{position:relative;background:var(--ch-bg-code);border:1px solid var(--ch-border);border-radius:8px;padding:20px 20px 20px 22px;font:400 13px/1.65 var(--ch-mono);color:var(--ch-fg);overflow-x:auto;white-space:pre}
   .ch-code-tag{position:absolute;top:-1px;right:14px;background:var(--ch-bg-code);color:var(--ch-fg-dim);font:500 10px/1 var(--ch-mono);padding:6px 8px;border:1px solid var(--ch-border);border-top:0;border-radius:0 0 4px 4px;letter-spacing:.06em}
   .ch-code .k{color:var(--ch-accent)}
@@ -127,6 +131,7 @@
     .ch-sphere-wrap{order:-1;max-width:340px;justify-self:start}
     .ch-h1{font-size:38px}
     .ch-section{grid-template-columns:1fr;padding:48px 24px;gap:24px}
+    .ch-section-intro{padding:48px 24px 16px}
     .ch-features{grid-template-columns:1fr;padding:0 24px 64px}
     .ch-nav a:not(.ch-nav-cta){display:none}
   }
@@ -365,7 +370,65 @@
 }</code></div>
   </section>
 
-  <!-- ── FEATURES ──────────────────────────────────────── -->
+  <!-- ── divider ───────────────────────────────────────── -->
+  <div class="ch-rail">
+    <span>// how it works</span>
+    <span class="ch-rail-line"></span>
+  </div>
+
+  <!-- ── HOW TEAM HARNESS WORKS — intro ────────────────── -->
+  <section class="ch-section-intro">
+    <p class="step">02 · how it works</p>
+    <h2>Three stages, mandatory human gates</h2>
+    <p>Every feature ships through a spec-driven pipeline. Specialized subagents own each phase, state lives as files, and you stay in control at every gate.</p>
+  </section>
+
+  <!-- ── TEAM HARNESS — three benefit cards ────────────── -->
+  <section class="ch-features">
+
+    <div class="ch-feature">
+      <div class="ch-feature-h">
+        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
+          <g class="net"><circle cx="16" cy="6" r="2"/><circle cx="6" cy="22" r="2"/><circle cx="26" cy="22" r="2"/><line x1="16" y1="6" x2="6" y2="22"/><line x1="16" y1="6" x2="26" y2="22"/><line x1="6" y1="22" x2="26" y2="22"/></g>
+          <circle cx="16" cy="17" r="2" class="hub"/>
+        </svg>
+        <h3>Specialized subagents</h3>
+      </div>
+      <p>One agent per phase &mdash; <code>architect</code> designs, <code>implementer</code> codes, <code>tester</code> writes tests, <code>qa</code> validates, <code>security</code> audits, <code>delivery</code> ships. No generalist trying everything.</p>
+    </div>
+
+    <div class="ch-feature">
+      <div class="ch-feature-h">
+        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
+          <g class="net"><rect x="4" y="9" width="24" height="14" rx="2"/><line x1="16" y1="9" x2="16" y2="23"/></g>
+          <circle cx="10" cy="16" r="1.8" class="hub"/>
+          <circle cx="22" cy="16" r="1.8" fill="#a78bfa"/>
+        </svg>
+        <h3>Mandatory human gates</h3>
+      </div>
+      <p>You approve the plan before any code is written, and the push before any PR opens. Autonomous mode skips per-PR stops but never these two.</p>
+    </div>
+
+    <div class="ch-feature">
+      <div class="ch-feature-h">
+        <svg class="ch-feature-glyph" viewBox="0 0 32 32" aria-hidden="true">
+          <g class="net"><path d="M5 10 v17 h22 V13 H15 L12 10 Z"/><line x1="10" y1="18" x2="22" y2="18"/><line x1="10" y1="22" x2="20" y2="22"/></g>
+          <circle cx="8" cy="11.5" r="1.4" class="hub"/>
+        </svg>
+        <h3>State as files, not memory</h3>
+      </div>
+      <p>Every feature opens <code>session-docs/{name}/</code>. Any Claude session resumes cold &mdash; across compactions, sessions, and machines.</p>
+    </div>
+
+  </section>
+
+  <!-- ── divider ───────────────────────────────────────── -->
+  <div class="ch-rail">
+    <span>// what's inside</span>
+    <span class="ch-rail-line"></span>
+  </div>
+
+  <!-- ── FEATURES — Context Harness MCP ────────────────── -->
   <section class="ch-features">
 
     <div class="ch-feature">

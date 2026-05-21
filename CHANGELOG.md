@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Landing page: new "How Team Harness works" section between the install snippet and the existing Context Harness MCP features. Three benefit cards (Specialized subagents · Mandatory human gates · State as files, not memory) modeled on the existing `.ch-feature` grid for visual consistency. New `// how it works` rail divider above the section, new `// what's inside` rail divider above the existing features section so the two product narratives are clearly delimited. Minor CSS addition: `.ch-section-intro` class for the lead block (title + lead paragraph) with responsive variant at the existing 900px breakpoint.
+
 ### Changed
 
 - Brand rebrand on the landing page: `Claude Dev Team` → `Team Harness` in the page title, hero copy, hero CTA button + label, install section, and footer. All GitHub links updated to `https://github.com/valianx/team-harness` (the sibling repo was renamed). The pair "Team Harness + Context Harness MCP" now reads as a coherent `*-harness` product family. Also updated code-comment references in `cmd/server/main.go` (landing handler block) and `internal/validate/taxonomy.go` (source-of-truth note for `NodeTypes`); `docs/roadmap.md` mentions of the team-side hook in Phase 3 and Phase 4 also renamed. `docs/knowledge.md` historical decision-log entries are NOT rewritten — they record what was true at the time the decision was made (the Python KG implementation lived under `claude-dev-team/knowledge-graph/` before being deleted in the move to this repo).
