@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"text/template"
+	"html/template"
 )
 
 //go:embed static/callback.html

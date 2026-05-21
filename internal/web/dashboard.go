@@ -8,7 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"text/template"
+	"html/template"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"

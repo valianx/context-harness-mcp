@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"text/template"
+	"html/template"
 )
 
 //go:embed static/login.html

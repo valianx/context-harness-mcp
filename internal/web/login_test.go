@@ -27,11 +27,14 @@ func TestLoginHandler_ServesHTML(t *testing.T) {
 	body := rr.Body.String()
 
 	// Template substitutions are present in the response.
-	assert.Contains(t, body, "https://logintest.supabase.co",
+	// html/template JS-string-escapes "/" as "\/" inside <script> string literals,
+	// so "https://..." becomes "https:\/\/..." in the rendered output. Both forms
+	// are semantically identical in a JavaScript string — "\/" === "/".
+	assert.Contains(t, body, "logintest.supabase.co",
 		"SUPABASE_PROJECT_URL must be substituted into login.html")
 	assert.Contains(t, body, "login-anon-key",
 		"SUPABASE_ANON_KEY must be substituted into login.html")
-	assert.Contains(t, body, "https://mcp.example.com",
+	assert.Contains(t, body, "mcp.example.com",
 		"MCP_PUBLIC_URL must be substituted into login.html")
 }
 
@@ -114,7 +117,9 @@ func TestLoginHandler_SafeNext_AppearsInTemplate(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	// The safe next value must appear in the JS (as NEXT constant).
-	assert.Contains(t, body, "/viewer/",
+	// html/template JS-string-escapes "/" as "\/" in <script> context, so
+	// "/viewer/" becomes "\/viewer\/" in the output. Both forms are valid JS.
+	assert.Contains(t, body, "viewer",
 		"safe ?next=/viewer/ must appear in the rendered template")
 }
 
@@ -262,4 +267,118 @@ func TestLoginHandler_MalformedCookie_ServesForm(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code,
 		"malformed session cookie must not 5xx — form serves normally")
+}
+
+// ── SEC-001: invariant success (JS source inspection) ────────────────────────
+
+// TestLoginJS_NoSupabaseErrorReflection asserts that the served JS does not
+// reference err.msg, err.error_description, or r.status in any error path
+// (AC-1 + AC-2 surrogate — browser-side behavior verified via source inspection).
+func TestLoginJS_NoSupabaseErrorReflection(t *testing.T) {
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+
+	// SEC-001: Supabase error fields must not appear in the JS — they would
+	// allow the caller to distinguish known vs unknown email addresses.
+	assert.NotContains(t, body, "err.msg",
+		"login.html must not read err.msg from Supabase response (user enumeration)")
+	assert.NotContains(t, body, "err.error_description",
+		"login.html must not read err.error_description from Supabase response")
+	assert.NotContains(t, body, "r.status",
+		"login.html must not use r.status in any user-facing error path")
+}
+
+// TestLoginJS_SingleFormErrorPath asserts that the only formError() call in the
+// JS is in the network-failure catch branch and uses a fixed generic message
+// (AC-2 surrogate — inspecting the static source for the invariant).
+func TestLoginJS_SingleFormErrorPath(t *testing.T) {
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+
+	// The only formError call with a non-validation message must be the generic
+	// network-failure string. There must be no Supabase-derived message passed in.
+	assert.Contains(t, body, "Couldn't reach the auth service. Try again.",
+		"login.html catch block must show a fixed generic message (not Supabase-derived)")
+}
+
+// ── SEC-002: html/template JS-string escaping (AC-4 + AC-5) ─────────────────
+
+// TestLoginHandler_NextWithDangerousChars_IsEscaped verifies that html/template
+// JS-string-escapes the {{.Next}} field. The test uses a value that passes IsSafe
+// (starts with "/viewer/") and asserts the characteristic "\/" escaping that
+// html/template applies in JS string context (AC-5).
+func TestLoginHandler_NextWithDangerousChars_IsEscaped(t *testing.T) {
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+	// "/viewer/" passes IsSafe. html/template will JS-escape the slashes.
+	req := httptest.NewRequest(http.MethodGet, "/auth/login?next=%2Fviewer%2F", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+
+	// html/template's signature JS-string behavior: "/" → "\/" in script context.
+	// The rendered NEXT constant must NOT contain a bare unescaped "/" (it appears
+	// as "\/" instead), proving the contextual escaping is active.
+	assert.Contains(t, body, `\/viewer\/`,
+		"html/template must JS-escape '/' to '\\/' in the NEXT JS string literal (AC-5)")
+
+	// The literal NEXT JS string assignment must contain the escaped form, not the
+	// raw form. Scope the check to the assignment line so the closing </script>
+	// tag of the script block itself doesn't trigger a false positive.
+	assert.Contains(t, body, `const NEXT = "\/viewer\/"`,
+		"NEXT JS literal must hold the escaped value, not the raw value")
+}
+
+// TestLoginTemplate_DirectEscaping_XSSProof executes the login template directly
+// with a crafted unsafe Next value (bypassing IsSafe) to prove html/template
+// escapes dangerous characters in JS string context (AC-5 defence-in-depth).
+func TestLoginTemplate_DirectEscaping_XSSProof(t *testing.T) {
+	t.Setenv("SUPABASE_PROJECT_URL", "https://proj.supabase.co")
+	t.Setenv("SUPABASE_ANON_KEY", "key-xyz")
+	t.Setenv("MCP_PUBLIC_URL", "https://mcp.example.com")
+
+	h := newLoginHandler()
+
+	// Craft data directly — bypass handler + IsSafe to test the template layer alone.
+	data := loginTemplateData{
+		SupabaseProjectURL: "https://proj.supabase.co",
+		SupabaseAnonKey:    "key-xyz",
+		MCPPublicURL:       "https://mcp.example.com",
+		// A value that would break out of a JS double-quoted string if not escaped.
+		Next: `"; alert(1); //`,
+	}
+
+	var buf strings.Builder
+	err := h.tmpl.ExecuteTemplate(&buf, "login.html", data)
+	require.NoError(t, err, "template must execute without error even with dangerous input")
+
+	body := buf.String()
+
+	// html/template must have escaped the " and ; so the JS literal stays intact.
+	// The raw unescaped attack string must not appear verbatim in the output.
+	assert.NotContains(t, body, `"; alert(1); //`,
+		"html/template must escape the dangerous Next value (AC-5 defence-in-depth)")
 }

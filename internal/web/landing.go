@@ -6,7 +6,7 @@ import (
 	"embed"
 	"log/slog"
 	"net/http"
-	"text/template"
+	"html/template"
 )
 
 //go:embed static/landing.html

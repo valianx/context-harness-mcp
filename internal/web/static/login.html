@@ -191,21 +191,20 @@
       const redirectTo = NEXT
         ? `${MCP_PUBLIC_URL}/auth/callback?next=${encodeURIComponent(NEXT)}`
         : `${MCP_PUBLIC_URL}/auth/callback`;
-      const r = await fetch(`${SUPABASE_PROJECT_URL}/auth/v1/otp`, {
+      // SEC-001: collapse to invariant success — Supabase rate-limits + create_user:false gate the real send.
+      // Any HTTP response (200, 422, 4xx, 5xx) shows "Check your inbox" to prevent user enumeration.
+      // Only a true network rejection (fetch Promise rejects) surfaces an actionable error.
+      await fetch(`${SUPABASE_PROJECT_URL}/auth/v1/otp`, {
         method:'POST',
         headers:{ 'apikey':SUPABASE_ANON_KEY, 'Content-Type':'application/json' },
         body: JSON.stringify({ email, create_user: false, options:{ email_redirect_to: redirectTo } })
       });
-      if(!r.ok){
-        const err = await r.json().catch(() => ({}));
-        throw new Error(err.msg || err.error_description || `Request failed (${r.status})`);
-      }
       document.getElementById('sent-to').textContent = email;
       show('success');
     } catch(err){
       submit.disabled = false;
       label.textContent = 'Send link';
-      formError(err.message || 'Request failed.');
+      formError("Couldn't reach the auth service. Try again.");
     }
   });
 })();
