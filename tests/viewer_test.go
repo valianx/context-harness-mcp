@@ -11,13 +11,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/viewer"
 	"github.com/mariogutierrez/context-harness-mcp/internal/web"
 )
 
 const testUserSub = "550e8400-e29b-41d4-a716-446655440099"
-const testUserEmail = "viewer-test@example.com"
 const viewerTestSecret = "viewer-test-secret-32-bytes-xxxx"
 
 // ── session helpers ───────────────────────────────────────────────────────────
@@ -37,18 +35,6 @@ func withSession(t *testing.T, req *http.Request) *http.Request {
 		req.AddCookie(c)
 	}
 	return req
-}
-
-// seedTestUser inserts a user row in the test DB so /dashboard email lookups work.
-func seedTestUser(t *testing.T, sub, email string) {
-	t.Helper()
-	pool := NewTestPool(t)
-	ctx := context.Background()
-	tx, err := pool.Begin(ctx)
-	require.NoError(t, err)
-	defer func() { _ = tx.Rollback(ctx) }()
-	require.NoError(t, store.UpsertUser(ctx, tx, sub, email))
-	require.NoError(t, tx.Commit(ctx))
 }
 
 // buildViewerMux builds a test mux with viewer routes registered.
