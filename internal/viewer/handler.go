@@ -10,6 +10,11 @@
 // v0.2.0 "viewer stays public read-only" convention in CLAUDE.md §5).
 // HTML paths (/viewer/, non-api) → 302 /auth/login?next=<path> on missing/invalid session.
 // JSON paths (/viewer/api/*) → 401 {"error":"authentication required"}.
+//
+// Search alignment: the viewer's search endpoint (/viewer/api/search?q=...) mirrors the
+// MCP search_nodes tool: top 10 results ranked by cosine similarity. Operators see exactly
+// what an agent sees when it calls search_nodes with the same query. The list-all endpoint
+// (no q) returns up to 50 nodes for browsing.
 package viewer
 
 import (
@@ -137,11 +142,19 @@ type relationView struct {
 	RelationType string `json:"relation_type"`
 }
 
-const searchLimit = 50
+// searchLimit caps results when the operator provides a query. Matches the
+// MCP search_nodes tool's LIMIT 10 (store.SearchByCosine) so the viewer
+// shows the operator exactly what an agent sees when it calls search_nodes
+// with the same query.
+const searchLimit = 10
+
+// listAllLimit caps results when no query is provided. Higher than searchLimit
+// because the operator is browsing the graph, not mimicking an agent search.
+const listAllLimit = 50
 
 // handleSearchAPI handles GET /viewer/api/search?q=...&project=...&nodeType=...
 // Empty or missing q → list all active nodes ordered by created_at DESC.
-// Non-empty q → semantic search via pgvector cosine, limit 50.
+// Non-empty q → semantic search via pgvector cosine, limit 10 (mirrors MCP search_nodes).
 // Optional project= filters by project. Optional nodeType= filters by node type.
 func (h *handler) handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -300,7 +313,7 @@ func (h *handler) handleNodeTypesAPI(w http.ResponseWriter, r *http.Request) {
 
 // ── DB helpers ────────────────────────────────────────────────────────────────
 
-// listAllDesc returns up to searchLimit active nodes ordered by creation time
+// listAllDesc returns up to listAllLimit active nodes ordered by creation time
 // (newest first). Unlike store.ListActive which orders by name, this gives the
 // viewer a "most recently added" default view. Optional project and nodeType
 // params filter the result set; empty string means no filter.
@@ -313,7 +326,7 @@ func listAllDesc(ctx context.Context, pool *pgxpool.Pool, project, nodeType stri
 		   AND ($3::text = '' OR node_type  = $3)
 		 ORDER BY created_at DESC
 		 LIMIT $1`,
-		searchLimit, project, nodeType,
+		listAllLimit, project, nodeType,
 	)
 	if err != nil {
 		return nil, err
@@ -331,10 +344,11 @@ func listAllDesc(ctx context.Context, pool *pgxpool.Pool, project, nodeType stri
 	return result, rows.Err()
 }
 
-// searchByCosine embeds query and returns up to searchLimit active nodes ranked
-// by minimum cosine distance of their observation embeddings, along with that
-// distance. Optional project and nodeType params filter results; empty string
-// means no filter.
+// searchByCosine embeds query and returns up to searchLimit (10) active nodes
+// ranked by minimum cosine distance of their observation embeddings, along with
+// that distance. The LIMIT matches store.SearchByCosine used by the MCP
+// search_nodes tool. Optional project and nodeType params filter results; empty
+// string means no filter.
 func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project, nodeType string) ([]nodeRowScored, error) {
 	vecs, err := embedpkg.Default().Encode(ctx, []string{query})
 	if err != nil {

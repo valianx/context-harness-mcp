@@ -139,6 +139,14 @@ scrape_configs:
 
 ---
 
+## Knowledge graph viewer
+
+The viewer is a session-gated single-page UI at `/viewer/`. It requires a valid `ch_session` cookie (obtained after signing in at `/auth/login`).
+
+The viewer's search endpoint (`/viewer/api/search?q=...`) mirrors the MCP `search_nodes` tool: top 10 results ranked by cosine similarity. Operators see exactly what an agent sees when it calls `search_nodes` with the same query. The list-all endpoint (no `q`) returns up to 50 nodes for browsing.
+
+---
+
 ## Pointing Claude Code at the server
 
 Add to `~/.claude.json` under `mcpServers`:
