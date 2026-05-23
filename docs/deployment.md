@@ -20,7 +20,7 @@ Every deployment, regardless of platform, has the same five moving parts:
 
 Optional pieces that some operators wire up:
 
-- **Deploy hook / continuous deploy.** Most container hosts expose a webhook URL that triggers a redeploy. The repo's `.github/workflows/deploy.yml` runs `goose up` then curls a deploy-hook URL on push to `main` — works with any platform that offers one (Render, Railway, Coolify, etc.). If your platform deploys on `git push` natively (Fly machines, Kubernetes via Argo, …), skip the hook step.
+- **Deploy hook / continuous deploy.** Most container hosts expose a webhook URL that triggers a redeploy. The repo's `.github/workflows/deploy.yml` runs `goose up` then curls a deploy-hook URL on push to `main` — works with any platform that offers one (Railway, Coolify, etc.). If your platform deploys on `git push` natively (Fly machines, Kubernetes via Argo, Railway GitHub integration, …), skip the hook step.
 - **Encrypted weekly backups.** `.github/workflows/pg_dump_weekly.yml` produces an encrypted `pg_dump` artifact every Sunday. Independent of where the server is hosted.
 - **Database keepalive.** Some free-tier Postgres providers auto-pause after a week of inactivity. `.github/workflows/supabase_keepalive.yml` runs `SELECT 1` every 6 days. Adapt or skip per provider.
 
@@ -32,7 +32,7 @@ Optional pieces that some operators wire up:
 |---|---|---|
 | `DATABASE_URL` | always | Postgres DSN with `?sslmode=require` for managed providers. `SUPABASE_DB_URL` accepted as a deprecated fallback for one release. |
 | `MCP_TRANSPORT` | always (default `http`) | `http` for cloud. `stdio` only when the binary is exec'd by a local Claude Code. |
-| `PORT` | PaaS (default `:7654`) | HTTP listen port. Railway / Heroku / Fly / Render set this automatically and route their healthcheck to the same port — leave alone there. Set explicitly only for local docker-compose or bare-metal. |
+| `PORT` | PaaS (default `:7654`) | HTTP listen port. Railway / Heroku / Fly and similar PaaS platforms set this automatically and route their healthcheck to the same port — leave alone there. Set explicitly only for local docker-compose or bare-metal. |
 | `MCP_AUTH` | always (default `none`) | `none` (no bearer required) or `enabled` (bearer JWT required). Garbage values fail fast at boot. |
 
 When `MCP_AUTH=enabled`, the following are also required:
@@ -79,7 +79,7 @@ See [`auth.md`](auth.md) for the full auth runbook and the Database Webhook conf
 
 ## Continuous deploy
 
-`.github/workflows/deploy.yml` is platform-agnostic: it runs `goose up` against `DATABASE_URL`, then optionally curls a deploy hook URL from `DEPLOY_HOOK_URL` (legacy name: `RENDER_DEPLOY_HOOK_URL` — still read as a fallback for one release).
+`.github/workflows/deploy.yml` is platform-agnostic: it runs `goose up` against `DATABASE_URL`, then optionally curls a deploy hook URL from `DEPLOY_HOOK_URL`.
 
 To wire CD on any host that exposes a webhook URL:
 
@@ -179,14 +179,6 @@ These examples are **equally-weighted**. The repo does not endorse one host over
 3. **Set env vars** on the MCP service: `MCP_TRANSPORT=http`, `MCP_AUTH=none` (or `enabled` + the auth vars).
 4. **Expose** port 7654. Railway generates a `*.up.railway.app` URL.
 5. **Healthcheck path**: `/healthz`. **Deploy hook**: Settings → Triggers → Webhook.
-
-### Render
-
-1. **Blueprint** → connect this repo. Render parses the `Dockerfile` and proposes a web service.
-2. **Provision Supabase / Neon / Render Postgres** separately. Copy the DSN into the service's **Environment** tab as `DATABASE_URL`.
-3. **Auth env vars** (if enabled) go in the same Environment tab.
-4. **Deploy hook**: Settings → Deploy Hook → copy the URL. Wire it to `DEPLOY_HOOK_URL` GitHub secret.
-5. Free tier has 15-min cold starts; the Go binary cold-starts in 1–3 s once awake.
 
 ### Fly.io
 
