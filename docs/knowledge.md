@@ -96,6 +96,11 @@
 - `[patrón]` `supersedes` and `conflicts_with` are descriptive-only relations. Neither filters reads automatically. To hide the OLD node after `mark_superseded(A → B)`, use `archive_old_observations: true` which soft-deletes the old node's observations (`deleted_at`). There is no read-time filter on `supersedes` or `conflicts_with`. v0.4.0.
 - `[patrón]` `find_conflicts` uses loop-N-queries strategy (one pgvector query per target observation, client-side aggregation) instead of CROSS JOIN. Optimal for N≤10 observations per node and preserves HNSW efficiency. v0.4.0.
 
+## viewer score badge + 3-char minimum search
+
+- `[patrón]` Viewer search path computes similarity as `1 - min_distance` from pgvector `<=>` cosine distance, clamped to [0,1]. The `score` field is `*float64` with `omitempty` — present only on the search path, absent on list-all. Frontend color thresholds: ≥80% green, 50–79% yellow, <50% red.
+- `[patrón]` Viewer search input gated to 3+ characters: 1–2 chars shows inline hint and clears results without firing the API; empty clears to list-all; 3+ fires debounced semantic search.
+
 ## v0.5.0 — Sessions
 
 - `[patrón]` Sessions are tags, not security boundaries. Any caller can call `session_end` / `session_summary` on any session — same trust model as `project_id` (single-deployment trust). v0.5.0.

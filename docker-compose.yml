@@ -8,7 +8,6 @@
 #
 # Required env var (set in .env from .env.example):
 #   DATABASE_URL — full Postgres connection string
-#   (SUPABASE_DB_URL is accepted as a deprecated fallback for one release)
 
 services:
   mcp:
@@ -17,7 +16,7 @@ services:
     ports:
       - "7654:7654"
     environment:
-      DATABASE_URL: "${DATABASE_URL:-${SUPABASE_DB_URL:?DATABASE_URL is required — copy .env.example to .env and set it}}"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL is required — copy .env.example to .env and set it}"
       MCP_TRANSPORT: http
       LOG_LEVEL: "${LOG_LEVEL:-info}"
     healthcheck:
@@ -34,7 +33,7 @@ services:
     command:
       - "-dir=/migrations"
       - "postgres"
-      - "${DATABASE_URL:-${SUPABASE_DB_URL:?DATABASE_URL is required for migrations}}"
+      - "${DATABASE_URL:?DATABASE_URL is required for migrations}"
       - "up"
     # migrations/ is baked into the image at /migrations (see Dockerfile COPY --from=builder).
     # No host bind-mount needed — the same image works on Render and locally.
