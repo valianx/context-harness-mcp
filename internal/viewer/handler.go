@@ -14,7 +14,7 @@
 // Search alignment: the viewer's search endpoint (/viewer/api/search?q=...) mirrors the
 // MCP search_nodes tool: top 10 results ranked by cosine similarity. Operators see exactly
 // what an agent sees when it calls search_nodes with the same query. The list-all endpoint
-// (no q) returns up to 50 nodes for browsing.
+// (no q) returns up to 10 nodes for browsing.
 package viewer
 
 import (
@@ -148,9 +148,9 @@ type relationView struct {
 // with the same query.
 const searchLimit = 10
 
-// listAllLimit caps results when no query is provided. Higher than searchLimit
-// because the operator is browsing the graph, not mimicking an agent search.
-const listAllLimit = 50
+// listAllLimit caps results when no query is provided. Matches searchLimit so
+// the operator sees the same count whether searching or just browsing.
+const listAllLimit = 10
 
 // handleSearchAPI handles GET /viewer/api/search?q=...&project=...&nodeType=...
 // Empty or missing q → list all active nodes ordered by created_at DESC.

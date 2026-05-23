@@ -3,7 +3,7 @@ name: Deploy
 # Platform-agnostic CD: apply database migrations, then (optionally) trigger a
 # deploy webhook on whatever container hosting the operator chose. The workflow
 # does NOT assume any specific provider — anything that exposes a deploy hook
-# URL works (Railway, Fly, Render, Coolify, self-hosted Dokku, custom CI, etc.).
+# URL works (Railway, Fly, Coolify, self-hosted Dokku, custom CI, etc.).
 # If the operator has DEPLOY_HOOK_URL unset (e.g. their platform auto-deploys
 # from git push directly), the hook step skips with a notice, not an error.
 
@@ -28,9 +28,7 @@ jobs:
       # empty string, not an error.
       DATABASE_URL: ${{ secrets.DATABASE_URL != '' && secrets.DATABASE_URL || secrets.SUPABASE_DB_URL }}
       # Generic deploy hook — the operator's hosting platform provides this URL.
-      # Backward-compat: RENDER_DEPLOY_HOOK_URL is honoured for one release so
-      # existing deployments don't break on the rename.
-      DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL != '' && secrets.DEPLOY_HOOK_URL || secrets.RENDER_DEPLOY_HOOK_URL }}
+      DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
 
     steps:
       - name: Guard — required secret
@@ -68,7 +66,24 @@ jobs:
         # Optional. Hosts that auto-deploy from git (Railway, Fly auto-deploy,
         # Vercel-style platforms) don't need this step — leave DEPLOY_HOOK_URL
         # unset and they take over after migrations.
+        #
+        # HTTP 409 from the hook means "a deploy for this commit is already
+        # in progress" — that happens when the host's GitHub integration
+        # auto-deploys in parallel with this workflow. We treat 409 as success
+        # because the deploy IS happening, just not via this hook.
         if: ${{ env.DATABASE_URL != '' && env.DEPLOY_HOOK_URL != '' }}
         run: |
-          response=$(curl -fsSL -X POST -o /dev/null -w "%{http_code}" "$DEPLOY_HOOK_URL")
+          response=$(curl -sSL -X POST -o /dev/null -w "%{http_code}" "$DEPLOY_HOOK_URL")
           echo "Deploy hook returned HTTP $response"
+          case "$response" in
+            2*)
+              echo "Deploy accepted (HTTP $response)"
+              ;;
+            409)
+              echo "Deploy already in progress for this commit (HTTP 409) — accepted as success"
+              ;;
+            *)
+              echo "::error::Deploy hook failed with HTTP $response"
+              exit 1
+              ;;
+          esac
