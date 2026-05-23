@@ -120,6 +120,14 @@ type nodeView struct {
 	ProjectID    string         `json:"project_id"`
 	Observations []string       `json:"observations"`
 	Relations    []relationView `json:"relations"`
+	Score        *float64       `json:"score,omitempty"` // 0.0–1.0 similarity; nil on list-all
+}
+
+// nodeRowScored pairs a NodeRow with its cosine-distance score from a search query.
+// Used only on the searchByCosine path — listAllDesc does not produce scores.
+type nodeRowScored struct {
+	store.NodeRow
+	MinDistance float64
 }
 
 // relationView is a single directed edge with both endpoint names resolved.
@@ -146,13 +154,34 @@ func (h *handler) handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 	nodeType := r.URL.Query().Get("nodeType")
 	ctx      := r.Context()
 
-	var nodeRows []store.NodeRow
+	var views []nodeView
 	var err error
 
 	if query == "" {
+		var nodeRows []store.NodeRow
 		nodeRows, err = listAllDesc(ctx, h.pool, project, nodeType)
+		if err == nil {
+			views, err = buildNodeViews(ctx, h.pool, nodeRows, nil)
+		}
 	} else {
-		nodeRows, err = searchByCosine(ctx, h.pool, query, project, nodeType)
+		var scored []nodeRowScored
+		scored, err = searchByCosine(ctx, h.pool, query, project, nodeType)
+		if err == nil {
+			nodeRows := make([]store.NodeRow, len(scored))
+			scores := make(map[string]float64, len(scored))
+			for i, s := range scored {
+				nodeRows[i] = s.NodeRow
+				similarity := 1.0 - s.MinDistance
+				if similarity < 0 {
+					similarity = 0
+				}
+				if similarity > 1 {
+					similarity = 1
+				}
+				scores[s.ID] = similarity
+			}
+			views, err = buildNodeViews(ctx, h.pool, nodeRows, scores)
+		}
 	}
 
 	if err != nil {
@@ -164,15 +193,6 @@ func (h *handler) handleSearchAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		slog.Error("viewer: search query failed", "query", query, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{
-			"error": "internal server error",
-		})
-		return
-	}
-
-	views, err := buildNodeViews(ctx, h.pool, nodeRows)
-	if err != nil {
-		slog.Error("viewer: building node views failed", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
 			"error": "internal server error",
 		})
@@ -312,9 +332,10 @@ func listAllDesc(ctx context.Context, pool *pgxpool.Pool, project, nodeType stri
 }
 
 // searchByCosine embeds query and returns up to searchLimit active nodes ranked
-// by minimum cosine distance of their observation embeddings. Optional project
-// and nodeType params filter results; empty string means no filter.
-func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project, nodeType string) ([]store.NodeRow, error) {
+// by minimum cosine distance of their observation embeddings, along with that
+// distance. Optional project and nodeType params filter results; empty string
+// means no filter.
+func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project, nodeType string) ([]nodeRowScored, error) {
 	vecs, err := embedpkg.Default().Encode(ctx, []string{query})
 	if err != nil {
 		return nil, err
@@ -322,7 +343,8 @@ func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project, nod
 	queryVec := pgvector.NewVector(vecs[0])
 
 	rows, err := pool.Query(ctx,
-		`SELECT n.id, n.name, n.node_type, n.project_id
+		`SELECT n.id, n.name, n.node_type, n.project_id,
+		        MIN(o.embedding <=> $1::vector) AS min_distance
 		 FROM nodes n
 		 JOIN observations o ON o.node_id = n.id
 		 WHERE n.deleted_at IS NULL
@@ -331,7 +353,7 @@ func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project, nod
 		   AND ($3::text = '' OR n.project_id = $3)
 		   AND ($4::text = '' OR n.node_type  = $4)
 		 GROUP BY n.id, n.name, n.node_type, n.project_id
-		 ORDER BY MIN(o.embedding <=> $1::vector) ASC
+		 ORDER BY min_distance ASC
 		 LIMIT $2`,
 		queryVec,
 		searchLimit,
@@ -343,13 +365,13 @@ func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project, nod
 	}
 	defer rows.Close()
 
-	var result []store.NodeRow
+	var result []nodeRowScored
 	for rows.Next() {
-		var r store.NodeRow
-		if err := rows.Scan(&r.ID, &r.Name, &r.NodeType, &r.ProjectID); err != nil {
+		var s nodeRowScored
+		if err := rows.Scan(&s.ID, &s.Name, &s.NodeType, &s.ProjectID, &s.MinDistance); err != nil {
 			return nil, err
 		}
-		result = append(result, r)
+		result = append(result, s)
 	}
 	return result, rows.Err()
 }
@@ -357,7 +379,9 @@ func searchByCosine(ctx context.Context, pool *pgxpool.Pool, query, project, nod
 // buildNodeViews enriches node rows with their observations and relations,
 // transforming them into the viewer-specific JSON shape. Relations are fetched
 // in a single batch query (no N+1) for all nodes that touch the result set.
-func buildNodeViews(ctx context.Context, pool *pgxpool.Pool, nodeRows []store.NodeRow) ([]nodeView, error) {
+// scores maps node ID → similarity (0.0–1.0); pass nil on the list-all path
+// to omit the Score field from every returned nodeView.
+func buildNodeViews(ctx context.Context, pool *pgxpool.Pool, nodeRows []store.NodeRow, scores map[string]float64) ([]nodeView, error) {
 	if len(nodeRows) == 0 {
 		return []nodeView{}, nil
 	}
@@ -390,13 +414,18 @@ func buildNodeViews(ctx context.Context, pool *pgxpool.Pool, nodeRows []store.No
 			obs = []string{}
 		}
 
-		views[i] = nodeView{
+		v := nodeView{
 			Name:         r.Name,
 			NodeType:     r.NodeType,
 			ProjectID:    r.ProjectID,
 			Observations: obs,
 			Relations:    relationsForNode(relViews, r.Name),
 		}
+		if scores != nil {
+			sim := scores[r.ID]
+			v.Score = &sim
+		}
+		views[i] = v
 	}
 
 	return views, nil

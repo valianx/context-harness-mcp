@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `internal/viewer/handler.go` — `Score *float64 json:"score,omitempty"` field on `nodeView`; `nodeRowScored` struct; `searchByCosine` now SELECTs `MIN(o.embedding <=> $1::vector) AS min_distance` and returns scored rows; similarity computed as `1 - distance` clamped to [0,1] and attached to each `nodeView` on the search path only (nil on list-all, dropped by `omitempty`).
+- `internal/viewer/templates/index.html` — corner score badge (`.ch-score-badge`) with three color tiers: green ≥80% (`.ch-score-high`), yellow 50–79% (`.ch-score-mid`), red <50% (`.ch-score-low`); rendered as absolute-positioned overlay on each result card; `searchAPI()` maps the new `score` field from JSON; search input gated to 3+ characters with inline hint at 1–2 chars; search placeholder updated to reflect minimum.
+
 ### Changed
 
 - Dashboard now renders a **paste-ready JSON snippet** instead of the bare JWT. After clicking "Generate MCP Token", the `~/.claude.json` panel shows the full `mcpServers.memory` block (`type` + `url` + `headers.Authorization: "Bearer <jwt>"`) with syntax highlighting matching the landing's install snippet. Copy button now copies the entire snippet — one click → one paste → wired up. New `mcpURL(r)` helper in `internal/web/dashboard.go` resolves the public MCP endpoint from `MCP_PUBLIC_URL` env var (canonical) with a request-derived fallback for local dev. New `MCPURL` field on `dashboardTemplateData`. New CSS rules `.ch-code .k` (amethyst) and `.ch-code .s` (amber) in `dashboard.html` to match the landing's snippet colors. Card label changed from "Your MCP Token — save this now" to "Your MCP snippet — paste into `~/.claude.json`". Token element id renamed `generated-token` → `snippet-text`; copy button id renamed accordingly. Coverage: 4 new unit tests for `mcpURL` (env / trailing-slash / request-fallback / X-Forwarded-Proto) + 5 new assertions in `TestDashboardE2E_GenerateToken_ValidCSRF_Returns200WithToken` confirming the snippet contains `"mcpServers"`, `"memory"`, `"Authorization"`, `"Bearer "`, and the MCP URL.
