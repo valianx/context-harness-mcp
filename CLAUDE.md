@@ -203,3 +203,46 @@ All commands run from the repo root unless noted.
 - Never commit secrets, tokens, API keys, `.env` files, or private keys — even temporarily.
 - Never `rm -rf` shared paths (`/`, `~`, project root, `.git`). Use targeted scoped paths only.
 - Never delete or skip tests to make a build green — fix the code or the test with a documented rationale.
+
+---
+
+## 7. Document Hygiene
+
+CLAUDE.md is a quick-reference surface — it tells agents *where to look*, not *everything to know*. Detailed content lives in `docs/`.
+
+### 7.1 Size rules
+
+| Section | Max entries in CLAUDE.md | Overflow target |
+|---------|------------------------|-----------------|
+| Architecture Decisions | 10 | `docs/decisions.md` |
+| Patterns & Conventions | 10 | `docs/patterns.md` |
+| Known Constraints | 10 | `docs/constraints.md` |
+| Testing Conventions | 10 | `docs/testing.md` |
+
+When a section exceeds its limit, the delivery agent extracts older entries to the overflow file and replaces the section body with a pointer:
+
+```
+See `docs/decisions.md` for the full log. Recent entries kept inline below.
+```
+
+### 7.2 What belongs in CLAUDE.md vs docs/
+
+| CLAUDE.md | docs/ |
+|-----------|-------|
+| Golden commands (copy-paste ready) | Extended decision rationale |
+| Tech stack summary (one table) | Migration guides, ADRs |
+| Current conventions (active rules) | Historical patterns, superseded decisions |
+| Architectural boundaries (one-liners) | Detailed constraint analysis |
+| Pointers to docs/ files | The detailed content itself |
+
+### 7.3 docs/ structure
+
+| File | Content | Updated by |
+|------|---------|-----------|
+| `docs/knowledge.md` | Flat bullets with tag prefixes — the agent pre-read file | delivery agent |
+| `docs/decisions.md` | Architecture decisions overflow (date + decision + rationale) | delivery agent (auto-offload) |
+| `docs/patterns.md` | Patterns overflow (pattern + example path) | delivery agent (auto-offload) |
+| `docs/constraints.md` | Constraints overflow (constraint + detail) | delivery agent (auto-offload) |
+| `docs/testing.md` | Testing conventions overflow (convention + description) | delivery agent (auto-offload) |
+
+The delivery agent creates overflow files on first offload. Agents read `docs/knowledge.md` before every task; overflow files are read on-demand when the CLAUDE.md pointer section is relevant.
