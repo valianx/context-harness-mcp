@@ -68,12 +68,10 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
-	// Stdio transport never sends telemetry — force SDK disabled before Init.
-	// PR-H will harden this into a full kill-switch; for now it is the
-	// minimal guard required by PR-A scope (sets the env var, Init respects it).
-	if *transport == "stdio" {
-		os.Setenv("OTEL_SDK_DISABLED", "true") //nolint:errcheck
-	}
+	// Stdio transport never sends telemetry — apply the kill-switch before
+	// observability.Init so the SDK cannot open an OTLP connection in stdio
+	// mode regardless of what CH_OBSERVABILITY_ENABLED / AXIOM_TOKEN are set to.
+	applyStdioGuard(*transport)
 
 	ctx := context.Background()
 
@@ -154,6 +152,18 @@ func main() {
 		slog.Error("unknown transport", "transport", *transport)
 		fmt.Fprintf(os.Stderr, "error: unknown transport %q — use stdio or http\n", *transport)
 		os.Exit(1)
+	}
+}
+
+// applyStdioGuard sets OTEL_SDK_DISABLED=true when transport is "stdio",
+// ensuring no OTLP connection is ever opened in stdio mode.  Must be called
+// before observability.Init — the ordering is enforced structurally in main().
+//
+// For any transport other than "stdio" this function is a no-op, leaving the
+// env var unchanged so HTTP mode can still activate full observability.
+func applyStdioGuard(transport string) {
+	if transport == "stdio" {
+		os.Setenv("OTEL_SDK_DISABLED", "true") //nolint:errcheck
 	}
 }
 
