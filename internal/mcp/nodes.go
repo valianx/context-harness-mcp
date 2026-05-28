@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
@@ -101,6 +102,12 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "create_nodes", outcome, time.Since(start))
+			slog.InfoContext(ctx, "request_completed",
+				"tool", "create_nodes",
+				"outcome", outcome,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"user.id", auth.UserIDFromContext(ctx),
+			)
 		}()
 
 		if uid := auth.UserIDFromContext(ctx); uid != "" {
@@ -115,6 +122,15 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		var args createNodesArgs
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+		}
+
+		// Emit node names and types after BindArguments — before any validation
+		// so they appear on both success and rejection spans (AC-I.3).
+		if len(args.Nodes) > 0 {
+			span.SetAttributes(
+				attrNodeNames.StringSlice(createNodeInputNames(args.Nodes, nameSliceMaxCount)),
+				attrNodeTypes.StringSlice(createNodeInputTypes(args.Nodes, nameSliceMaxCount)),
+			)
 		}
 
 		// Validate project naming BEFORE the Content Filter — project is a tag,
@@ -200,6 +216,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 				attrErrorCode.String(verr.Code),
 				attrLayer.String(verr.Layer),
 			)
+			setRejectedInputAttr(span, firstNodeFragment(args.Nodes))
 			observability.RecordValidationRejection(ctx, verr.Layer, verr.MatchedPattern)
 			return verr.ToMCPResult(), nil
 		}
@@ -331,6 +348,12 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "add_observations", outcome, time.Since(start))
+			slog.InfoContext(ctx, "request_completed",
+				"tool", "add_observations",
+				"outcome", outcome,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"user.id", auth.UserIDFromContext(ctx),
+			)
 		}()
 
 		if uid := auth.UserIDFromContext(ctx); uid != "" {
@@ -347,6 +370,12 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
+		// Emit node_name (first item's NodeName) after BindArguments — appears on
+		// all exit paths including rejection spans (AC-I.4 / tiered table row 4).
+		if len(args.Observations) > 0 && args.Observations[0].NodeName != "" {
+			span.SetAttributes(attrNodeName.String(args.Observations[0].NodeName))
+		}
+
 		// Flatten into validate.Observation slice for the Content Filter.
 		// vp2.Observations may be mutated (secrets redacted) when SECRET_MODE=redact.
 		var flatObs []validate.Observation
@@ -355,6 +384,13 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				flatObs = append(flatObs, validate.Observation{NodeName: item.NodeName, Text: text})
 			}
 		}
+
+		// Build observation snippets (capped at snippetCap chars each, max snippetMaxCount).
+		// Emitted before validation so they appear on rejection spans too.
+		if len(flatObs) > 0 {
+			span.SetAttributes(attrObservationSnippets.StringSlice(observationSnippets(flatObs, snippetMaxCount, snippetCap)))
+		}
+
 		vp2 := validate.Payload{Observations: flatObs}
 		if verr := validate.Run(&vp2, validate.KindObservations); verr != nil {
 			outcome = outcomePolicyReject
@@ -557,6 +593,58 @@ func execUpdateObservations(ctx context.Context, pool *pgxpool.Pool, updates []u
 		return 0, err
 	}
 	return len(updates), nil
+}
+
+// ── nodes.go span-attr helpers ────────────────────────────────────────────────
+
+// createNodeInputNames extracts node names from a createNodeInput slice, capped at maxCount.
+func createNodeInputNames(nodes []createNodeInput, maxCount int) []string {
+	n := len(nodes)
+	if n > maxCount {
+		n = maxCount
+	}
+	names := make([]string, n)
+	for i := 0; i < n; i++ {
+		names[i] = nodes[i].Name
+	}
+	return names
+}
+
+// createNodeInputTypes extracts node types from a createNodeInput slice, capped at maxCount.
+func createNodeInputTypes(nodes []createNodeInput, maxCount int) []string {
+	n := len(nodes)
+	if n > maxCount {
+		n = maxCount
+	}
+	types := make([]string, n)
+	for i := 0; i < n; i++ {
+		types[i] = nodes[i].NodeType
+	}
+	return types
+}
+
+// observationSnippets builds a slice of truncated observation texts.
+// Each snippet is at most snippetMaxChars runes. The slice is capped at maxCount.
+func observationSnippets(obs []validate.Observation, maxCount, snippetMaxChars int) []string {
+	n := len(obs)
+	if n > maxCount {
+		n = maxCount
+	}
+	snippets := make([]string, n)
+	for i := 0; i < n; i++ {
+		snippets[i] = observability.SnippetTruncate(obs[i].Text, snippetMaxChars)
+	}
+	return snippets
+}
+
+// firstNodeFragment returns a short JSON-like fragment of the first node for
+// use as mcp.rejected_input. Returns empty string when nodes is empty.
+func firstNodeFragment(nodes []createNodeInput) string {
+	if len(nodes) == 0 {
+		return ""
+	}
+	n := nodes[0]
+	return fmt.Sprintf(`{"name":%q,"nodeType":%q}`, n.Name, n.NodeType)
 }
 
 // ── shared helpers ────────────────────────────────────────────────────────────

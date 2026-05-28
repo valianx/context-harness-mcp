@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `feat(observability): tiered content attrs en spans MCP + noise reduction (observability tuning)` — Group A (content): `internal/mcp/tracing.go` extiende whitelist con 8 nuevos attribute keys (`mcp.query`, `mcp.result_names`, `mcp.node_names`, `mcp.node_types`, `mcp.node_name`, `mcp.observation_snippets`, `mcp.relations_summary`, `mcp.rejected_input`) + 6 cap constants; `internal/observability/snippet.go` (NEW) helper `SnippetTruncate(s, max)` rune-safe; handlers `query.go`/`nodes.go`/`relations.go` emiten los nuevos attrs scrubbeados + `slog.InfoContext("request_completed", tool, outcome, duration_ms, user.id)` en cada exit. Group B (noise): `internal/observability/noise_processor.go` (NEW) `noiseFilterProcessor` dropea `prepare *` y `pool.acquire` spans (otelpgx v0.9.4 no expone opción nativa para estos); `internal/observability/init.go` compone pipeline `noiseFilterProcessor → BatchSpanProcessor → ScrubSpanExporter`; `cmd/server/main.go` extrae `shouldTraceHTTPPath(path)` con denylist completa (`/`, `/favicon.ico`, `/auth/*`, `/dashboard*`, `/healthz`, `/debug/vars`, `/metrics`); `internal/observability/scrub.go` normaliza whitespace en `db.statement` y `db.query.text` tras scrubbing. Resultado neto estimado: +7.5 MB/día (content) − ~50 MB/día (noise) = NET SAVINGS ~45 MB/día vs baseline.
+
+### Added
+
 - `docs(observability): runbook + smoke test + deploy.yml secret injection (PR-G)` — `docs/observability.md` (7 secciones: Setup, Validation, Troubleshooting, Recovery, Kill-switch, Budget Alert, Cutover Checklist); `scripts/smoke/observability_smoke.go` (smoke test E2E puro Go, cross-platform, verifica spans + logs + scrubbing + boot guard AC-G.6); `.github/workflows/deploy.yml` inyecta `AXIOM_TOKEN` + `AXIOM_DATASET` desde GitHub Secrets sin tocar la lógica de deploy; `CLAUDE.md §4` agrega 2 comandos: `Run server con observability local` + `Smoke test observability`; `.env.example` sección observability referencia `docs/observability.md`. Cierra el epic de integración Axiom (PRs A-H + G, todos mergeados).
 
 ### Added

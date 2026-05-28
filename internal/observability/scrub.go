@@ -32,6 +32,10 @@ import (
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
 )
 
+// spaceCollapse collapses any run of whitespace (space, tab, newline, carriage
+// return, form feed) into a single space. Compiled once at package init.
+var spaceCollapse = regexp.MustCompile(`\s+`)
+
 // ── Compiled patterns (init once, reuse forever) ─────────────────────────────
 
 var (
@@ -189,13 +193,24 @@ func scrubAttributeValue(v attribute.Value) attribute.Value {
 }
 
 // scrubAttributes returns a new slice with all string values redacted.
+// For SQL attributes ("db.statement", "db.query.text") an additional
+// whitespace-collapse pass runs after scrubbing so that multi-line backtick
+// Go strings arrive in Axiom as single-line, human-readable SQL (AC-J.5).
 func scrubAttributes(attrs []attribute.KeyValue) []attribute.KeyValue {
 	out := make([]attribute.KeyValue, len(attrs))
 	for i, kv := range attrs {
-		out[i] = attribute.KeyValue{
+		scrubbed := attribute.KeyValue{
 			Key:   kv.Key,
 			Value: scrubAttributeValue(kv.Value),
 		}
+		// Normalize whitespace in SQL statement attrs after scrubbing.
+		// Single pass: scrub first (secrets), then collapse (readability).
+		if (kv.Key == "db.statement" || kv.Key == "db.query.text") &&
+			scrubbed.Value.Type() == attribute.STRING {
+			normalized := spaceCollapse.ReplaceAllString(scrubbed.Value.AsString(), " ")
+			scrubbed.Value = attribute.StringValue(normalized)
+		}
+		out[i] = scrubbed
 	}
 	return out
 }

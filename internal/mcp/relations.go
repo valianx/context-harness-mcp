@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -58,6 +59,12 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "create_relations", outcome, time.Since(start))
+			slog.InfoContext(ctx, "request_completed",
+				"tool", "create_relations",
+				"outcome", outcome,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"user.id", auth.UserIDFromContext(ctx),
+			)
 		}()
 
 		if uid := auth.UserIDFromContext(ctx); uid != "" {
@@ -74,6 +81,11 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
+		// Emit relations summary after BindArguments — appears on all exit paths (AC-I.5).
+		if len(args.Relations) > 0 {
+			span.SetAttributes(attrRelationsSummary.StringSlice(relationsSummary(args.Relations, relationsMaxCount)))
+		}
+
 		// Validate project naming before the Content Filter when present.
 		for _, r := range args.Relations {
 			if r.Project != "" {
@@ -83,6 +95,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 						attrErrorCode.String(verr.Code),
 						attrLayer.String(verr.Layer),
 					)
+					setRejectedInputAttr(span, firstRelationFragment(args.Relations))
 					return verr.ToMCPResult(), nil
 				}
 			}
@@ -100,6 +113,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				attrErrorCode.String(verr.Code),
 				attrLayer.String(verr.Layer),
 			)
+			setRejectedInputAttr(span, firstRelationFragment(args.Relations))
 			observability.RecordValidationRejection(ctx, verr.Layer, verr.MatchedPattern)
 			return verr.ToMCPResult(), nil
 		}
@@ -112,6 +126,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		if err != nil {
 			if isNodeNotFound(err) {
 				span.SetStatus(codes.Error, err.Error())
+				setRejectedInputAttr(span, firstRelationFragment(args.Relations))
 				return errorResult(err.Error()), nil
 			}
 			if isCrossProjectError(err) {
@@ -126,6 +141,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 					attrErrorCode.String(verr.Code),
 					attrLayer.String(verr.Layer),
 				)
+				setRejectedInputAttr(span, firstRelationFragment(args.Relations))
 				return verr.ToMCPResult(), nil
 			}
 			span.SetStatus(codes.Error, err.Error())
@@ -135,6 +151,32 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		outcome = outcomeSuccess
 		return jsonResult(map[string]any{"created": created}), nil
 	}
+}
+
+// ── relations.go span-attr helpers ────────────────────────────────────────────
+
+// relationsSummary builds a slice of "from→to:type" strings capped at maxCount (AC-I.5).
+func relationsSummary(relations []relationInput, maxCount int) []string {
+	n := len(relations)
+	if n > maxCount {
+		n = maxCount
+	}
+	out := make([]string, n)
+	for i := 0; i < n; i++ {
+		r := relations[i]
+		out[i] = fmt.Sprintf("%s→%s:%s", r.From, r.To, r.RelationType)
+	}
+	return out
+}
+
+// firstRelationFragment returns a short JSON-like fragment of the first relation
+// for use as mcp.rejected_input. Returns empty string when relations is empty.
+func firstRelationFragment(relations []relationInput) string {
+	if len(relations) == 0 {
+		return ""
+	}
+	r := relations[0]
+	return fmt.Sprintf(`{"from":%q,"to":%q,"relationType":%q}`, r.From, r.To, r.RelationType)
 }
 
 func execCreateRelations(ctx context.Context, pool *pgxpool.Pool, relations []relationInput, userID, email *string) (int, error) {

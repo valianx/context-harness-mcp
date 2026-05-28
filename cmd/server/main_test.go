@@ -138,3 +138,45 @@ func TestHTTPTransport_GuardNotApplied(t *testing.T) {
 	assert.Empty(t, os.Getenv("OTEL_SDK_DISABLED"),
 		"HTTP transport: kill-switch must NOT be applied — OTEL_SDK_DISABLED must remain empty")
 }
+
+// TestShouldTraceHTTPPath covers AC-J.4: shouldTraceHTTPPath must return true
+// for paths that carry real APM signal (/mcp, /viewer) and false for "no-work"
+// paths that generate noise (healthchecks, static assets, OAuth flow, metrics).
+//
+// Default for unknown paths: the function falls through to `return true` so
+// any path not explicitly excluded produces a span. This is intentional — an
+// unrecognised route is never noisier than a real MCP call.
+func TestShouldTraceHTTPPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		// Preserved paths — must produce spans.
+		{"/mcp", true},
+		{"/mcp/", true},
+		{"/mcp/some/path", true},
+		{"/viewer", true},
+		{"/viewer/abc", true},
+
+		// Excluded paths — must NOT produce spans.
+		{"/", false},
+		{"/favicon.ico", false},
+		{"/auth/login", false},
+		{"/auth/callback", false},
+		{"/dashboard", false},
+		{"/healthz", false},
+		{"/debug/vars", false},
+		{"/metrics", false},
+
+		// Unknown paths fall through to the default (return true).
+		{"/random/unknown", true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			got := shouldTraceHTTPPath(tc.path)
+			assert.Equal(t, tc.want, got,
+				"shouldTraceHTTPPath(%q) = %v, want %v", tc.path, got, tc.want)
+		})
+	}
+}

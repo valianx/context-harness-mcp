@@ -40,6 +40,10 @@ func New(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	// Instrument every pgx query with an OTel child span. Parameters are
 	// intentionally excluded (default) so that $1, $2 placeholders appear in
 	// db.statement but the bound values never do — satisfying AC-D.2.
+	//
+	// pool.acquire and prepare * spans are dropped upstream by noiseFilterProcessor
+	// in internal/observability/init.go — otelpgx v0.9.4 has no native option to
+	// disable these span types, so the processor-level drop is the correct approach.
 	cfg.ConnConfig.Tracer = otelpgx.NewTracer()
 
 	// Register the pgvector `vector` type on every new connection so that

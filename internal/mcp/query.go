@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -114,6 +115,12 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "search_nodes", outcome, time.Since(start))
+			slog.InfoContext(ctx, "request_completed",
+				"tool", "search_nodes",
+				"outcome", outcome,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"user.id", auth.UserIDFromContext(ctx),
+			)
 		}()
 
 		if uid := auth.UserIDFromContext(ctx); uid != "" {
@@ -125,10 +132,12 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
-		// AC-E.4: query length only — never query content.
+		// Emit query length (count) and scrubbed query text (content, capped at queryAttrCap).
+		// The query text passes through ScrubSpanExporter before export — no local scrub needed.
 		span.SetAttributes(
 			attrQueryLength.Int(len(args.Query)),
 			attrHasEmbedding.Bool(true),
+			attrQuery.String(observability.SnippetTruncate(args.Query, queryAttrCap)),
 		)
 
 		nodes, relations, err := searchNodes(ctx, pool, args.Query, projectFilterFrom(args.Project))
@@ -137,8 +146,11 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
-		// AC-E.4: result count only — never result content.
+		// Emit result count and up to 10 result names (AC-I.2).
 		span.SetAttributes(attrResultCount.Int(len(nodes)))
+		if len(nodes) > 0 {
+			span.SetAttributes(attrResultNames.StringSlice(nodeNames(nodes, 10)))
+		}
 
 		outcome = outcomeSuccess
 		return jsonResult(map[string]any{
@@ -185,6 +197,12 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "open_nodes", outcome, time.Since(start))
+			slog.InfoContext(ctx, "request_completed",
+				"tool", "open_nodes",
+				"outcome", outcome,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"user.id", auth.UserIDFromContext(ctx),
+			)
 		}()
 
 		if uid := auth.UserIDFromContext(ctx); uid != "" {
@@ -202,8 +220,11 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
-		// Count only — no node names or relation content in span attributes.
+		// Emit result count and up to 10 result names (AC-I.2).
 		span.SetAttributes(attrResultCount.Int(len(nodes)))
+		if len(nodes) > 0 {
+			span.SetAttributes(attrResultNames.StringSlice(nodeNames(nodes, 10)))
+		}
 
 		outcome = outcomeSuccess
 		return jsonResult(map[string]any{
@@ -324,6 +345,12 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "read_graph", outcome, time.Since(start))
+			slog.InfoContext(ctx, "request_completed",
+				"tool", "read_graph",
+				"outcome", outcome,
+				"duration_ms", time.Since(start).Milliseconds(),
+				"user.id", auth.UserIDFromContext(ctx),
+			)
 		}()
 
 		if uid := auth.UserIDFromContext(ctx); uid != "" {
@@ -347,8 +374,11 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
-		// Count only — no content in span attributes.
+		// Emit result count and up to 10 result names (AC-I.2).
 		span.SetAttributes(attrResultCount.Int(len(nodes)))
+		if len(nodes) > 0 {
+			span.SetAttributes(attrResultNames.StringSlice(nodeNames(nodes, 10)))
+		}
 
 		outcome = outcomeSuccess
 		return jsonResult(map[string]any{
@@ -454,6 +484,22 @@ func clampTimelinePagination(limit, offset int) (int, int) {
 		offset = timelineMaxOffset
 	}
 	return limit, offset
+}
+
+// ── shared helpers ────────────────────────────────────────────────────────────
+
+// nodeNames extracts node names from a nodeJSON slice, capping at maxCount.
+// Used to populate mcp.result_names on query handler spans (AC-I.2).
+func nodeNames(nodes []nodeJSON, maxCount int) []string {
+	n := len(nodes)
+	if n > maxCount {
+		n = maxCount
+	}
+	names := make([]string, n)
+	for i := 0; i < n; i++ {
+		names[i] = nodes[i].Name
+	}
+	return names
 }
 
 // ── shared builder ────────────────────────────────────────────────────────────
