@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `feat(observability): logs external_supabase_request/response/failed para GetUser` — `internal/auth/supabase_client.go`: instrumentación del método `GetUser` con tres eventos estructurados (`external_supabase_request` INFO antes del HTTP call, `external_supabase_response` INFO en 2xx con body capturado con cap 8KB, `external_supabase_failed` ERROR en network error / non-2xx / decode error); `internal/auth/supabase_client_test.go` (NEW): 4 tests cubriendo success path, network error, non-2xx 500, y ordering guarantee. Aplica el patrón `body` heredado de PR #65.
+
 ### Changed
 
 - `refactor(observability): normalizar attributes.body en todos los logs MCP` — `internal/mcp/nodes.go`, `relations.go`, `query.go`: renombrar field `response` → `body` en `request_completed` (AC-NB.2); agregar `body` con string descriptivo en `validation_rejected`, `db_row_persisted`, `db_tx_committed`, `db_tx_rolled_back` (AC-NB.3–5). `internal/mcp/logs_test.go`: test renombrado a `TestLogs_CreateNodes_body_field_in_request_completed` + assert que `"response"` ya no existe + `scrubPassthroughFields` simplificado a sólo `"body"`.
