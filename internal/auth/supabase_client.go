@@ -1,10 +1,12 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -54,11 +56,24 @@ func NewSupabaseClient(projectURL, anonKey string) SupabaseClient {
 	}
 }
 
+// supabaseEndpoint is the path used in all external_supabase_* log events.
+const supabaseEndpoint = "/auth/v1/user"
+
+// supabaseResponseBodyCap is the maximum bytes read from a Supabase response body
+// before logging. Prevents memory blowup on unexpectedly large responses.
+const supabaseResponseBodyCap = 8192
+
 // GetUser calls GET <projectURL>/auth/v1/user with the bearer access token.
 // Returns ErrSupabaseUnauthorized when Supabase responds 401/403; any other
 // non-2xx response or decode failure returns a descriptive error.
+//
+// Emits three structured log events for observability (cache misses only — cache
+// hits never reach this method):
+//   - external_supabase_request  (INFO)  — before the HTTP call
+//   - external_supabase_response (INFO)  — on 2xx with the decoded body
+//   - external_supabase_failed   (ERROR) — on network error, non-2xx, or decode failure
 func (c *supabaseHTTPClient) GetUser(ctx context.Context, accessToken string) (*SupabaseUser, error) {
-	url := c.projectURL + "/auth/v1/user"
+	url := c.projectURL + supabaseEndpoint
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -67,24 +82,78 @@ func (c *supabaseHTTPClient) GetUser(ctx context.Context, accessToken string) (*
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("apikey", c.anonKey)
 
+	// AC-ES.1: emit request log before the HTTP call so timestamp always precedes
+	// the response log, regardless of how long the network round-trip takes.
+	slog.InfoContext(ctx, "external_supabase_request",
+		"service", "supabase",
+		"method", "GET",
+		"endpoint", supabaseEndpoint,
+		"body", "GET "+supabaseEndpoint,
+	)
+	start := time.Now()
+
 	resp, err := c.client.Do(req)
 	if err != nil {
+		// AC-ES.3: network-level failure (DNS, connection refused, timeout …).
+		slog.ErrorContext(ctx, "external_supabase_failed",
+			"service", "supabase",
+			"endpoint", supabaseEndpoint,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"body", err.Error(),
+		)
 		return nil, fmt.Errorf("supabase: GET /auth/v1/user: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Read the full body once so we can log it and still decode it below.
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, supabaseResponseBodyCap))
+	// Restore the body for the JSON decoder further down.
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		// AC-ES.4: non-2xx (auth failure) — log as failed with status code in body.
+		slog.ErrorContext(ctx, "external_supabase_failed",
+			"service", "supabase",
+			"endpoint", supabaseEndpoint,
+			"status_code", resp.StatusCode,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"body", string(bodyBytes),
+		)
 		return nil, ErrSupabaseUnauthorized
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("supabase: GET /auth/v1/user returned %d: %s", resp.StatusCode, body)
+		// AC-ES.4: any other non-2xx — log as failed with body from Supabase.
+		slog.ErrorContext(ctx, "external_supabase_failed",
+			"service", "supabase",
+			"endpoint", supabaseEndpoint,
+			"status_code", resp.StatusCode,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"body", string(bodyBytes),
+		)
+		return nil, fmt.Errorf("supabase: GET /auth/v1/user returned %d: %s", resp.StatusCode, bodyBytes)
 	}
 
 	var user SupabaseUser
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
+		// Decode failure after a 2xx — still a failed call from our perspective.
+		slog.ErrorContext(ctx, "external_supabase_failed",
+			"service", "supabase",
+			"endpoint", supabaseEndpoint,
+			"status_code", resp.StatusCode,
+			"duration_ms", time.Since(start).Milliseconds(),
+			"body", fmt.Sprintf("decode error: %s; raw body: %s", err.Error(), string(bodyBytes)),
+		)
 		return nil, fmt.Errorf("supabase: decode user response: %w", err)
 	}
+
+	// AC-ES.2: successful 2xx — log with the raw response body.
+	slog.InfoContext(ctx, "external_supabase_response",
+		"service", "supabase",
+		"endpoint", supabaseEndpoint,
+		"status_code", resp.StatusCode,
+		"duration_ms", time.Since(start).Milliseconds(),
+		"body", string(bodyBytes),
+	)
 	return &user, nil
 }
 
