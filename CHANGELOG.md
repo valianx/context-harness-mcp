@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `refactor(observability): invertir HTTP filter de denylist a allowlist (solo /mcp y /viewer)` — `cmd/server/main.go`: `shouldTraceHTTPPath` reescrita como allowlist (`HasPrefix /mcp || HasPrefix /viewer`); bots WordPress detectados en producción (`/wp-admin/install.php`, `/wp-includes/`, `/vendor/phpunit/`) ya no emiten span; default deny para paths desconocidos (comportamiento opuesto a la denylist anterior). `cmd/server/main_test.go`: `TestShouldTraceHTTPPath` actualizado con casos AC-AL.1–AC-AL.4 incluyendo bot scanners y unknown-path default deny.
+
 ### Added
 
 - `feat(observability): attributes.operation enum en todos los logs MCP + external` — `internal/mcp/tracing.go`: constantes `opRequest`, `opResponse`, `opDecision`, `opError`; `internal/mcp/nodes.go`, `relations.go`, `query.go`: campo `"operation"` agregado en cada `slog` call (`request_received`→`request`, `validation_rejected`→`error`, `db_tx_rolled_back`→`error`, `db_tx_committed`→`decision`, `db_row_persisted`→`decision`, `db_row_retrieved`→`decision`, `request_completed`→`response`); `internal/auth/supabase_client.go`: `"operation"` en los 3 logs externos (`external_supabase_request`→`request`, `external_supabase_response`→`response`, `external_supabase_failed`→`error`); `internal/mcp/logs_test.go`, `internal/auth/supabase_client_test.go`: assertions de `operation` en todos los tests existentes. 100% aditivo — ningún otro campo modificado.

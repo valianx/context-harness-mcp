@@ -166,37 +166,48 @@ func TestHTTPSpanNameFormatter(t *testing.T) {
 	}
 }
 
-// TestShouldTraceHTTPPath covers AC-J.4: shouldTraceHTTPPath must return true
-// for paths that carry real APM signal (/mcp, /viewer) and false for "no-work"
-// paths that generate noise (healthchecks, static assets, OAuth flow, metrics).
+// TestShouldTraceHTTPPath covers AC-AL.1–AC-AL.4: shouldTraceHTTPPath usa
+// allowlist — solo /mcp y /viewer producen span; cualquier otro path retorna
+// false, incluyendo auth flows, dashboard, healthz y bots WordPress.
 //
-// Default for unknown paths: the function falls through to `return true` so
-// any path not explicitly excluded produces a span. This is intentional — an
-// unrecognised route is never noisier than a real MCP call.
+// Cambio respecto a la denylist anterior: unknown paths ya no producen span
+// (default deny). Motivación: tráfico de bots detectado en producción
+// (/wp-admin/install.php, /wp-includes/, etc.) generaba spans inútiles en Axiom.
 func TestShouldTraceHTTPPath(t *testing.T) {
 	cases := []struct {
 		path string
 		want bool
 	}{
-		// Preserved paths — must produce spans.
+		// AC-AL.1: paths en allowlist — deben producir spans.
 		{"/mcp", true},
 		{"/mcp/", true},
 		{"/mcp/some/path", true},
 		{"/viewer", true},
-		{"/viewer/abc", true},
+		{"/viewer/api/something", true},
 
-		// Excluded paths — must NOT produce spans.
+		// AC-AL.3: auth flows, dashboard, healthz — excluidos (sin cambio funcional
+		// respecto a la denylist anterior para estos paths conocidos).
 		{"/", false},
 		{"/favicon.ico", false},
 		{"/auth/login", false},
 		{"/auth/callback", false},
+		{"/auth/exchange", false},
+		{"/auth/webhook", false},
+		{"/auth/logout", false},
 		{"/dashboard", false},
+		{"/dashboard/generate-token", false},
 		{"/healthz", false},
 		{"/debug/vars", false},
 		{"/metrics", false},
 
-		// Unknown paths fall through to the default (return true).
-		{"/random/unknown", true},
+		// AC-AL.2: bots WordPress detectados en producción — excluidos.
+		{"/wp-admin/install.php", false},
+		{"/wp-includes/", false},
+		{"/vendor/phpunit/phpunit/src/Util/PHP/", false},
+
+		// AC-AL.4: paths desconocidos — default deny (comportamiento opuesto a la
+		// denylist anterior donde unknown → true).
+		{"/random/unknown", false},
 	}
 
 	for _, tc := range cases {

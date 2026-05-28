@@ -232,39 +232,23 @@ func (a *revocationStoreAdapter) GetRevoked(sub string) (bool, error) {
 	return revoked, nil
 }
 
-// shouldTraceHTTPPath returns true when path should produce an otelhttp span.
+// shouldTraceHTTPPath reporta si el path debe producir un span de otelhttp.
 //
-// "No-work" paths are excluded because they (a) generate high-volume noise with
-// no actionable APM signal, and (b) already have sufficient visibility via
-// slog.Info calls in their respective handlers or are trivially short (static
-// HTML, 404s, cookie clears). See 01-plan.md §otelhttp short-span investigation.
+// Se usa allowlist en lugar de denylist para evitar que paths desconocidos
+// (bots, scanners WordPress, paths futuros no previstos) emitan spans inútiles
+// en Axiom. El tráfico de bots detectado en producción (/wp-admin/install.php,
+// /wp-includes/, /vendor/phpunit/, etc.) generaba noise APM sin señal real.
 //
-// Preserved paths (produce spans):
-//   - /mcp and /mcp/  — every MCP tool call
-//   - /viewer/*       — viewer reads with real DB payloads
+// Solo se tracean los paths que llevan carga real de la aplicación:
+//   - /mcp y /mcp/  — cada tool call MCP
+//   - /viewer/*     — lecturas del viewer con payloads DB reales
 //
-// Excluded paths (no span):
-//   - /healthz        — container probe noise
-//   - /               — static landing page
-//   - /favicon.ico    — browser auto-request
-//   - /auth/*         — OAuth flow (covered by slog.Info in web handlers)
-//   - /dashboard*     — session-authenticated UI (covered by slog.Info)
-//   - /debug/vars     — expvar read
-//   - /metrics        — Prometheus scrape
+// Cualquier otro path (auth flows, dashboard, healthz, expvar, métricas,
+// landing page, scanners de bots, paths futuros no reconocidos) NO emite span.
+// Para agregar un nuevo path traceable, extender este check explícitamente.
 func shouldTraceHTTPPath(path string) bool {
-	switch {
-	case path == "/healthz":
-		return false
-	case path == "/" || path == "/favicon.ico":
-		return false
-	case strings.HasPrefix(path, "/auth/"):
-		return false
-	case strings.HasPrefix(path, "/dashboard"):
-		return false
-	case path == "/debug/vars" || path == "/metrics":
-		return false
-	}
-	return true
+	// Allowlist: solo MCP y viewer endpoints emiten span.
+	return strings.HasPrefix(path, "/mcp") || strings.HasPrefix(path, "/viewer")
 }
 
 // httpSpanName returns a span name in the form "<METHOD> <path>" (e.g. "POST /mcp").
