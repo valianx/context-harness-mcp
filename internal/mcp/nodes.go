@@ -115,7 +115,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
-				"response", responseBody,
+				"body", responseBody,
 			)
 		}()
 
@@ -250,6 +250,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 				"layer", verr.Layer,
 				"error_code", verr.Code,
 				"pattern", verr.MatchedPattern,
+				"body", fmt.Sprintf("rejected by %s layer: pattern=%s (%s)", verr.Layer, verr.MatchedPattern, verr.Code),
 			)
 			return ret(verr.ToMCPResult())
 		}
@@ -272,6 +273,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			slog.ErrorContext(ctx, "db_tx_rolled_back",
 				"tool", "create_nodes",
 				"error", err.Error(),
+				"body", fmt.Sprintf("rolled back: %s", err.Error()),
 			)
 			span.SetStatus(codes.Error, err.Error())
 			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
@@ -281,6 +283,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		slog.InfoContext(ctx, "db_tx_committed",
 			"tool", "create_nodes",
 			"rows_inserted", createdNodes+createdObs,
+			"body", fmt.Sprintf("committed %d rows", createdNodes+createdObs),
 		)
 
 		outcome = outcomeSuccess
@@ -336,6 +339,7 @@ func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNode
 					"node_id", id,
 					"node_type", n.NodeType,
 					"text", obsText,
+					"body", fmt.Sprintf("persisted node_id=%s type=%s text=%q", id, n.NodeType, observability.SnippetTruncate(obsText, 120)),
 				)
 			}
 		}
@@ -411,7 +415,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
-				"response", responseBody,
+				"body", responseBody,
 			)
 		}()
 
@@ -476,6 +480,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				"layer", verr.Layer,
 				"error_code", verr.Code,
 				"pattern", verr.MatchedPattern,
+				"body", fmt.Sprintf("rejected by %s layer: pattern=%s (%s)", verr.Layer, verr.MatchedPattern, verr.Code),
 			)
 			return ret(verr.ToMCPResult())
 		}
@@ -503,6 +508,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			slog.ErrorContext(ctx, "db_tx_rolled_back",
 				"tool", "add_observations",
 				"error", err.Error(),
+				"body", fmt.Sprintf("rolled back: %s", err.Error()),
 			)
 			span.SetStatus(codes.Error, err.Error())
 			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
@@ -512,6 +518,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		slog.InfoContext(ctx, "db_tx_committed",
 			"tool", "add_observations",
 			"rows_inserted", added,
+			"body", fmt.Sprintf("committed %d rows", added),
 		)
 
 		outcome = outcomeSuccess
@@ -567,6 +574,7 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 					"node_id", id,
 					"node_name", item.NodeName,
 					"text", text,
+					"body", fmt.Sprintf("persisted node_id=%s name=%s text=%q", id, item.NodeName, observability.SnippetTruncate(text, 120)),
 				)
 			}
 		}

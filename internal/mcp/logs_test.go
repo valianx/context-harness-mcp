@@ -133,12 +133,12 @@ func TestLogs_CreateNodes_PolicyReject(t *testing.T) {
 		t.Errorf("validation_rejected error_code = %v, want policy/secret-detected", rejected["error_code"])
 	}
 
-	// The secret value must NOT appear in any log field except "body" and "response".
-	// Those two fields carry the raw request/response payload — in production the
-	// ScrubLogProcessor redacts them before export to Axiom. In unit tests the logger
+	// The secret value must NOT appear in any log field except "body".
+	// The "body" field carries the raw request/response payload — in production the
+	// ScrubLogProcessor redacts it before export to Axiom. In unit tests the logger
 	// is a plain JSON handler without the scrub pipeline, so the raw value is visible
 	// here; that is expected and acceptable (AC-FP.5 is enforced at the export boundary).
-	scrubPassthroughFields := map[string]bool{"body": true, "response": true}
+	scrubPassthroughFields := map[string]bool{"body": true}
 	for _, rec := range records {
 		for k, v := range rec {
 			if scrubPassthroughFields[k] {
@@ -415,10 +415,10 @@ func TestLogs_CreateNodes_body_field_in_request_received(t *testing.T) {
 	}
 }
 
-// TestLogs_CreateNodes_response_field_in_request_completed verifies that the
-// "request_completed" log line emitted by the defer contains a "response" field
-// (AC-FP.2).
-func TestLogs_CreateNodes_response_field_in_request_completed(t *testing.T) {
+// TestLogs_CreateNodes_body_field_in_request_completed verifies that the
+// "request_completed" log line emitted by the defer contains a "body" field
+// with the JSON-encoded response payload (AC-NB.2).
+func TestLogs_CreateNodes_body_field_in_request_completed(t *testing.T) {
 	var buf bytes.Buffer
 	restore := installTestLogger(&buf)
 	defer restore()
@@ -446,13 +446,17 @@ func TestLogs_CreateNodes_response_field_in_request_completed(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'request_completed' log line from defer")
 	}
-	resp, hasResp := completed["response"]
-	if !hasResp {
-		t.Fatal("request_completed must have a 'response' field (AC-FP.2)")
+	// AC-NB.2: field must be "body", not "response".
+	if _, hasOld := completed["response"]; hasOld {
+		t.Error("request_completed must NOT have a 'response' field — it was renamed to 'body' (AC-NB.2)")
 	}
-	respStr, isStr := resp.(string)
-	if !isStr || respStr == "" {
-		t.Errorf("request_completed response field must be a non-empty string, got %T %v", resp, resp)
+	body, hasBody := completed["body"]
+	if !hasBody {
+		t.Fatal("request_completed must have a 'body' field (AC-NB.2)")
+	}
+	bodyStr, isStr := body.(string)
+	if !isStr || bodyStr == "" {
+		t.Errorf("request_completed body field must be a non-empty string, got %T %v", body, body)
 	}
 }
 
