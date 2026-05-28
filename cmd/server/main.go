@@ -267,6 +267,14 @@ func shouldTraceHTTPPath(path string) bool {
 	return true
 }
 
+// httpSpanName returns a span name in the form "<METHOD> <path>" (e.g. "POST /mcp").
+// The operation argument passed by otelhttp is the static route label; we
+// ignore it and compose the name from the live request instead so every path
+// appears with its actual HTTP verb in Axiom scan view (AC-S.1).
+func httpSpanName(_ string, r *http.Request) string {
+	return r.Method + " " + r.URL.Path
+}
+
 func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *ratelimit.Limiter, authMode auth.Mode) {
 	// WithHTTPContextFunc extracts the client IP from each incoming HTTP request
 	// and injects it into the request context so tool handlers can read it for
@@ -357,10 +365,13 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	// otelhttp is the outermost handler so the span opens before auth runs and
 	// is alive when auth.Middleware sets user.id and auth.cache_result (AC-C.3).
 	// shouldTraceHTTPPath excludes "no-work" paths from APM (AC-J.4).
+	// httpSpanName produces "METHOD /path" (e.g. "POST /mcp") so scans in
+	// Axiom show the HTTP verb immediately without opening the span detail (AC-S.1).
 	tracedMux := otelhttp.NewHandler(mux, "context-harness-mcp",
 		otelhttp.WithFilter(func(r *http.Request) bool {
 			return shouldTraceHTTPPath(r.URL.Path)
 		}),
+		otelhttp.WithSpanNameFormatter(httpSpanName),
 	)
 
 	srv := &http.Server{
