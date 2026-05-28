@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `refactor(observability): taxonomy 3 operations + target axis (BREAKING vs operation=decision)` — `internal/mcp/tracing.go`: eliminado `opDecision`; agregadas constantes `targetClient`, `targetExternal`, `targetDB`, `targetInternal`; `internal/mcp/nodes.go`, `relations.go`, `query.go`: todos los slog calls actualizados — `db_tx_committed`/`db_row_persisted`/`db_row_retrieved` pasan de `operation=decision` a `operation=response, target=db`; `db_tx_rolled_back` agrega `target=db`; `validation_rejected` agrega `target=internal`; `request_received`/`request_completed` agregan `target=client`; `internal/auth/supabase_client.go`: los 3 external logs agregan `target=external`; `internal/mcp/logs_test.go`, `internal/auth/supabase_client_test.go`: assertions de `target` agregadas en todos los tests. **BREAKING**: queries APL que filtraban `operation == "decision"` dejarán de matchear — migrar a `operation == "response" and target == "db"` para DB writes/reads, o `target == "db"` solo para filtrar toda la actividad DB.
+
 ### Added
 
 - `feat(observability): attributes.signal=log|trace para distinguir telemetry type` — `internal/observability/logbridge.go`: `BridgedSlogHandler.Handle` inyecta `signal="log"` en cada log record antes de delegar al wrapped handler (AC-SG.1); `internal/observability/signal_processor.go` (NEW): `SignalSpanProcessor` implementa `sdktrace.SpanProcessor`, en `OnStart` llama `s.SetAttributes(attribute.String("signal", "trace"))` sobre cada span (AC-SG.2, AC-SG.3); `internal/observability/init.go`: pipeline de spans actualizado a `SignalSpanProcessor → noiseFilterProcessor → BatchSpanProcessor → ScrubSpanExporter → OTLP`; `internal/observability/signal_processor_test.go` (NEW): 4 tests con `tracetest.InMemoryExporter`; `internal/observability/logbridge_test.go`: 1 test nuevo `TestBridgedSlogHandler_AC_SG1_LogRecordCarriesSignalLog`.

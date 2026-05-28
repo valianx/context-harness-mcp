@@ -30,12 +30,19 @@ const (
 	outcomeServerError  = "server_error"
 
 	// Operation enum values for the "operation" slog field.
-	// Every structured log event must carry exactly one of these values.
+	// Three values only: request / response / error.
 	// English, lowercase — do not add variants.
 	opRequest  = "request"  // log describes an inbound or outbound call initiation
 	opResponse = "response" // log describes the result returned to a caller
-	opDecision = "decision" // log describes a DB-level read or write decision
 	opError    = "error"    // log describes a failure (validation reject, rollback, external failure)
+
+	// Target enum values for the "target" slog field.
+	// Indicates which party the log event is interacting with.
+	// Cross-axis with "operation": target==db and operation==response → successful DB write/read.
+	targetClient   = "client"   // interaction with the MCP caller (agent / user)
+	targetExternal = "external" // interaction with an external service (e.g. Supabase Auth)
+	targetDB       = "db"       // interaction with the Postgres database
+	targetInternal = "internal" // internal processing (e.g. content filter, validation)
 
 	// Cap constants for tiered content attrs (AC-I plan §Whitelist diff).
 	// All new string attrs pass through ScrubSpanExporter before export (AC-F boundary).
