@@ -22,6 +22,7 @@ import (
 	"github.com/mariogutierrez/context-harness-mcp/internal/healthz"
 	internalmcp "github.com/mariogutierrez/context-harness-mcp/internal/mcp"
 	"github.com/mariogutierrez/context-harness-mcp/internal/metrics"
+	"github.com/mariogutierrez/context-harness-mcp/internal/observability"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
@@ -67,6 +68,29 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
+	// Stdio transport never sends telemetry — force SDK disabled before Init.
+	// PR-H will harden this into a full kill-switch; for now it is the
+	// minimal guard required by PR-A scope (sets the env var, Init respects it).
+	if *transport == "stdio" {
+		os.Setenv("OTEL_SDK_DISABLED", "true") //nolint:errcheck
+	}
+
+	ctx := context.Background()
+
+	obsShutdown, err := observability.Init(ctx)
+	if err != nil {
+		slog.Error("observability init failed", "error", err)
+		fmt.Fprintf(os.Stderr, "error: observability init: %s\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if shutdownErr := obsShutdown(shutdownCtx); shutdownErr != nil {
+			slog.Warn("observability shutdown error", "error", shutdownErr)
+		}
+	}()
+
 	if err := configureSecretMode(); err != nil {
 		slog.Error("invalid SECRET_MODE value", "error", err)
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
@@ -99,7 +123,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx := context.Background()
+	ctx = context.Background()
 	pool, err := store.New(ctx, dsn)
 	if err != nil {
 		slog.Error("failed to open database pool", "error", err)
