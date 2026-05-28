@@ -3,11 +3,15 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
+	"github.com/mariogutierrez/context-harness-mcp/internal/observability"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
@@ -44,7 +48,24 @@ type createRelationsArgs struct {
 
 func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		start := time.Now()
+		ctx, span := toolTracer().Start(ctx, "mcp.create_relations")
+		defer span.End()
+
+		span.SetAttributes(attrToolName.String("create_relations"))
+
+		outcome := outcomeServerError
+		defer func() {
+			span.SetAttributes(attrToolOutcome.String(outcome))
+			observability.RecordRequest(ctx, "create_relations", outcome, time.Since(start))
+		}()
+
+		if uid := auth.UserIDFromContext(ctx); uid != "" {
+			span.SetAttributes(attrUserID.String(uid))
+		}
+
 		if result := checkRateLimit(ctx, limiter); result != nil {
+			outcome = outcomePolicyReject
 			return result, nil
 		}
 
@@ -57,6 +78,11 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		for _, r := range args.Relations {
 			if r.Project != "" {
 				if verr := validate.Check(r.Project); verr != nil {
+					outcome = outcomePolicyReject
+					span.SetAttributes(
+						attrErrorCode.String(verr.Code),
+						attrLayer.String(verr.Layer),
+					)
 					return verr.ToMCPResult(), nil
 				}
 			}
@@ -68,13 +94,24 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			vp.Relations[i] = validate.Relation{From: r.From, To: r.To, RelationType: r.RelationType}
 		}
 		if verr := validate.Run(&vp, validate.KindRelations); verr != nil {
+			outcome = outcomePolicyReject
+			span.SetStatus(codes.Error, verr.Code)
+			span.SetAttributes(
+				attrErrorCode.String(verr.Code),
+				attrLayer.String(verr.Layer),
+			)
+			observability.RecordValidationRejection(ctx, verr.Layer, verr.MatchedPattern)
 			return verr.ToMCPResult(), nil
 		}
+
+		// Count metadata — no content in span attributes (AC-E.3).
+		span.SetAttributes(attrNodeCount.Int(len(args.Relations)))
 
 		userID, email := attributionFromContext(ctx)
 		created, err := execCreateRelations(ctx, pool, args.Relations, userID, email)
 		if err != nil {
 			if isNodeNotFound(err) {
+				span.SetStatus(codes.Error, err.Error())
 				return errorResult(err.Error()), nil
 			}
 			if isCrossProjectError(err) {
@@ -83,11 +120,19 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 					Message: err.Error(),
 					Layer:   validate.LayerProject,
 				}
+				outcome = outcomePolicyReject
+				span.SetStatus(codes.Error, verr.Code)
+				span.SetAttributes(
+					attrErrorCode.String(verr.Code),
+					attrLayer.String(verr.Layer),
+				)
 				return verr.ToMCPResult(), nil
 			}
+			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
+		outcome = outcomeSuccess
 		return jsonResult(map[string]any{"created": created}), nil
 	}
 }
