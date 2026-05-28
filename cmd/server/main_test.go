@@ -1,7 +1,15 @@
 package main
 
 import (
+	"context"
+	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+
+	"github.com/mariogutierrez/context-harness-mcp/internal/observability"
 )
 
 // TestEnvOrDefault locks the precedence: env var (non-empty) > fallback.
@@ -35,4 +43,98 @@ func TestEnvOrDefault(t *testing.T) {
 			t.Fatalf("want fallback-default for empty env, got %q", got)
 		}
 	})
+}
+
+// --- PR-H kill-switch tests ---
+
+// TestApplyStdioGuard_SetsEnvVar covers AC-H.2: applyStdioGuard("stdio") must
+// set OTEL_SDK_DISABLED=true so the subsequent observability.Init call always
+// sees the kill-switch regardless of what CH_OBSERVABILITY_ENABLED is set to.
+func TestApplyStdioGuard_SetsEnvVar(t *testing.T) {
+	t.Setenv("OTEL_SDK_DISABLED", "") // ensure clean state
+
+	applyStdioGuard("stdio")
+
+	assert.Equal(t, "true", os.Getenv("OTEL_SDK_DISABLED"),
+		"applyStdioGuard(stdio) must set OTEL_SDK_DISABLED=true")
+}
+
+// TestApplyStdioGuard_NoOp_ForHTTP covers AC-H.3: applyStdioGuard must NOT
+// touch OTEL_SDK_DISABLED when transport is "http".
+func TestApplyStdioGuard_NoOp_ForHTTP(t *testing.T) {
+	t.Setenv("OTEL_SDK_DISABLED", "") // ensure clean state
+
+	applyStdioGuard("http")
+
+	assert.Empty(t, os.Getenv("OTEL_SDK_DISABLED"),
+		"applyStdioGuard(http) must not set OTEL_SDK_DISABLED")
+}
+
+// TestApplyStdioGuard_PreservesExistingValue_ForHTTP verifies that when
+// transport is "http" an already-set OTEL_SDK_DISABLED is left unchanged.
+func TestApplyStdioGuard_PreservesExistingValue_ForHTTP(t *testing.T) {
+	t.Setenv("OTEL_SDK_DISABLED", "true") // pre-set by operator
+
+	applyStdioGuard("http")
+
+	assert.Equal(t, "true", os.Getenv("OTEL_SDK_DISABLED"),
+		"applyStdioGuard(http) must not clear an existing OTEL_SDK_DISABLED")
+}
+
+// TestStdioKillSwitch_InitProducesNoActiveSDKProvider covers AC-H.1: even when
+// all observability env vars are set, the stdio guard ensures no real SDK
+// TracerProvider is installed.
+//
+// Boot sequence simulated:
+//  1. Set CH_OBSERVABILITY_ENABLED=true + OTLP endpoint + AXIOM_TOKEN.
+//  2. Call applyStdioGuard("stdio") — sets OTEL_SDK_DISABLED=true.
+//  3. Call observability.Init.
+//  4. Assert the global TracerProvider produces only invalid (no-op) spans.
+func TestStdioKillSwitch_InitProducesNoActiveSDKProvider(t *testing.T) {
+	t.Setenv("CH_OBSERVABILITY_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.axiom.co")
+	t.Setenv("AXIOM_TOKEN", "xaat-test")
+	t.Setenv("OTEL_SDK_DISABLED", "")
+
+	// AC-H.2 ordering: guard runs BEFORE Init.
+	applyStdioGuard("stdio")
+	require.Equal(t, "true", os.Getenv("OTEL_SDK_DISABLED"),
+		"pre-condition: guard must have fired before Init is called")
+
+	shutdown, err := observability.Init(context.Background())
+
+	// Two acceptable outcomes (both prove no OTLP connection):
+	//   (a) err != nil with "scrubber" — boot guard fired, no exporter built.
+	//   (b) err == nil — disabled path returned noopShutdown.
+	// Any other error (network / TLS) indicates the guard failed.
+	if err != nil {
+		assert.Contains(t, err.Error(), "scrubber",
+			"error must come from the boot guard, not from a network/TLS dial")
+	} else {
+		require.NotNil(t, shutdown)
+		assert.NoError(t, shutdown(context.Background()))
+	}
+
+	// The global TracerProvider must not be a real SDK provider.
+	// A real provider assigns a valid TraceID; the no-op provider returns an
+	// invalid (zero) SpanContext.
+	_, span := otel.Tracer("pr-h-test").Start(context.Background(), "probe")
+	span.End()
+	assert.False(t, span.SpanContext().IsValid(),
+		"stdio mode: TracerProvider must be no-op; valid SpanContext means OTLP SDK was installed")
+}
+
+// TestHTTPTransport_GuardNotApplied covers AC-H.3 end-to-end: with
+// transport=http, OTEL_SDK_DISABLED is absent after the guard — confirming
+// observability.Init is free to activate providers when configured.
+func TestHTTPTransport_GuardNotApplied(t *testing.T) {
+	t.Setenv("CH_OBSERVABILITY_ENABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.axiom.co")
+	t.Setenv("AXIOM_TOKEN", "xaat-test")
+	t.Setenv("OTEL_SDK_DISABLED", "")
+
+	applyStdioGuard("http")
+
+	assert.Empty(t, os.Getenv("OTEL_SDK_DISABLED"),
+		"HTTP transport: kill-switch must NOT be applied — OTEL_SDK_DISABLED must remain empty")
 }
