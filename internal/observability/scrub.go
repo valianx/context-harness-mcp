@@ -1,7 +1,8 @@
 // Package observability — scrub.go
 //
 // Implements the realScrubber that replaces PII (emails) and secrets
-// (gitleaks rules + inline patterns: JWT, Authorization Bearer, RSA private keys)
+// (gitleaks rules + inline patterns: JWT, Authorization Bearer, RSA private keys,
+// and the operator-extendable token denylist in extraTokenPatterns)
 // with safe redaction markers before telemetry data leaves the process.
 //
 // This file's package-level init() calls RegisterScrubber(NewRealScrubber()),
@@ -35,6 +36,74 @@ import (
 // spaceCollapse collapses any run of whitespace (space, tab, newline, carriage
 // return, form feed) into a single space. Compiled once at package init.
 var spaceCollapse = regexp.MustCompile(`\s+`)
+
+// ── Operator-extendable token denylist ───────────────────────────────────────
+//
+// extraTokenPatterns is a slice of compiled regexps for vendor token formats
+// that gitleaks does not always cover (custom API key formats, new vendors,
+// etc.).  The list lives in code — not an env var — so that every change is
+// grep-able and reviewed in a PR.
+//
+// To add a new pattern:
+//  1. Append a regexp.MustCompile(…) entry to extraTokenPatterns below.
+//  2. Add one test in scrub_test.go that embeds a sample token and asserts
+//     Redact returns "[REDACTED]" in its place.
+//
+// Why this exists: gitleaks ships ~150 upstream rules and is the primary
+// detector, but its rule set lags new vendor formats and does not cover
+// highly-specific tokens from smaller vendors (e.g. Axiom xaat- tokens,
+// Railway rly- tokens).  extraTokenPatterns gives the operator direct control
+// without waiting for an upstream gitleaks release.
+//
+// Application order: gitleaks runs first (broadest ruleset), then
+// extraTokenPatterns (vendor-specific), then the inline patterns below
+// (Bearer, JWT, RSA, email).  The pipeline is idempotent: if gitleaks already
+// replaced a token with "[REDACTED]", the extra-pattern pass is a no-op for
+// that span because the original token bytes are gone.
+var extraTokenPatterns = []*regexp.Regexp{
+	// Axiom ingest tokens — xaat-<uuid-like>
+	regexp.MustCompile(`xaat-[a-zA-Z0-9\-]{20,}`),
+
+	// Anthropic API keys — sk-ant-*
+	regexp.MustCompile(`sk-ant-[a-zA-Z0-9_\-]{20,}`),
+
+	// OpenAI API keys — sk-* (includes sk-proj-*)
+	regexp.MustCompile(`sk-(proj-)?[a-zA-Z0-9_\-]{20,}`),
+
+	// GitHub Personal Access Tokens — ghp_, gho_, ghu_, ghs_, ghr_
+	regexp.MustCompile(`gh[opusr]_[A-Za-z0-9]{36,}`),
+
+	// Stripe secret + publishable keys
+	regexp.MustCompile(`(sk|pk)_(live|test)_[a-zA-Z0-9]{20,}`),
+
+	// AWS access key IDs — AKIA + 16 uppercase alphanum
+	regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
+
+	// AWS temporary session token key IDs — ASIA + 16
+	regexp.MustCompile(`ASIA[0-9A-Z]{16}`),
+
+	// GCP service-account JSON private key block (multi-line via (?s))
+	regexp.MustCompile(`(?s)"private_key"\s*:\s*"-----BEGIN[^"]+-----END[^"]+"`),
+
+	// Slack tokens — xoxp-, xoxb-, xoxa-, xoxs-, xoxr-
+	regexp.MustCompile(`xox[pbars]\-[A-Za-z0-9\-]{20,}`),
+
+	// Railway API tokens
+	regexp.MustCompile(`rly-[A-Za-z0-9\-]{20,}`),
+
+	// Hex secrets of 64+ chars (HMAC secrets, JWT signing keys — e.g. openssl rand -hex 32).
+	// Matches lowercase hex only; does NOT match UUIDs (dashes break the run) or
+	// base64 (uppercase + symbols not included here).
+	regexp.MustCompile(`\b[a-f0-9]{64,}\b`),
+
+	// Optional aggressive pattern — generic base64-encoded blobs of 40+ chars.
+	// Disabled by default: a SHA-256 hex digest (64 lowercase hex chars) does NOT
+	// match this pattern because hex is a strict subset of base64; however, real
+	// base64 with uppercase letters, '+', or '/' WILL match and could catch
+	// legitimate embedding hashes or long IDs.  Uncomment if you want more
+	// aggressive scrubbing and are willing to accept occasional false positives.
+	// regexp.MustCompile(`\b[A-Za-z0-9+/]{40,}={0,2}\b`),
+}
 
 // ── Compiled patterns (init once, reuse forever) ─────────────────────────────
 
@@ -91,11 +160,16 @@ func NewRealScrubber() Scrubber {
 
 // Redact applies all scrubbing patterns to text and returns the sanitised result.
 //
-// Order matters: Bearer must run before the standalone JWT pattern, otherwise
-// the JWT inside the header might be replaced before the header replacement
-// fires, leaving "Authorization: Bearer [REDACTED]" intact (harmless) but
-// also correct behaviour.  RSA key runs first (multi-line) to avoid the
-// inline JWT regex accidentally matching base64 fragments inside the key body.
+// Pipeline order (each stage sees the output of the previous):
+//  1. RSA private key block — multi-line, must run before per-line patterns.
+//  2. Authorization: Bearer header — captures the whole header value.
+//  3. Standalone JWT — ey…; runs after Bearer so the header match fires first.
+//  4. Gitleaks detector — broadest upstream ruleset (~150 rules).
+//  5. extraTokenPatterns — operator-controlled vendor-specific list (this file).
+//  6. Email → hash — last, after all structural secrets are gone.
+//
+// The pipeline is idempotent: if a token was already replaced with "[REDACTED]"
+// by an earlier stage, later stages are no-ops for that token.
 func (realScrubber) Redact(text string) string {
 	if text == "" {
 		return text
@@ -114,7 +188,12 @@ func (realScrubber) Redact(text string) string {
 	// 4. Gitleaks detector (reuses the detector from internal/validate, no duplication).
 	text = redactViaGitleaks(text)
 
-	// 5. Email → hash replacement (last, after structural secrets are gone).
+	// 5. Vendor-specific token patterns (operator-extendable; see extraTokenPatterns).
+	for _, re := range extraTokenPatterns {
+		text = re.ReplaceAllString(text, "[REDACTED]")
+	}
+
+	// 6. Email → hash replacement (last, after structural secrets are gone).
 	text = reEmail.ReplaceAllStringFunc(text, emailToHash)
 
 	return text

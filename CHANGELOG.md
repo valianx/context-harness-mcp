@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `feat(observability): lista explícita de patrones de tokens en scrubber` — `internal/observability/scrub.go`: `extraTokenPatterns []*regexp.Regexp` con 11 patterns activos (Axiom `xaat-`, Anthropic `sk-ant-`, OpenAI `sk-`/`sk-proj-`, GitHub PAT `gh[opusr]_`, Stripe `sk/pk_(live|test)_`, AWS `AKIA`/`ASIA`, GCP `private_key` JSON, Slack `xox[pbars]-`, Railway `rly-`, hex secrets 64+ chars); aplicados después de gitleaks y antes de los patrones inline existentes; pipeline idempotente (AC-TD.2). `internal/observability/scrub_test.go`: 17 tests nuevos — 1 por pattern + idempotencia + comportamiento documentado del patrón hex (AC-TD.3) + UUID preservation. Performance: ~71µs/op para 1 KB con 3 secrets (dentro del budget <100µs, AC-TD.4).
+
+
+
 - `feat(observability): logs external_supabase_request/response/failed para GetUser` — `internal/auth/supabase_client.go`: instrumentación del método `GetUser` con tres eventos estructurados (`external_supabase_request` INFO antes del HTTP call, `external_supabase_response` INFO en 2xx con body capturado con cap 8KB, `external_supabase_failed` ERROR en network error / non-2xx / decode error); `internal/auth/supabase_client_test.go` (NEW): 4 tests cubriendo success path, network error, non-2xx 500, y ordering guarantee. Aplica el patrón `body` heredado de PR #65.
 
 ### Changed
