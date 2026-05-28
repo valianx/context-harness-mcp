@@ -146,6 +146,8 @@ All commands run from the repo root unless noted.
 | Run server with auth enabled | `MCP_AUTH=enabled MCP_JWT_SECRET=<hex> MCP_PUBLIC_URL=https://your-host go run ./cmd/server -transport=http -addr=:7654` |
 | Sync users with Supabase (admin only) | `khctl sync-users --dsn "$DATABASE_URL" --supabase-service-role-key "$SUPABASE_SERVICE_ROLE_KEY"` |
 | Generate JWT secret for rotation | `openssl rand -hex 32` |
+| Run server con observability local | `CH_OBSERVABILITY_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=https://api.axiom.co AXIOM_TOKEN=<tok> AXIOM_DATASET=context-harness-mcp go run ./cmd/server -transport=http -addr=:7654` |
+| Smoke test observability | `go run ./scripts/smoke/observability_smoke.go` (requiere servidor en :7654 o `MCP_URL=<url>`; ver `docs/observability.md §Validation`) |
 
 **Not applicable to this repo:** `npm`, `pip install`, `python -m`, `uvicorn`, `uv`. The server is Go only; operator tooling is `khctl` (Go binary in the Docker image).
 

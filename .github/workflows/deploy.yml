@@ -29,6 +29,13 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL != '' && secrets.DATABASE_URL || secrets.SUPABASE_DB_URL }}
       # Generic deploy hook — the operator's hosting platform provides this URL.
       DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+      # Observability — Axiom credentials injected at deploy time so the running
+      # container can authenticate to Axiom OTLP/HTTP. Both resolve to empty
+      # string if the GitHub Secrets are not configured; the server treats empty
+      # AXIOM_TOKEN as "observability disabled" (CH_OBSERVABILITY_ENABLED=false
+      # is the default, so no startup error). See docs/observability.md §Setup.
+      AXIOM_TOKEN: ${{ secrets.AXIOM_TOKEN }}
+      AXIOM_DATASET: ${{ secrets.AXIOM_DATASET }}
 
     steps:
       - name: Guard — required secret
