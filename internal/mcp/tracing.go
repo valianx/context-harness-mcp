@@ -29,6 +29,14 @@ const (
 	outcomePolicyReject = "policy_reject"
 	outcomeServerError  = "server_error"
 
+	// Operation enum values for the "operation" slog field.
+	// Every structured log event must carry exactly one of these values.
+	// English, lowercase — do not add variants.
+	opRequest  = "request"  // log describes an inbound or outbound call initiation
+	opResponse = "response" // log describes the result returned to a caller
+	opDecision = "decision" // log describes a DB-level read or write decision
+	opError    = "error"    // log describes a failure (validation reject, rollback, external failure)
+
 	// Cap constants for tiered content attrs (AC-I plan §Whitelist diff).
 	// All new string attrs pass through ScrubSpanExporter before export (AC-F boundary).
 	queryAttrCap      = 500  // max chars for mcp.query

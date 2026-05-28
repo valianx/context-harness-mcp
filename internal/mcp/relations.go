@@ -68,6 +68,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "create_relations",
+				"operation", opResponse,
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
@@ -114,6 +115,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "create_relations",
+			"operation", opRequest,
 			"user.id", auth.UserIDFromContext(ctx),
 			"node_count", len(args.Relations),
 			"body", requestBody,
@@ -136,6 +138,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			// validation_rejected is emitted BEFORE request_completed (AC-RL.2).
 			slog.WarnContext(ctx, "validation_rejected",
 				"tool", "create_relations",
+				"operation", opError,
 				"user.id", auth.UserIDFromContext(ctx),
 				"layer", verr.Layer,
 				"error_code", verr.Code,
@@ -155,6 +158,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				// fix(observability): db_tx_rolled_back for node-not-found exits (AC-RL.4).
 				slog.ErrorContext(ctx, "db_tx_rolled_back",
 					"tool", "create_relations",
+					"operation", opError,
 					"error", err.Error(),
 					"body", fmt.Sprintf("rolled back: %s", err.Error()),
 				)
@@ -180,6 +184,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			// fix(observability): db_tx_rolled_back for generic DB errors (AC-RL.4).
 			slog.ErrorContext(ctx, "db_tx_rolled_back",
 				"tool", "create_relations",
+				"operation", opError,
 				"error", err.Error(),
 				"body", fmt.Sprintf("rolled back: %s", err.Error()),
 			)
@@ -190,6 +195,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		// db_tx_committed is emitted after successful commit (AC-RL.3).
 		slog.InfoContext(ctx, "db_tx_committed",
 			"tool", "create_relations",
+			"operation", opDecision,
 			"rows_inserted", created,
 			"body", fmt.Sprintf("committed %d rows", created),
 		)
@@ -279,6 +285,7 @@ func execCreateRelations(ctx context.Context, pool *pgxpool.Pool, relations []re
 			// Emit one log line per persisted relation — enables row-level grep in Axiom.
 			slog.InfoContext(ctx, "db_row_persisted",
 				"tool", "create_relations",
+				"operation", opDecision,
 				"from", rel.From,
 				"to", rel.To,
 				"relation_type", rel.RelationType,

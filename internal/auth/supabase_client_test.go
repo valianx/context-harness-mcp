@@ -123,6 +123,9 @@ func TestGetUser_SuccessPath_EmitsRequestAndResponse(t *testing.T) {
 	if reqLog["level"] != "INFO" {
 		t.Errorf("external_supabase_request level = %v, want INFO", reqLog["level"])
 	}
+	if reqLog["operation"] != "request" {
+		t.Errorf("external_supabase_request operation = %v, want request", reqLog["operation"])
+	}
 
 	// AC-ES.2: response log present with mandatory fields including the raw body.
 	respLog, ok := findAuthLog(records, "external_supabase_response")
@@ -147,6 +150,9 @@ func TestGetUser_SuccessPath_EmitsRequestAndResponse(t *testing.T) {
 	}
 	if respLog["level"] != "INFO" {
 		t.Errorf("external_supabase_response level = %v, want INFO", respLog["level"])
+	}
+	if respLog["operation"] != "response" {
+		t.Errorf("external_supabase_response operation = %v, want response", respLog["operation"])
 	}
 
 	// No failed log must appear.
@@ -203,6 +209,9 @@ func TestGetUser_NetworkError_EmitsRequestAndFailed(t *testing.T) {
 	if failedLog["level"] != "ERROR" {
 		t.Errorf("external_supabase_failed level = %v, want ERROR", failedLog["level"])
 	}
+	if failedLog["operation"] != "error" {
+		t.Errorf("external_supabase_failed operation = %v, want error", failedLog["operation"])
+	}
 
 	// No response log must appear.
 	if _, hasResp := findAuthLog(records, "external_supabase_response"); hasResp {
@@ -241,23 +250,26 @@ func TestGetUser_Non2xx_EmitsRequestAndFailed(t *testing.T) {
 	}
 
 	// AC-ES.4: failed log carries status_code and Supabase error body.
-	failedLog, ok := findAuthLog(records, "external_supabase_failed")
+	failedLog500, ok := findAuthLog(records, "external_supabase_failed")
 	if !ok {
 		t.Fatal("expected 'external_supabase_failed' on 500 response")
 	}
-	statusCode, _ := failedLog["status_code"].(float64)
+	statusCode, _ := failedLog500["status_code"].(float64)
 	if int(statusCode) != http.StatusInternalServerError {
-		t.Errorf("external_supabase_failed status_code = %v, want 500", failedLog["status_code"])
+		t.Errorf("external_supabase_failed status_code = %v, want 500", failedLog500["status_code"])
 	}
-	if _, hasDuration := failedLog["duration_ms"]; !hasDuration {
+	if _, hasDuration := failedLog500["duration_ms"]; !hasDuration {
 		t.Error("external_supabase_failed must carry duration_ms field")
 	}
-	bodyField, _ := failedLog["body"].(string)
+	bodyField, _ := failedLog500["body"].(string)
 	if !strings.Contains(bodyField, `"error"`) {
 		t.Errorf("external_supabase_failed body = %q — expected Supabase error JSON", bodyField)
 	}
-	if failedLog["level"] != "ERROR" {
-		t.Errorf("external_supabase_failed level = %v, want ERROR", failedLog["level"])
+	if failedLog500["level"] != "ERROR" {
+		t.Errorf("external_supabase_failed level = %v, want ERROR", failedLog500["level"])
+	}
+	if failedLog500["operation"] != "error" {
+		t.Errorf("external_supabase_failed operation = %v, want error", failedLog500["operation"])
 	}
 }
 

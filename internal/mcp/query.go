@@ -124,6 +124,7 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "search_nodes",
+				"operation", opResponse,
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
@@ -145,6 +146,7 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "search_nodes",
+			"operation", opRequest,
 			"user.id", auth.UserIDFromContext(ctx),
 			"query_length", len(args.Query),
 			"body", requestBody,
@@ -174,6 +176,7 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		for _, n := range nodes {
 			slog.InfoContext(ctx, "db_row_retrieved",
 				"tool", "search_nodes",
+				"operation", opDecision,
 				"name", n.Name,
 				"node_type", n.NodeType,
 				"observation_count", len(n.Observations),
@@ -235,6 +238,7 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "open_nodes",
+				"operation", opResponse,
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
@@ -256,6 +260,7 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "open_nodes",
+			"operation", opRequest,
 			"user.id", auth.UserIDFromContext(ctx),
 			"node_names_count", len(args.Names),
 			"body", requestBody,
@@ -277,6 +282,7 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		for _, n := range nodes {
 			slog.InfoContext(ctx, "db_row_retrieved",
 				"tool", "open_nodes",
+				"operation", opDecision,
 				"name", n.Name,
 				"node_type", n.NodeType,
 				"observation_count", len(n.Observations),
@@ -412,6 +418,7 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "read_graph",
+				"operation", opResponse,
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
@@ -433,6 +440,7 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "read_graph",
+			"operation", opRequest,
 			"user.id", auth.UserIDFromContext(ctx),
 			"body", requestBody,
 		)
@@ -459,6 +467,7 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		for _, n := range nodes {
 			slog.InfoContext(ctx, "db_row_retrieved",
 				"tool", "read_graph",
+				"operation", opDecision,
 				"name", n.Name,
 				"node_type", n.NodeType,
 				"observation_count", len(n.Observations),

@@ -86,6 +86,7 @@ func (c *supabaseHTTPClient) GetUser(ctx context.Context, accessToken string) (*
 	// the response log, regardless of how long the network round-trip takes.
 	slog.InfoContext(ctx, "external_supabase_request",
 		"service", "supabase",
+		"operation", "request",
 		"method", "GET",
 		"endpoint", supabaseEndpoint,
 		"body", "GET "+supabaseEndpoint,
@@ -97,6 +98,7 @@ func (c *supabaseHTTPClient) GetUser(ctx context.Context, accessToken string) (*
 		// AC-ES.3: network-level failure (DNS, connection refused, timeout …).
 		slog.ErrorContext(ctx, "external_supabase_failed",
 			"service", "supabase",
+			"operation", "error",
 			"endpoint", supabaseEndpoint,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"body", err.Error(),
@@ -114,6 +116,7 @@ func (c *supabaseHTTPClient) GetUser(ctx context.Context, accessToken string) (*
 		// AC-ES.4: non-2xx (auth failure) — log as failed with status code in body.
 		slog.ErrorContext(ctx, "external_supabase_failed",
 			"service", "supabase",
+			"operation", "error",
 			"endpoint", supabaseEndpoint,
 			"status_code", resp.StatusCode,
 			"duration_ms", time.Since(start).Milliseconds(),
@@ -125,6 +128,7 @@ func (c *supabaseHTTPClient) GetUser(ctx context.Context, accessToken string) (*
 		// AC-ES.4: any other non-2xx — log as failed with body from Supabase.
 		slog.ErrorContext(ctx, "external_supabase_failed",
 			"service", "supabase",
+			"operation", "error",
 			"endpoint", supabaseEndpoint,
 			"status_code", resp.StatusCode,
 			"duration_ms", time.Since(start).Milliseconds(),
@@ -138,6 +142,7 @@ func (c *supabaseHTTPClient) GetUser(ctx context.Context, accessToken string) (*
 		// Decode failure after a 2xx — still a failed call from our perspective.
 		slog.ErrorContext(ctx, "external_supabase_failed",
 			"service", "supabase",
+			"operation", "error",
 			"endpoint", supabaseEndpoint,
 			"status_code", resp.StatusCode,
 			"duration_ms", time.Since(start).Milliseconds(),
@@ -149,6 +154,7 @@ func (c *supabaseHTTPClient) GetUser(ctx context.Context, accessToken string) (*
 	// AC-ES.2: successful 2xx — log with the raw response body.
 	slog.InfoContext(ctx, "external_supabase_response",
 		"service", "supabase",
+		"operation", "response",
 		"endpoint", supabaseEndpoint,
 		"status_code", resp.StatusCode,
 		"duration_ms", time.Since(start).Milliseconds(),
