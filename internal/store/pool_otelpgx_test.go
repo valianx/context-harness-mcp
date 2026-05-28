@@ -52,8 +52,10 @@ const (
 
 var testDSN string
 
-// TestMain manages the ephemeral container lifecycle for the entire package.
-// If Docker is not available the suite exits with code 0 (skip).
+// TestMain manages the ephemeral container lifecycle for Docker-dependent tests.
+// If Docker is not available, testDSN stays empty and newTracedPool skips those
+// tests individually — allowing Docker-free tests (e.g. TestCollapsedSQL_AC_S2
+// in collapsed_sql_test.go) to run normally in any environment.
 func TestMain(m *testing.M) {
 	os.Exit(runSuite(m))
 }
@@ -62,9 +64,10 @@ func runSuite(m *testing.M) int {
 	ctx := context.Background()
 
 	if err := checkDockerAvailable(ctx); err != nil {
-		slog.Info("Docker daemon not available — skipping store/otelpgx test suite",
+		slog.Info("Docker daemon not available — Docker-dependent tests will be skipped individually",
 			"reason", err.Error())
-		return 0
+		// Run remaining (non-Docker) tests instead of bailing out entirely.
+		return m.Run()
 	}
 
 	pgCtr, err := tcpostgres.Run(ctx,

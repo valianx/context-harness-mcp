@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http/httptest"
 	"os"
 	"testing"
 
@@ -137,6 +138,32 @@ func TestHTTPTransport_GuardNotApplied(t *testing.T) {
 
 	assert.Empty(t, os.Getenv("OTEL_SDK_DISABLED"),
 		"HTTP transport: kill-switch must NOT be applied — OTEL_SDK_DISABLED must remain empty")
+}
+
+// TestHTTPSpanNameFormatter covers AC-S.1: httpSpanName must return "METHOD PATH"
+// (e.g. "POST /mcp") so that Axiom scan view shows the HTTP verb without
+// opening the span detail panel.
+func TestHTTPSpanNameFormatter(t *testing.T) {
+	cases := []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{"POST", "/mcp", "POST /mcp"},
+		{"POST", "/mcp/", "POST /mcp/"},
+		{"GET", "/viewer/abc", "GET /viewer/abc"},
+		{"GET", "/healthz", "GET /healthz"},
+		{"GET", "/", "GET /"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			got := httpSpanName("ignored-operation", req)
+			assert.Equal(t, tc.want, got,
+				"httpSpanName(%q, %s %s) = %q, want %q",
+				"ignored-operation", tc.method, tc.path, got, tc.want)
+		})
+	}
 }
 
 // TestShouldTraceHTTPPath covers AC-J.4: shouldTraceHTTPPath must return true
