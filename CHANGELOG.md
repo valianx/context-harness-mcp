@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `feat(observability): attributes.operation enum en todos los logs MCP + external` — `internal/mcp/tracing.go`: constantes `opRequest`, `opResponse`, `opDecision`, `opError`; `internal/mcp/nodes.go`, `relations.go`, `query.go`: campo `"operation"` agregado en cada `slog` call (`request_received`→`request`, `validation_rejected`→`error`, `db_tx_rolled_back`→`error`, `db_tx_committed`→`decision`, `db_row_persisted`→`decision`, `db_row_retrieved`→`decision`, `request_completed`→`response`); `internal/auth/supabase_client.go`: `"operation"` en los 3 logs externos (`external_supabase_request`→`request`, `external_supabase_response`→`response`, `external_supabase_failed`→`error`); `internal/mcp/logs_test.go`, `internal/auth/supabase_client_test.go`: assertions de `operation` en todos los tests existentes. 100% aditivo — ningún otro campo modificado.
+
 - `feat(observability): lista explícita de patrones de tokens en scrubber` — `internal/observability/scrub.go`: `extraTokenPatterns []*regexp.Regexp` con 11 patterns activos (Axiom `xaat-`, Anthropic `sk-ant-`, OpenAI `sk-`/`sk-proj-`, GitHub PAT `gh[opusr]_`, Stripe `sk/pk_(live|test)_`, AWS `AKIA`/`ASIA`, GCP `private_key` JSON, Slack `xox[pbars]-`, Railway `rly-`, hex secrets 64+ chars); aplicados después de gitleaks y antes de los patrones inline existentes; pipeline idempotente (AC-TD.2). `internal/observability/scrub_test.go`: 17 tests nuevos — 1 por pattern + idempotencia + comportamiento documentado del patrón hex (AC-TD.3) + UUID preservation. Performance: ~71µs/op para 1 KB con 3 secrets (dentro del budget <100µs, AC-TD.4).
 
 

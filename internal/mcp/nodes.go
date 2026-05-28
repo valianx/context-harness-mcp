@@ -112,6 +112,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "create_nodes",
+				"operation", opResponse,
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
@@ -219,6 +220,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "create_nodes",
+			"operation", opRequest,
 			"user.id", auth.UserIDFromContext(ctx),
 			"node_count", len(args.Nodes),
 			"observation_count", totalObsIncoming,
@@ -246,6 +248,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			// validation_rejected is emitted BEFORE request_completed (AC-RL.2).
 			slog.WarnContext(ctx, "validation_rejected",
 				"tool", "create_nodes",
+				"operation", opError,
 				"user.id", auth.UserIDFromContext(ctx),
 				"layer", verr.Layer,
 				"error_code", verr.Code,
@@ -272,6 +275,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			// fix(observability): db_tx_rolled_back emitted on exec error (AC-RL.4).
 			slog.ErrorContext(ctx, "db_tx_rolled_back",
 				"tool", "create_nodes",
+				"operation", opError,
 				"error", err.Error(),
 				"body", fmt.Sprintf("rolled back: %s", err.Error()),
 			)
@@ -282,6 +286,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		// db_tx_committed is emitted after successful commit (AC-RL.3).
 		slog.InfoContext(ctx, "db_tx_committed",
 			"tool", "create_nodes",
+			"operation", opDecision,
 			"rows_inserted", createdNodes+createdObs,
 			"body", fmt.Sprintf("committed %d rows", createdNodes+createdObs),
 		)
@@ -336,6 +341,7 @@ func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNode
 				// Emit one log line per persisted row — enables row-level grep in Axiom.
 				slog.InfoContext(ctx, "db_row_persisted",
 					"tool", "create_nodes",
+					"operation", opDecision,
 					"node_id", id,
 					"node_type", n.NodeType,
 					"text", obsText,
@@ -412,6 +418,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "add_observations",
+				"operation", opResponse,
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
@@ -453,6 +460,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "add_observations",
+			"operation", opRequest,
 			"user.id", auth.UserIDFromContext(ctx),
 			"observation_count", len(flatObs),
 			"body", requestBody,
@@ -476,6 +484,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			// validation_rejected is emitted BEFORE request_completed (AC-RL.2).
 			slog.WarnContext(ctx, "validation_rejected",
 				"tool", "add_observations",
+				"operation", opError,
 				"user.id", auth.UserIDFromContext(ctx),
 				"layer", verr.Layer,
 				"error_code", verr.Code,
@@ -507,6 +516,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			// fix(observability): db_tx_rolled_back emitted on exec error (AC-RL.4).
 			slog.ErrorContext(ctx, "db_tx_rolled_back",
 				"tool", "add_observations",
+				"operation", opError,
 				"error", err.Error(),
 				"body", fmt.Sprintf("rolled back: %s", err.Error()),
 			)
@@ -517,6 +527,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		// db_tx_committed is emitted after successful commit (AC-RL.3).
 		slog.InfoContext(ctx, "db_tx_committed",
 			"tool", "add_observations",
+			"operation", opDecision,
 			"rows_inserted", added,
 			"body", fmt.Sprintf("committed %d rows", added),
 		)
@@ -571,6 +582,7 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 				// Emit one log line per persisted row — enables row-level grep in Axiom.
 				slog.InfoContext(ctx, "db_row_persisted",
 					"tool", "add_observations",
+					"operation", opDecision,
 					"node_id", id,
 					"node_name", item.NodeName,
 					"text", text,

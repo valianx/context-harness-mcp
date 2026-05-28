@@ -117,6 +117,9 @@ func TestLogs_CreateNodes_PolicyReject(t *testing.T) {
 	if recvd["tool"] != "create_nodes" {
 		t.Errorf("request_received tool = %v, want create_nodes", recvd["tool"])
 	}
+	if recvd["operation"] != "request" {
+		t.Errorf("request_received operation = %v, want request", recvd["operation"])
+	}
 
 	// validation_rejected must be present with correct layer and error_code.
 	rejected, ok := findLogLine(records, "validation_rejected")
@@ -131,6 +134,9 @@ func TestLogs_CreateNodes_PolicyReject(t *testing.T) {
 	}
 	if rejected["error_code"] != "policy/secret-detected" {
 		t.Errorf("validation_rejected error_code = %v, want policy/secret-detected", rejected["error_code"])
+	}
+	if rejected["operation"] != "error" {
+		t.Errorf("validation_rejected operation = %v, want error", rejected["operation"])
 	}
 
 	// The secret value must NOT appear in any log field except "body".
@@ -151,8 +157,12 @@ func TestLogs_CreateNodes_PolicyReject(t *testing.T) {
 	}
 
 	// request_completed must be present (emitted by the defer).
-	if _, ok := findLogLine(records, "request_completed"); !ok {
+	completed, ok := findLogLine(records, "request_completed")
+	if !ok {
 		t.Fatal("expected log line 'request_completed' to be emitted by defer")
+	}
+	if completed["operation"] != "response" {
+		t.Errorf("request_completed operation = %v, want response", completed["operation"])
 	}
 }
 
@@ -239,8 +249,12 @@ func TestLogs_AddObservations_PolicyReject(t *testing.T) {
 
 	records := decodeLogLines(&buf)
 
-	if _, ok := findLogLine(records, "request_received"); !ok {
+	recvdAdd, ok := findLogLine(records, "request_received")
+	if !ok {
 		t.Fatal("expected 'request_received'")
+	}
+	if recvdAdd["operation"] != "request" {
+		t.Errorf("request_received operation = %v, want request", recvdAdd["operation"])
 	}
 
 	rejected, ok := findLogLine(records, "validation_rejected")
@@ -256,9 +270,16 @@ func TestLogs_AddObservations_PolicyReject(t *testing.T) {
 	if rejected["error_code"] != "policy/secret-detected" {
 		t.Errorf("validation_rejected error_code = %v, want policy/secret-detected", rejected["error_code"])
 	}
+	if rejected["operation"] != "error" {
+		t.Errorf("validation_rejected operation = %v, want error", rejected["operation"])
+	}
 
-	if _, ok := findLogLine(records, "request_completed"); !ok {
+	completedAdd, ok := findLogLine(records, "request_completed")
+	if !ok {
 		t.Fatal("expected 'request_completed' from defer")
+	}
+	if completedAdd["operation"] != "response" {
+		t.Errorf("request_completed operation = %v, want response", completedAdd["operation"])
 	}
 }
 
@@ -287,17 +308,24 @@ func TestLogs_SearchNodes(t *testing.T) {
 	records := decodeLogLines(&buf)
 
 	// request_received must be present with correct tool (AC-RL.1).
-	recvd, ok := findLogLine(records, "request_received")
+	recvdSearch, ok := findLogLine(records, "request_received")
 	if !ok {
 		t.Fatal("expected 'request_received' from search_nodes")
 	}
-	if recvd["tool"] != "search_nodes" {
-		t.Errorf("request_received tool = %v, want search_nodes", recvd["tool"])
+	if recvdSearch["tool"] != "search_nodes" {
+		t.Errorf("request_received tool = %v, want search_nodes", recvdSearch["tool"])
+	}
+	if recvdSearch["operation"] != "request" {
+		t.Errorf("request_received operation = %v, want request", recvdSearch["operation"])
 	}
 
 	// request_completed must be present (defer).
-	if _, ok := findLogLine(records, "request_completed"); !ok {
+	completedSearch, ok := findLogLine(records, "request_completed")
+	if !ok {
 		t.Fatal("expected 'request_completed' from defer in search_nodes")
+	}
+	if completedSearch["operation"] != "response" {
+		t.Errorf("request_completed operation = %v, want response", completedSearch["operation"])
 	}
 
 	// db_tx_committed must NOT appear for a read handler (AC-RL.6).
@@ -323,16 +351,23 @@ func TestLogs_OpenNodes(t *testing.T) {
 
 	records := decodeLogLines(&buf)
 
-	recvd, ok := findLogLine(records, "request_received")
+	recvdOpen, ok := findLogLine(records, "request_received")
 	if !ok {
 		t.Fatal("expected 'request_received' from open_nodes")
 	}
-	if recvd["tool"] != "open_nodes" {
-		t.Errorf("request_received tool = %v, want open_nodes", recvd["tool"])
+	if recvdOpen["tool"] != "open_nodes" {
+		t.Errorf("request_received tool = %v, want open_nodes", recvdOpen["tool"])
+	}
+	if recvdOpen["operation"] != "request" {
+		t.Errorf("request_received operation = %v, want request", recvdOpen["operation"])
 	}
 
-	if _, ok := findLogLine(records, "request_completed"); !ok {
+	completedOpen, ok := findLogLine(records, "request_completed")
+	if !ok {
 		t.Fatal("expected 'request_completed' from defer in open_nodes")
+	}
+	if completedOpen["operation"] != "response" {
+		t.Errorf("request_completed operation = %v, want response", completedOpen["operation"])
 	}
 
 	if countLogLines(records, "db_tx_committed") > 0 {
@@ -360,12 +395,15 @@ func TestLogs_ReadGraph(t *testing.T) {
 
 	records := decodeLogLines(&buf)
 
-	recvd, ok := findLogLine(records, "request_received")
+	recvdGraph, ok := findLogLine(records, "request_received")
 	if !ok {
 		t.Fatal("expected 'request_received' from read_graph")
 	}
-	if recvd["tool"] != "read_graph" {
-		t.Errorf("request_received tool = %v, want read_graph", recvd["tool"])
+	if recvdGraph["tool"] != "read_graph" {
+		t.Errorf("request_received tool = %v, want read_graph", recvdGraph["tool"])
+	}
+	if recvdGraph["operation"] != "request" {
+		t.Errorf("request_received operation = %v, want request", recvdGraph["operation"])
 	}
 }
 
@@ -542,26 +580,36 @@ func TestLogs_CreateRelations_PolicyReject(t *testing.T) {
 
 	records := decodeLogLines(&buf)
 
-	recvd, ok := findLogLine(records, "request_received")
+	recvdRel, ok := findLogLine(records, "request_received")
 	if !ok {
 		t.Fatal("expected 'request_received' from create_relations")
 	}
-	if recvd["tool"] != "create_relations" {
-		t.Errorf("request_received tool = %v, want create_relations", recvd["tool"])
+	if recvdRel["tool"] != "create_relations" {
+		t.Errorf("request_received tool = %v, want create_relations", recvdRel["tool"])
+	}
+	if recvdRel["operation"] != "request" {
+		t.Errorf("request_received operation = %v, want request", recvdRel["operation"])
 	}
 
-	rejected, ok := findLogLine(records, "validation_rejected")
+	rejectedRel, ok := findLogLine(records, "validation_rejected")
 	if !ok {
 		t.Fatal("expected 'validation_rejected' from create_relations")
 	}
-	if rejected["tool"] != "create_relations" {
-		t.Errorf("validation_rejected tool = %v, want create_relations", rejected["tool"])
+	if rejectedRel["tool"] != "create_relations" {
+		t.Errorf("validation_rejected tool = %v, want create_relations", rejectedRel["tool"])
 	}
-	if rejected["layer"] != "taxonomy" {
-		t.Errorf("validation_rejected layer = %v, want taxonomy", rejected["layer"])
+	if rejectedRel["layer"] != "taxonomy" {
+		t.Errorf("validation_rejected layer = %v, want taxonomy", rejectedRel["layer"])
+	}
+	if rejectedRel["operation"] != "error" {
+		t.Errorf("validation_rejected operation = %v, want error", rejectedRel["operation"])
 	}
 
-	if _, ok := findLogLine(records, "request_completed"); !ok {
+	completedRel, ok := findLogLine(records, "request_completed")
+	if !ok {
 		t.Fatal("expected 'request_completed' from defer")
+	}
+	if completedRel["operation"] != "response" {
+		t.Errorf("request_completed operation = %v, want response", completedRel["operation"])
 	}
 }
