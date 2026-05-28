@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RevocationStore is the minimal DB interface the middleware needs.
@@ -47,7 +49,7 @@ func Middleware(mode Mode, store RevocationStore, cache *RevocationCache, baseUR
 			return
 		}
 
-		revoked, err := checkRevocation(claims.Subject, store, cache)
+		revoked, cacheHit, err := checkRevocation(claims.Subject, store, cache)
 		if err != nil {
 			slog.Error("revocation check failed", "sub_prefix", subPrefix(claims.Subject), "error", err)
 			// Fail open on DB error — do not deny the user on a transient DB outage.
@@ -57,6 +59,14 @@ func Middleware(mode Mode, store RevocationStore, cache *RevocationCache, baseUR
 			WriteError(w, CodeRevoked, resolveBaseURL(baseURL, r))
 			return
 		}
+
+		// Set span attributes on the active (otelhttp-created) span so the HTTP
+		// parent span carries user identity and cache performance data (AC-C.3, AC-C.4).
+		span := trace.SpanFromContext(r.Context())
+		span.SetAttributes(
+			attribute.String("user.id", claims.Subject),
+			attribute.String("auth.cache_result", cacheResult(cacheHit)),
+		)
 
 		ctx := WithUserID(r.Context(), claims.Subject)
 		ctx = WithEmail(ctx, claims.Email)
@@ -93,20 +103,29 @@ func classifyTokenError(err error) string {
 }
 
 // checkRevocation checks the revocation cache and falls back to the DB.
-// Returns (true, nil) when the user is revoked, (false, nil) when active,
-// or (false, err) when the DB query failed (fail-open on DB error).
-func checkRevocation(sub string, store RevocationStore, cache *RevocationCache) (bool, error) {
+// Returns (revoked, cacheHit, nil) when the check succeeds, or (false, false, err)
+// when the DB query failed (fail-open on DB error).
+// cacheHit=true means the result came from the LRU cache (no DB round-trip).
+func checkRevocation(sub string, store RevocationStore, cache *RevocationCache) (revoked bool, cacheHit bool, err error) {
 	if revoked, ok := cache.Get(sub); ok {
-		return revoked, nil
+		return revoked, true, nil
 	}
 
-	revoked, err := store.GetRevoked(sub)
+	revoked, err = store.GetRevoked(sub)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 
 	cache.Set(sub, revoked)
-	return revoked, nil
+	return revoked, false, nil
+}
+
+// cacheResult converts the cacheHit boolean to the canonical span attribute value.
+func cacheResult(hit bool) string {
+	if hit {
+		return "hit"
+	}
+	return "miss"
 }
 
 // resolveBaseURL returns baseURL when non-empty, otherwise derives it from the

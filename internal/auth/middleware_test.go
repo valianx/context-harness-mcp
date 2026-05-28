@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,9 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // jsonUnmarshal is a local alias to avoid importing encoding/json in multiple places.
@@ -310,6 +314,158 @@ func TestMiddleware_InvalidTokenBeforePayload(t *testing.T) {
 		"inner handler must NOT be called when auth rejects the request")
 }
 
+// ── AC-C.3: authenticated span carries user.id ────────────────────────────────
+
+// TestMiddleware_SpanAttributes_UserID verifies that after successful auth the
+// active span receives a user.id attribute equal to the JWT subject (AC-C.3).
+// When mode is ModeNone (unauthenticated path) the span must NOT have user.id.
+func TestMiddleware_SpanAttributes_UserID(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSecret)
+	t.Setenv("MCP_JWT_ISSUER", testIssuer)
+
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+
+	store := &fakeRevocationStore{revoked: false}
+	cache := &RevocationCache{entries: make(map[string]*cacheEntry)}
+	tok := validToken(t, testSub, testEmail)
+
+	handler := Middleware(ModeEnabled, store, cache, "https://test", echoHandler())
+
+	// Simulate otelhttp wrapping: start a parent span, inject into ctx, call middleware.
+	ctx, parentSpan := tp.Tracer("test").Start(context.Background(), "http.request")
+	defer parentSpan.End()
+
+	r := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	r = r.WithContext(ctx)
+	r.Header.Set("Authorization", "Bearer "+tok)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	// The middleware sets attributes on the span from context — which is parentSpan.
+	parentSpan.End()
+	spans := sr.Ended()
+	require.Len(t, spans, 1, "exactly one span must have been recorded")
+
+	attrMap := spanAttrMap(spans[0])
+	assert.Equal(t, testSub, attrMap["user.id"],
+		"AC-C.3: authenticated span must carry user.id equal to JWT sub")
+}
+
+// TestMiddleware_SpanAttributes_UserID_ModeNone verifies that when Middleware is
+// in ModeNone (no auth), no user.id attribute is set on the span (AC-C.3).
+func TestMiddleware_SpanAttributes_UserID_ModeNone(t *testing.T) {
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+
+	store := &fakeRevocationStore{}
+	cache := &RevocationCache{entries: make(map[string]*cacheEntry)}
+
+	handler := Middleware(ModeNone, store, cache, "https://test", echoHandler())
+
+	ctx, parentSpan := tp.Tracer("test").Start(context.Background(), "http.request")
+	defer parentSpan.End()
+
+	r := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	r = r.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	parentSpan.End()
+	spans := sr.Ended()
+	require.Len(t, spans, 1)
+
+	attrMap := spanAttrMap(spans[0])
+	_, hasUserID := attrMap["user.id"]
+	assert.False(t, hasUserID,
+		"AC-C.3: unauthenticated (ModeNone) span must NOT carry user.id")
+}
+
+// ── AC-C.4: auth.cache_result attribute reflects cache hit or miss ─────────────
+
+// TestMiddleware_SpanAttributes_CacheResult_Miss verifies that the first request
+// for a sub (DB lookup) sets auth.cache_result=miss on the span (AC-C.4).
+func TestMiddleware_SpanAttributes_CacheResult_Miss(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSecret)
+	t.Setenv("MCP_JWT_ISSUER", testIssuer)
+
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+
+	store := &fakeRevocationStore{revoked: false}
+	cache := &RevocationCache{entries: make(map[string]*cacheEntry)}
+	tok := validToken(t, testSub, testEmail)
+
+	handler := Middleware(ModeEnabled, store, cache, "https://test", echoHandler())
+
+	ctx, parentSpan := tp.Tracer("test").Start(context.Background(), "http.request")
+	r := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	r = r.WithContext(ctx)
+	r.Header.Set("Authorization", "Bearer "+tok)
+
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	parentSpan.End()
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	spans := sr.Ended()
+	require.Len(t, spans, 1)
+
+	attrMap := spanAttrMap(spans[0])
+	assert.Equal(t, "miss", attrMap["auth.cache_result"],
+		"AC-C.4: first request (DB lookup) must set auth.cache_result=miss")
+}
+
+// TestMiddleware_SpanAttributes_CacheResult_Hit verifies that a second request
+// for the same sub (cache warm) sets auth.cache_result=hit on the span (AC-C.4).
+func TestMiddleware_SpanAttributes_CacheResult_Hit(t *testing.T) {
+	t.Setenv("MCP_JWT_SECRET", testSecret)
+	t.Setenv("MCP_JWT_ISSUER", testIssuer)
+
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+
+	store := &fakeRevocationStore{revoked: false}
+	cache := &RevocationCache{entries: make(map[string]*cacheEntry)}
+	tok := validToken(t, testSub, testEmail)
+
+	handler := Middleware(ModeEnabled, store, cache, "https://test", echoHandler())
+
+	// First request — populates the cache (miss).
+	r1 := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	ctx1, span1 := tp.Tracer("test").Start(context.Background(), "http.request.1")
+	r1 = r1.WithContext(ctx1)
+	r1.Header.Set("Authorization", "Bearer "+tok)
+	handler.ServeHTTP(httptest.NewRecorder(), r1)
+	span1.End()
+
+	// Second request — cache is warm; should be a hit.
+	ctx2, span2 := tp.Tracer("test").Start(context.Background(), "http.request.2")
+	r2 := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	r2 = r2.WithContext(ctx2)
+	r2.Header.Set("Authorization", "Bearer "+tok)
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, r2)
+	span2.End()
+
+	require.Equal(t, http.StatusOK, w2.Code)
+
+	spans := sr.Ended()
+	require.Len(t, spans, 2, "exactly two spans must have been recorded")
+
+	// The second span (index 1) corresponds to the second request.
+	attrMap := spanAttrMap(spans[1])
+	assert.Equal(t, "hit", attrMap["auth.cache_result"],
+		"AC-C.4: second request (cache warm) must set auth.cache_result=hit")
+}
+
 // ── helper assertions ─────────────────────────────────────────────────────────
 
 // assertErrorBody decodes the response body and asserts the code field matches
@@ -324,3 +480,18 @@ func assertErrorBody(t *testing.T, w *httptest.ResponseRecorder, expectedCode st
 		"error code must be %q", expectedCode)
 	assert.Equal(t, "auth", body.Layer, "layer must always be 'auth'")
 }
+
+// spanAttrMap converts the recorded span attributes to a string map for easy
+// assertion in tests. Only string-typed attributes are included; numeric and
+// boolean attributes are skipped (not needed by the AC-C tests).
+func spanAttrMap(s sdktrace.ReadOnlySpan) map[string]string {
+	attrs := s.Attributes()
+	m := make(map[string]string, len(attrs))
+	for _, kv := range attrs {
+		m[string(kv.Key)] = kv.Value.AsString()
+	}
+	return m
+}
+
+// Compile-time assertion: trace package imported for use in test bodies above.
+var _ = trace.SpanFromContext

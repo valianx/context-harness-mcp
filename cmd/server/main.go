@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
 	"github.com/mariogutierrez/context-harness-mcp/internal/config"
@@ -315,9 +316,20 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 		slog.Info("metrics endpoint enabled", "path", "/metrics")
 	}
 
+	// Wrap the entire mux with otelhttp so every HTTP request produces a span
+	// with semantic conventions (http.method, http.route, http.status_code).
+	// otelhttp is the outermost handler so the span opens before auth runs and
+	// is alive when auth.Middleware sets user.id and auth.cache_result (AC-C.3).
+	// The filter excludes /healthz to avoid polluting traces with probe noise (AC-C.2).
+	tracedMux := otelhttp.NewHandler(mux, "context-harness-mcp",
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			return r.URL.Path != "/healthz"
+		}),
+	)
+
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: tracedMux,
 	}
 
 	// Pre-warm the ONNX embedder before accepting traffic so the first
