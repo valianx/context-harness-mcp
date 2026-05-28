@@ -101,6 +101,13 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			}
 		}
 
+		// Emit request_received before the Content Filter (AC-RL.1).
+		slog.InfoContext(ctx, "request_received",
+			"tool", "create_relations",
+			"user.id", auth.UserIDFromContext(ctx),
+			"node_count", len(args.Relations),
+		)
+
 		// Build validate.Payload and run the Content Filter before opening any Tx.
 		vp := validate.Payload{Relations: make([]validate.Relation, len(args.Relations))}
 		for i, r := range args.Relations {
@@ -115,6 +122,14 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			)
 			setRejectedInputAttr(span, firstRelationFragment(args.Relations))
 			observability.RecordValidationRejection(ctx, verr.Layer, verr.MatchedPattern)
+			// validation_rejected is emitted BEFORE request_completed (AC-RL.2).
+			slog.WarnContext(ctx, "validation_rejected",
+				"tool", "create_relations",
+				"user.id", auth.UserIDFromContext(ctx),
+				"layer", verr.Layer,
+				"error_code", verr.Code,
+				"pattern", verr.MatchedPattern,
+			)
 			return verr.ToMCPResult(), nil
 		}
 
@@ -125,6 +140,11 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		created, err := execCreateRelations(ctx, pool, args.Relations, userID, email)
 		if err != nil {
 			if isNodeNotFound(err) {
+				// fix(observability): db_tx_rolled_back for node-not-found exits (AC-RL.4).
+				slog.ErrorContext(ctx, "db_tx_rolled_back",
+					"tool", "create_relations",
+					"error", err.Error(),
+				)
 				span.SetStatus(codes.Error, err.Error())
 				setRejectedInputAttr(span, firstRelationFragment(args.Relations))
 				return errorResult(err.Error()), nil
@@ -144,9 +164,20 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				setRejectedInputAttr(span, firstRelationFragment(args.Relations))
 				return verr.ToMCPResult(), nil
 			}
+			// fix(observability): db_tx_rolled_back for generic DB errors (AC-RL.4).
+			slog.ErrorContext(ctx, "db_tx_rolled_back",
+				"tool", "create_relations",
+				"error", err.Error(),
+			)
 			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
+
+		// db_tx_committed is emitted after successful commit (AC-RL.3).
+		slog.InfoContext(ctx, "db_tx_committed",
+			"tool", "create_relations",
+			"rows_inserted", created,
+		)
 
 		outcome = outcomeSuccess
 		return jsonResult(map[string]any{"created": created}), nil

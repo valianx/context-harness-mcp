@@ -132,6 +132,13 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
+		// Emit request_received — read tools only emit entry + completed (AC-RL.1, AC-RL.6).
+		slog.InfoContext(ctx, "request_received",
+			"tool", "search_nodes",
+			"user.id", auth.UserIDFromContext(ctx),
+			"query_length", len(args.Query),
+		)
+
 		// Emit query length (count) and scrubbed query text (content, capped at queryAttrCap).
 		// The query text passes through ScrubSpanExporter before export — no local scrub needed.
 		span.SetAttributes(
@@ -213,6 +220,13 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
+
+		// Emit request_received — read tools only emit entry + completed (AC-RL.1, AC-RL.6).
+		slog.InfoContext(ctx, "request_received",
+			"tool", "open_nodes",
+			"user.id", auth.UserIDFromContext(ctx),
+			"node_names_count", len(args.Names),
+		)
 
 		nodes, relations, err := openNodes(ctx, pool, args.Names, projectFilterFrom(args.Project))
 		if err != nil {
@@ -361,6 +375,12 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
+
+		// Emit request_received — read tools only emit entry + completed (AC-RL.1, AC-RL.6).
+		slog.InfoContext(ctx, "request_received",
+			"tool", "read_graph",
+			"user.id", auth.UserIDFromContext(ctx),
+		)
 
 		nodeRows, err := store.ListActive(ctx, pool, projectFilterFrom(args.Project))
 		if err != nil {

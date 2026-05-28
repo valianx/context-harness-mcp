@@ -200,6 +200,19 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			}
 		}
 
+		// Emit request_received before the Content Filter so it appears on all
+		// exit paths — rejection and success alike (AC-RL.1).
+		totalObsIncoming := 0
+		for _, n := range args.Nodes {
+			totalObsIncoming += len(n.Observations)
+		}
+		slog.InfoContext(ctx, "request_received",
+			"tool", "create_nodes",
+			"user.id", auth.UserIDFromContext(ctx),
+			"node_count", len(args.Nodes),
+			"observation_count", totalObsIncoming,
+		)
+
 		// Build validate.Payload and run the Content Filter before opening any Tx.
 		vp := validate.Payload{Nodes: make([]validate.Node, len(args.Nodes))}
 		for i, n := range args.Nodes {
@@ -218,6 +231,14 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			)
 			setRejectedInputAttr(span, firstNodeFragment(args.Nodes))
 			observability.RecordValidationRejection(ctx, verr.Layer, verr.MatchedPattern)
+			// validation_rejected is emitted BEFORE request_completed (AC-RL.2).
+			slog.WarnContext(ctx, "validation_rejected",
+				"tool", "create_nodes",
+				"user.id", auth.UserIDFromContext(ctx),
+				"layer", verr.Layer,
+				"error_code", verr.Code,
+				"pattern", verr.MatchedPattern,
+			)
 			return verr.ToMCPResult(), nil
 		}
 
@@ -235,9 +256,20 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		userID, email := attributionFromContext(ctx)
 		createdNodes, createdObs, err := execCreateNodes(ctx, pool, args.Nodes, sessionID, userID, email)
 		if err != nil {
+			// fix(observability): db_tx_rolled_back emitted on exec error (AC-RL.4).
+			slog.ErrorContext(ctx, "db_tx_rolled_back",
+				"tool", "create_nodes",
+				"error", err.Error(),
+			)
 			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
+
+		// db_tx_committed is emitted after successful commit (AC-RL.3).
+		slog.InfoContext(ctx, "db_tx_committed",
+			"tool", "create_nodes",
+			"rows_inserted", createdNodes+createdObs,
+		)
 
 		outcome = outcomeSuccess
 		return jsonResult(map[string]any{
@@ -385,6 +417,13 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			}
 		}
 
+		// Emit request_received before the Content Filter (AC-RL.1).
+		slog.InfoContext(ctx, "request_received",
+			"tool", "add_observations",
+			"user.id", auth.UserIDFromContext(ctx),
+			"observation_count", len(flatObs),
+		)
+
 		// Build observation snippets (capped at snippetCap chars each, max snippetMaxCount).
 		// Emitted before validation so they appear on rejection spans too.
 		if len(flatObs) > 0 {
@@ -400,6 +439,14 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				attrLayer.String(verr.Layer),
 			)
 			observability.RecordValidationRejection(ctx, verr.Layer, verr.MatchedPattern)
+			// validation_rejected is emitted BEFORE request_completed (AC-RL.2).
+			slog.WarnContext(ctx, "validation_rejected",
+				"tool", "add_observations",
+				"user.id", auth.UserIDFromContext(ctx),
+				"layer", verr.Layer,
+				"error_code", verr.Code,
+				"pattern", verr.MatchedPattern,
+			)
 			return verr.ToMCPResult(), nil
 		}
 
@@ -422,9 +469,20 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		userID, email := attributionFromContext(ctx)
 		added, err := execAddObservations(ctx, pool, args.Observations, userID, email)
 		if err != nil {
+			// fix(observability): db_tx_rolled_back emitted on exec error (AC-RL.4).
+			slog.ErrorContext(ctx, "db_tx_rolled_back",
+				"tool", "add_observations",
+				"error", err.Error(),
+			)
 			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
+
+		// db_tx_committed is emitted after successful commit (AC-RL.3).
+		slog.InfoContext(ctx, "db_tx_committed",
+			"tool", "add_observations",
+			"rows_inserted", added,
+		)
 
 		outcome = outcomeSuccess
 		return jsonResult(map[string]any{"added": added}), nil
