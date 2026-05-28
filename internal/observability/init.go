@@ -251,10 +251,12 @@ func buildSampler() sdktrace.Sampler {
 // initTracer creates and registers the global TracerProvider.
 //
 // Pipeline order (innermost to outermost):
-//   OTLP exporter → ScrubSpanExporter → BatchSpanProcessor → noiseFilterProcessor
 //
-// noiseFilterProcessor sits upstream of the batch processor so dropped spans
-// (e.g. "prepare *") are discarded before batch allocation (AC-J.2, AC-J.3).
+//	OTLP exporter → ScrubSpanExporter → BatchSpanProcessor → noiseFilterProcessor → SignalSpanProcessor
+//
+// SignalSpanProcessor sits outermost so it stamps signal="trace" on every span
+// that passes noise filtering before batch allocation (AC-SG.2, AC-SG.3).
+// noiseFilterProcessor drops low-value spans before they reach the batch (AC-J.2, AC-J.3).
 // ScrubSpanExporter wraps the OTLP exporter so all exported string attrs are
 // scrubbed before leaving the process (PR-F boundary, unchanged).
 func initTracer(ctx context.Context, res *resource.Resource, sampler sdktrace.Sampler) (ShutdownFunc, error) {
@@ -267,13 +269,16 @@ func initTracer(ctx context.Context, res *resource.Resource, sampler sdktrace.Sa
 	scrubExporter := NewScrubSpanExporter(exporter)
 
 	// Materialise the batch processor explicitly so we can wrap it with the
-	// noise filter. WithBatcher() is a shorthand that does not allow insertion
-	// of a processor upstream of the batch — we replicate what it does here.
+	// noise filter and signal stamper.  WithBatcher() is a shorthand that does
+	// not allow insertion of processors upstream of the batch.
 	batchProc := sdktrace.NewBatchSpanProcessor(scrubExporter)
 	noiseProc := NewNoiseFilterProcessor(batchProc)
+	// SignalSpanProcessor wraps the noise filter so signal="trace" is stamped on
+	// every span that survives noise filtering (AC-SG.2, AC-SG.3).
+	signalProc := NewSignalSpanProcessor(noiseProc)
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithSpanProcessor(noiseProc),
+		sdktrace.WithSpanProcessor(signalProc),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler),
 	)
