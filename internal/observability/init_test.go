@@ -62,9 +62,10 @@ func TestInit_BootGuard(t *testing.T) {
 		"CH_OBSERVABILITY_ENABLED", "true",
 		"OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318",
 	)
-	// Ensure noopScrubber is active.
+	// Ensure noopScrubber is active for this test.
+	// Restore to realScrubber after — scrub.go init() registered it at startup.
 	RegisterScrubber(noopScrubber{})
-	t.Cleanup(func() { RegisterScrubber(noopScrubber{}) }) // restore after test
+	t.Cleanup(func() { RegisterScrubber(NewRealScrubber()) })
 
 	_, err := Init(context.Background())
 	require.Error(t, err)
@@ -82,7 +83,7 @@ func TestInit_BootGuardPassesWithRealScrubber(t *testing.T) {
 	)
 
 	RegisterScrubber(realScrubber{})
-	t.Cleanup(func() { RegisterScrubber(noopScrubber{}) })
+	t.Cleanup(func() { RegisterScrubber(NewRealScrubber()) })
 
 	// OTEL_SDK_DISABLED disables the SDK exporters at the SDK level — the
 	// global providers become no-ops.  Init should not dial any remote endpoint.
@@ -95,13 +96,6 @@ func TestInit_BootGuardPassesWithRealScrubber(t *testing.T) {
 			"boot guard should have passed; error must be from exporter, not guard")
 	}
 }
-
-// testRealScrubber satisfies the Scrubber interface for testing purposes.
-// Named differently from the production realScrubber type that lives in
-// the scrub.go file that PR-F will create.
-type realScrubber struct{}
-
-func (realScrubber) Redact(text string) string { return text }
 
 // TestSamplerRatio_1_0 validates AC-A.9 at ratio=1.0: buildSampler returns a
 // ParentBased(TraceIDRatioBased(1.0)) sampler that samples 100% of root spans.
