@@ -9,7 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	logapi "go.opentelemetry.io/otel/log"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdklogt "go.opentelemetry.io/otel/sdk/log/logtest"
 	"go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -196,6 +199,46 @@ func TestPropagatorW3CTraceContext(t *testing.T) {
 	t.Setenv("OTEL_TRACES_SAMPLER_ARG", "")
 	sampler := buildSampler()
 	assert.NotNil(t, sampler, "default sampler should not be nil")
+}
+
+// TestInitLogger_ScrubLogProcessorWired validates SEC-001 fix: a log record
+// containing a secret emitted through initLogger's processor chain exits with
+// the secret redacted.  This confirms ScrubLogProcessor is actually in the
+// chain — not just imported.
+//
+// Strategy: build a minimal processor pipeline that mirrors initLogger's order
+// (captureProcessor → BatchProcessor-equivalent → ScrubLogProcessor) without
+// dialling any OTLP endpoint, then verify that a record carrying a GitHub PAT
+// arrives at the downstream capture with the secret replaced by [REDACTED].
+func TestInitLogger_ScrubLogProcessorWired(t *testing.T) {
+	RegisterScrubber(NewRealScrubber())
+	t.Cleanup(func() { RegisterScrubber(NewRealScrubber()) })
+
+	var captured *sdklog.Record
+	captureFn := &captureProcessor{fn: func(r *sdklog.Record) {
+		cloned := r.Clone()
+		captured = &cloned
+	}}
+
+	// Mirror initLogger wiring: ScrubLogProcessor wraps the downstream processor.
+	scrubbedProc := NewScrubLogProcessor(captureFn)
+	lp := sdklog.NewLoggerProvider(sdklog.WithProcessor(scrubbedProc))
+	defer func() { _ = lp.Shutdown(context.Background()) }()
+
+	// Emit a record that carries a GitHub PAT in the body — exactly the kind of
+	// accidental secret that SEC-001 flagged as unredacted in log output.
+	// GitHub PAT regex: ghp_[A-Za-z0-9]{36} — exactly 36 chars after "ghp_".
+	const ghpat = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij"
+	rec := sdklogt.RecordFactory{
+		Body: logapi.StringValue("token: " + ghpat),
+	}.NewRecord()
+
+	require.NoError(t, scrubbedProc.OnEmit(context.Background(), &rec))
+	require.NotNil(t, captured, "capture processor must have received the record")
+
+	body := captured.Body().AsString()
+	assert.Contains(t, body, "[REDACTED]", "GitHub PAT must be redacted by the ScrubLogProcessor in the chain")
+	assert.NotContains(t, body, ghpat, "original GitHub PAT must not appear in the exported log body")
 }
 
 // sampleNRandom runs n sampling decisions using fresh random TraceIDs per

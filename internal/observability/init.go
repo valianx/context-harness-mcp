@@ -282,16 +282,28 @@ func initTracer(ctx context.Context, res *resource.Resource, sampler sdktrace.Sa
 }
 
 // initLogger creates and registers the global LoggerProvider.
+//
+// Pipeline order (innermost to outermost):
+//
+//	OTLP exporter → BatchProcessor → ScrubLogProcessor → LoggerProvider
+//
+// ScrubLogProcessor wraps the BatchProcessor so all log records have PII and
+// secrets redacted before they reach the batch queue and leave the process
+// boundary (fix SEC-001, mirrors the ScrubSpanExporter pattern in initTracer).
 func initLogger(ctx context.Context, res *resource.Resource) (ShutdownFunc, error) {
 	exporter, err := otlploghttp.New(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	processor := sdklog.NewBatchProcessor(exporter)
+	// fix(observability-SEC-001): wrap the batch processor with the scrub layer
+	// so secrets/PII are redacted before log records are queued for export.
+	batchProc := sdklog.NewBatchProcessor(exporter)
+	scrubbedProc := NewScrubLogProcessor(batchProc)
+
 	lp := sdklog.NewLoggerProvider(
 		sdklog.WithResource(res),
-		sdklog.WithProcessor(processor),
+		sdklog.WithProcessor(scrubbedProc),
 	)
 	// PR-B will wire the global LoggerProvider into slog.
 	// For now we store it so other packages can retrieve it.
