@@ -65,8 +65,9 @@ func main() {
 		"Listen address for http transport (env: PORT — set automatically by Railway / Heroku / Fly / Render)")
 	flag.Parse()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
+	// Bootstrap stdout logger first so boot errors are always visible.
+	stdoutHandler := slog.NewJSONHandler(os.Stdout, nil)
+	slog.SetDefault(slog.New(stdoutHandler))
 
 	// Stdio transport never sends telemetry — apply the kill-switch before
 	// observability.Init so the SDK cannot open an OTLP connection in stdio
@@ -80,6 +81,16 @@ func main() {
 		slog.Error("observability init failed", "error", err)
 		fmt.Fprintf(os.Stderr, "error: observability init: %s\n", err)
 		os.Exit(1)
+	}
+
+	// If a real LoggerProvider was initialised, replace the default logger with
+	// the bridge handler so every slog call also emits to the OTel backend.
+	// Stdout JSON output is UNCHANGED — the bridge wraps the same stdoutHandler.
+	// When observability is disabled LoggerProvider() returns nil and this is a
+	// no-op, preserving the existing operator-visible log format (AC-B.1).
+	if lp := observability.LoggerProvider(); lp != nil {
+		bridged := observability.NewBridgedSlogHandler(stdoutHandler, lp)
+		slog.SetDefault(slog.New(bridged))
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
