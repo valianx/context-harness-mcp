@@ -112,14 +112,22 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		span.SetAttributes(attrToolName.String("search_nodes"))
 
 		outcome := outcomeServerError
+		var finalResult *mcplib.CallToolResult
+		ret := func(r *mcplib.CallToolResult) (*mcplib.CallToolResult, error) {
+			finalResult = r
+			return r, nil
+		}
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "search_nodes", outcome, time.Since(start))
+			responseBody := marshalBody(finalResult)
+			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "search_nodes",
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
+				"response", responseBody,
 			)
 		}()
 
@@ -129,14 +137,17 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 
 		var args searchNodesArgs
 		if err := req.BindArguments(&args); err != nil {
-			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("invalid arguments: %s", err)))
 		}
 
 		// Emit request_received — read tools only emit entry + completed (AC-RL.1, AC-RL.6).
+		requestBody := marshalBody(args)
+		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "search_nodes",
 			"user.id", auth.UserIDFromContext(ctx),
 			"query_length", len(args.Query),
+			"body", requestBody,
 		)
 
 		// Emit query length (count) and scrubbed query text (content, capped at queryAttrCap).
@@ -150,7 +161,7 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		nodes, relations, err := searchNodes(ctx, pool, args.Query, projectFilterFrom(args.Project))
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
-			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
 		}
 
 		// Emit result count and up to 10 result names (AC-I.2).
@@ -159,11 +170,21 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			span.SetAttributes(attrResultNames.StringSlice(nodeNames(nodes, 10)))
 		}
 
+		// Emit one db_row_retrieved per result node for row-level observability.
+		for _, n := range nodes {
+			slog.InfoContext(ctx, "db_row_retrieved",
+				"tool", "search_nodes",
+				"name", n.Name,
+				"node_type", n.NodeType,
+				"observation_count", len(n.Observations),
+			)
+		}
+
 		outcome = outcomeSuccess
-		return jsonResult(map[string]any{
+		return ret(jsonResult(map[string]any{
 			"nodes":     nodes,
 			"relations": relations,
-		}), nil
+		}))
 	}
 }
 
@@ -201,14 +222,22 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		span.SetAttributes(attrToolName.String("open_nodes"))
 
 		outcome := outcomeServerError
+		var finalResult *mcplib.CallToolResult
+		ret := func(r *mcplib.CallToolResult) (*mcplib.CallToolResult, error) {
+			finalResult = r
+			return r, nil
+		}
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "open_nodes", outcome, time.Since(start))
+			responseBody := marshalBody(finalResult)
+			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "open_nodes",
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
+				"response", responseBody,
 			)
 		}()
 
@@ -218,20 +247,23 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 
 		var args openNodesArgs
 		if err := req.BindArguments(&args); err != nil {
-			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("invalid arguments: %s", err)))
 		}
 
 		// Emit request_received — read tools only emit entry + completed (AC-RL.1, AC-RL.6).
+		requestBody := marshalBody(args)
+		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "open_nodes",
 			"user.id", auth.UserIDFromContext(ctx),
 			"node_names_count", len(args.Names),
+			"body", requestBody,
 		)
 
 		nodes, relations, err := openNodes(ctx, pool, args.Names, projectFilterFrom(args.Project))
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
-			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
 		}
 
 		// Emit result count and up to 10 result names (AC-I.2).
@@ -240,11 +272,21 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			span.SetAttributes(attrResultNames.StringSlice(nodeNames(nodes, 10)))
 		}
 
+		// Emit one db_row_retrieved per result node for row-level observability.
+		for _, n := range nodes {
+			slog.InfoContext(ctx, "db_row_retrieved",
+				"tool", "open_nodes",
+				"name", n.Name,
+				"node_type", n.NodeType,
+				"observation_count", len(n.Observations),
+			)
+		}
+
 		outcome = outcomeSuccess
-		return jsonResult(map[string]any{
+		return ret(jsonResult(map[string]any{
 			"nodes":     nodes,
 			"relations": relations,
-		}), nil
+		}))
 	}
 }
 
@@ -356,14 +398,22 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 		span.SetAttributes(attrToolName.String("read_graph"))
 
 		outcome := outcomeServerError
+		var finalResult *mcplib.CallToolResult
+		ret := func(r *mcplib.CallToolResult) (*mcplib.CallToolResult, error) {
+			finalResult = r
+			return r, nil
+		}
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "read_graph", outcome, time.Since(start))
+			responseBody := marshalBody(finalResult)
+			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "read_graph",
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
+				"response", responseBody,
 			)
 		}()
 
@@ -373,25 +423,28 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 
 		var args readGraphArgs
 		if err := req.BindArguments(&args); err != nil {
-			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("invalid arguments: %s", err)))
 		}
 
 		// Emit request_received — read tools only emit entry + completed (AC-RL.1, AC-RL.6).
+		requestBody := marshalBody(args)
+		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "read_graph",
 			"user.id", auth.UserIDFromContext(ctx),
+			"body", requestBody,
 		)
 
 		nodeRows, err := store.ListActive(ctx, pool, projectFilterFrom(args.Project))
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
-			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
 		}
 
 		nodes, relations, err := buildNodeRelationResult(ctx, pool, nodeRows)
 		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
-			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
 		}
 
 		// Emit result count and up to 10 result names (AC-I.2).
@@ -400,13 +453,23 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 			span.SetAttributes(attrResultNames.StringSlice(nodeNames(nodes, 10)))
 		}
 
+		// Emit one db_row_retrieved per result node for row-level observability.
+		for _, n := range nodes {
+			slog.InfoContext(ctx, "db_row_retrieved",
+				"tool", "read_graph",
+				"name", n.Name,
+				"node_type", n.NodeType,
+				"observation_count", len(n.Observations),
+			)
+		}
+
 		outcome = outcomeSuccess
-		return jsonResult(map[string]any{
+		return ret(jsonResult(map[string]any{
 			"nodes":          nodes,
 			"relations":      relations,
 			"node_count":     len(nodes),
 			"relation_count": len(relations),
-		}), nil
+		}))
 	}
 }
 

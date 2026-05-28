@@ -56,14 +56,22 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		span.SetAttributes(attrToolName.String("create_relations"))
 
 		outcome := outcomeServerError
+		var finalResult *mcplib.CallToolResult
+		ret := func(r *mcplib.CallToolResult) (*mcplib.CallToolResult, error) {
+			finalResult = r
+			return r, nil
+		}
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "create_relations", outcome, time.Since(start))
+			responseBody := marshalBody(finalResult)
+			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "create_relations",
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
+				"response", responseBody,
 			)
 		}()
 
@@ -73,12 +81,12 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 
 		if result := checkRateLimit(ctx, limiter); result != nil {
 			outcome = outcomePolicyReject
-			return result, nil
+			return ret(result)
 		}
 
 		var args createRelationsArgs
 		if err := req.BindArguments(&args); err != nil {
-			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("invalid arguments: %s", err)))
 		}
 
 		// Emit relations summary after BindArguments — appears on all exit paths (AC-I.5).
@@ -96,16 +104,19 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 						attrLayer.String(verr.Layer),
 					)
 					setRejectedInputAttr(span, firstRelationFragment(args.Relations))
-					return verr.ToMCPResult(), nil
+					return ret(verr.ToMCPResult())
 				}
 			}
 		}
 
 		// Emit request_received before the Content Filter (AC-RL.1).
+		requestBody := marshalBody(args)
+		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "create_relations",
 			"user.id", auth.UserIDFromContext(ctx),
 			"node_count", len(args.Relations),
+			"body", requestBody,
 		)
 
 		// Build validate.Payload and run the Content Filter before opening any Tx.
@@ -130,7 +141,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				"error_code", verr.Code,
 				"pattern", verr.MatchedPattern,
 			)
-			return verr.ToMCPResult(), nil
+			return ret(verr.ToMCPResult())
 		}
 
 		// Count metadata — no content in span attributes (AC-E.3).
@@ -147,7 +158,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				)
 				span.SetStatus(codes.Error, err.Error())
 				setRejectedInputAttr(span, firstRelationFragment(args.Relations))
-				return errorResult(err.Error()), nil
+				return ret(errorResult(err.Error()))
 			}
 			if isCrossProjectError(err) {
 				verr := &validate.Error{
@@ -162,7 +173,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 					attrLayer.String(verr.Layer),
 				)
 				setRejectedInputAttr(span, firstRelationFragment(args.Relations))
-				return verr.ToMCPResult(), nil
+				return ret(verr.ToMCPResult())
 			}
 			// fix(observability): db_tx_rolled_back for generic DB errors (AC-RL.4).
 			slog.ErrorContext(ctx, "db_tx_rolled_back",
@@ -170,7 +181,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				"error", err.Error(),
 			)
 			span.SetStatus(codes.Error, err.Error())
-			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
 		}
 
 		// db_tx_committed is emitted after successful commit (AC-RL.3).
@@ -180,7 +191,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		)
 
 		outcome = outcomeSuccess
-		return jsonResult(map[string]any{"created": created}), nil
+		return ret(jsonResult(map[string]any{"created": created}))
 	}
 }
 
@@ -261,6 +272,13 @@ func execCreateRelations(ctx context.Context, pool *pgxpool.Pool, relations []re
 		}
 		if inserted {
 			created++
+			// Emit one log line per persisted relation — enables row-level grep in Axiom.
+			slog.InfoContext(ctx, "db_row_persisted",
+				"tool", "create_relations",
+				"from", rel.From,
+				"to", rel.To,
+				"relation_type", rel.RelationType,
+			)
 		}
 	}
 

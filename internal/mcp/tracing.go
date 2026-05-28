@@ -1,14 +1,18 @@
 // Package mcp — tracing.go provides the OTel tracer and span attribute keys
 // used by tool handlers in this package. Attribute names are drawn from the
 // whitelist defined in the axiom-integration plan (01-plan.md §Architecture,
-// "Span attributes recommended"). All 18 keys in the allowed set are declared
+// "Span attributes recommended"). All keys in the allowed set are declared
 // here; any key outside this set must not appear in exported spans (AC-I.8).
 //
-// Prohibited without exception: observation content, query strings, node names,
-// user.email, SQL query parameter values.
+// Full-payload mode (operator-approved override of original prohibition):
+// mcp.request_body and mcp.response_body carry the complete JSON of each
+// tool request and response. All values pass through ScrubSpanExporter before
+// export so secrets are redacted before leaving the process.
 package mcp
 
 import (
+	"encoding/json"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -27,15 +31,15 @@ const (
 
 	// Cap constants for tiered content attrs (AC-I plan §Whitelist diff).
 	// All new string attrs pass through ScrubSpanExporter before export (AC-F boundary).
-	queryAttrCap      = 500 // max chars for mcp.query
-	snippetCap        = 100 // max chars per observation snippet
-	snippetMaxCount   = 10  // max number of snippets in mcp.observation_snippets
-	nameSliceMaxCount = 20  // max elements in mcp.node_names / mcp.node_types
-	relationsMaxCount = 20  // max elements in mcp.relations_summary
-	rejectedInputCap  = 500 // max chars for mcp.rejected_input
+	queryAttrCap      = 500  // max chars for mcp.query
+	snippetCap        = 1000 // max chars per observation snippet (bumped from 100 for full-payload mode)
+	snippetMaxCount   = 10   // max number of snippets in mcp.observation_snippets
+	nameSliceMaxCount = 20   // max elements in mcp.node_names / mcp.node_types
+	relationsMaxCount = 20   // max elements in mcp.relations_summary
+	rejectedInputCap  = 500  // max chars for mcp.rejected_input
 )
 
-// Attribute keys — complete 18-key whitelist (10 existing + 8 new from PR-I).
+// Attribute keys — complete whitelist (10 existing + 8 tiered-content from PR-I + 6 full-payload).
 // See plan §Whitelist diff for the full list.
 var (
 	// --- 10 pre-existing keys ---
@@ -50,7 +54,7 @@ var (
 	attrHasEmbedding     = attribute.Key("mcp.has_embedding")
 	attrUserID           = attribute.Key("user.id")
 
-	// --- 8 new keys added by PR-I (tiered content) ---
+	// --- 8 keys added by PR-I (tiered content) ---
 	attrQuery               = attribute.Key("mcp.query")
 	attrResultNames         = attribute.Key("mcp.result_names")
 	attrNodeNames           = attribute.Key("mcp.node_names")
@@ -59,6 +63,16 @@ var (
 	attrObservationSnippets = attribute.Key("mcp.observation_snippets")
 	attrRelationsSummary    = attribute.Key("mcp.relations_summary")
 	attrRejectedInput       = attribute.Key("mcp.rejected_input")
+
+	// --- 6 keys added by full-payload mode (operator-approved) ---
+	// All values pass through ScrubSpanExporter before export — secrets are
+	// redacted by the existing boundary; no local scrub is applied here.
+	attrRequestBody  = attribute.Key("mcp.request_body")
+	attrResponseBody = attribute.Key("mcp.response_body")
+	attrRowText      = attribute.Key("mcp.row_text")
+	attrRowNodeID    = attribute.Key("mcp.row_node_id")
+	attrRowName      = attribute.Key("mcp.row_name")
+	attrRowNodeType  = attribute.Key("mcp.row_node_type")
 )
 
 // toolTracer returns the global OTel tracer for MCP handlers.
@@ -79,4 +93,15 @@ func setRejectedInputAttr(span trace.Span, fragment string) {
 		return
 	}
 	span.SetAttributes(attrRejectedInput.String(observability.SnippetTruncate(fragment, rejectedInputCap)))
+}
+
+// marshalBody serialises v to a JSON string for span/log body fields.
+// Returns "<marshal error>" when json.Marshal fails (e.g. non-marshalable types)
+// so callers never need to guard on the error — the handler continues normally.
+func marshalBody(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "<marshal error>"
+	}
+	return string(b)
 }

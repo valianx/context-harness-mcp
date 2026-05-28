@@ -97,16 +97,25 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 
 		span.SetAttributes(attrToolName.String("create_nodes"))
 
-		// outcome is set by defer so all exit paths are covered (AC-E.5).
+		// outcome and finalResult are set by each exit path; the defer captures them.
 		outcome := outcomeServerError
+		var finalResult *mcplib.CallToolResult
+		// ret is a helper that assigns finalResult and returns it (all exit paths use it).
+		ret := func(r *mcplib.CallToolResult) (*mcplib.CallToolResult, error) {
+			finalResult = r
+			return r, nil
+		}
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "create_nodes", outcome, time.Since(start))
+			responseBody := marshalBody(finalResult)
+			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "create_nodes",
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
+				"response", responseBody,
 			)
 		}()
 
@@ -116,12 +125,12 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 
 		if result := checkRateLimit(ctx, limiter); result != nil {
 			outcome = outcomePolicyReject
-			return result, nil
+			return ret(result)
 		}
 
 		var args createNodesArgs
 		if err := req.BindArguments(&args); err != nil {
-			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("invalid arguments: %s", err)))
 		}
 
 		// Emit node names and types after BindArguments — before any validation
@@ -143,7 +152,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 						attrErrorCode.String(verr.Code),
 						attrLayer.String(verr.Layer),
 					)
-					return verr.ToMCPResult(), nil
+					return ret(verr.ToMCPResult())
 				}
 			}
 			// Resolve default project so the rest of the handler can use it directly.
@@ -159,7 +168,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		for _, n := range args.Nodes {
 			if n.SessionID != "" {
 				if !isValidUUID(n.SessionID) {
-					return errorResult("session_id must be a valid UUID"), nil
+					return ret(errorResult("session_id must be a valid UUID"))
 				}
 				sid := n.SessionID
 				sessionID = &sid
@@ -179,11 +188,11 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 					attrErrorCode.String(verr.Code),
 					attrLayer.String(verr.Layer),
 				)
-				return verr.ToMCPResult(), nil
+				return ret(verr.ToMCPResult())
 			}
 			if err != nil {
 				span.SetStatus(codes.Error, err.Error())
-				return errorResult(fmt.Sprintf("db error: %s", err)), nil
+				return ret(errorResult(fmt.Sprintf("db error: %s", err)))
 			}
 			if sess.EndedAt != nil {
 				verr := &validate.Error{
@@ -196,7 +205,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 					attrErrorCode.String(verr.Code),
 					attrLayer.String(verr.Layer),
 				)
-				return verr.ToMCPResult(), nil
+				return ret(verr.ToMCPResult())
 			}
 		}
 
@@ -206,11 +215,14 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		for _, n := range args.Nodes {
 			totalObsIncoming += len(n.Observations)
 		}
+		requestBody := marshalBody(args)
+		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "create_nodes",
 			"user.id", auth.UserIDFromContext(ctx),
 			"node_count", len(args.Nodes),
 			"observation_count", totalObsIncoming,
+			"body", requestBody,
 		)
 
 		// Build validate.Payload and run the Content Filter before opening any Tx.
@@ -239,7 +251,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 				"error_code", verr.Code,
 				"pattern", verr.MatchedPattern,
 			)
-			return verr.ToMCPResult(), nil
+			return ret(verr.ToMCPResult())
 		}
 
 		// Count metadata only — no content in span attributes (AC-E.3).
@@ -262,7 +274,7 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 				"error", err.Error(),
 			)
 			span.SetStatus(codes.Error, err.Error())
-			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
 		}
 
 		// db_tx_committed is emitted after successful commit (AC-RL.3).
@@ -272,10 +284,10 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		)
 
 		outcome = outcomeSuccess
-		return jsonResult(map[string]any{
+		return ret(jsonResult(map[string]any{
 			"created_nodes":        createdNodes,
 			"created_observations": createdObs,
-		}), nil
+		}))
 	}
 }
 
@@ -318,6 +330,13 @@ func execCreateNodes(ctx context.Context, pool *pgxpool.Pool, nodes []createNode
 			}
 			if inserted {
 				createdObs++
+				// Emit one log line per persisted row — enables row-level grep in Axiom.
+				slog.InfoContext(ctx, "db_row_persisted",
+					"tool", "create_nodes",
+					"node_id", id,
+					"node_type", n.NodeType,
+					"text", obsText,
+				)
 			}
 		}
 	}
@@ -377,14 +396,22 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		span.SetAttributes(attrToolName.String("add_observations"))
 
 		outcome := outcomeServerError
+		var finalResult *mcplib.CallToolResult
+		ret := func(r *mcplib.CallToolResult) (*mcplib.CallToolResult, error) {
+			finalResult = r
+			return r, nil
+		}
 		defer func() {
 			span.SetAttributes(attrToolOutcome.String(outcome))
 			observability.RecordRequest(ctx, "add_observations", outcome, time.Since(start))
+			responseBody := marshalBody(finalResult)
+			span.SetAttributes(attrResponseBody.String(responseBody))
 			slog.InfoContext(ctx, "request_completed",
 				"tool", "add_observations",
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
+				"response", responseBody,
 			)
 		}()
 
@@ -394,12 +421,12 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 
 		if result := checkRateLimit(ctx, limiter); result != nil {
 			outcome = outcomePolicyReject
-			return result, nil
+			return ret(result)
 		}
 
 		var args addObservationsArgs
 		if err := req.BindArguments(&args); err != nil {
-			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("invalid arguments: %s", err)))
 		}
 
 		// Emit node_name (first item's NodeName) after BindArguments — appears on
@@ -418,10 +445,13 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		}
 
 		// Emit request_received before the Content Filter (AC-RL.1).
+		requestBody := marshalBody(args)
+		span.SetAttributes(attrRequestBody.String(requestBody))
 		slog.InfoContext(ctx, "request_received",
 			"tool", "add_observations",
 			"user.id", auth.UserIDFromContext(ctx),
 			"observation_count", len(flatObs),
+			"body", requestBody,
 		)
 
 		// Build observation snippets (capped at snippetCap chars each, max snippetMaxCount).
@@ -447,7 +477,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				"error_code", verr.Code,
 				"pattern", verr.MatchedPattern,
 			)
-			return verr.ToMCPResult(), nil
+			return ret(verr.ToMCPResult())
 		}
 
 		// Count metadata only — no content in span attributes (AC-E.3).
@@ -475,7 +505,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				"error", err.Error(),
 			)
 			span.SetStatus(codes.Error, err.Error())
-			return errorResult(fmt.Sprintf("db error: %s", err)), nil
+			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
 		}
 
 		// db_tx_committed is emitted after successful commit (AC-RL.3).
@@ -485,7 +515,7 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		)
 
 		outcome = outcomeSuccess
-		return jsonResult(map[string]any{"added": added}), nil
+		return ret(jsonResult(map[string]any{"added": added}))
 	}
 }
 
@@ -531,6 +561,13 @@ func execAddObservations(ctx context.Context, pool *pgxpool.Pool, items []addObs
 			}
 			if inserted {
 				added++
+				// Emit one log line per persisted row — enables row-level grep in Axiom.
+				slog.InfoContext(ctx, "db_row_persisted",
+					"tool", "add_observations",
+					"node_id", id,
+					"node_name", item.NodeName,
+					"text", text,
+				)
 			}
 		}
 	}
