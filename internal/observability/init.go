@@ -249,14 +249,31 @@ func buildSampler() sdktrace.Sampler {
 }
 
 // initTracer creates and registers the global TracerProvider.
+//
+// Pipeline order (innermost to outermost):
+//   OTLP exporter → ScrubSpanExporter → BatchSpanProcessor → noiseFilterProcessor
+//
+// noiseFilterProcessor sits upstream of the batch processor so dropped spans
+// (e.g. "prepare *") are discarded before batch allocation (AC-J.2, AC-J.3).
+// ScrubSpanExporter wraps the OTLP exporter so all exported string attrs are
+// scrubbed before leaving the process (PR-F boundary, unchanged).
 func initTracer(ctx context.Context, res *resource.Resource, sampler sdktrace.Sampler) (ShutdownFunc, error) {
 	exporter, err := otlptracehttp.New(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	// Wrap the OTLP exporter with the scrubber (PR-F, unchanged).
+	scrubExporter := NewScrubSpanExporter(exporter)
+
+	// Materialise the batch processor explicitly so we can wrap it with the
+	// noise filter. WithBatcher() is a shorthand that does not allow insertion
+	// of a processor upstream of the batch — we replicate what it does here.
+	batchProc := sdktrace.NewBatchSpanProcessor(scrubExporter)
+	noiseProc := NewNoiseFilterProcessor(batchProc)
+
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithSpanProcessor(noiseProc),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sampler),
 	)

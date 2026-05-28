@@ -299,6 +299,76 @@ func TestScrub_BootGuardReleasedByPackageInit(t *testing.T) {
 		"boot guard (AC-A.8) must pass: isNoopScrubber=false after importing observability package with scrub.go")
 }
 
+// ── AC-J.5: db.statement whitespace normalized in ScrubSpanExporter ──────────
+
+// TestScrubSpanExporter_SQLWhitespaceNormalized verifies that multi-line SQL
+// in db.statement has its whitespace collapsed to single spaces on export.
+func TestScrubSpanExporter_SQLWhitespaceNormalized(t *testing.T) {
+	RegisterScrubber(NewRealScrubber())
+	t.Cleanup(func() { RegisterScrubber(NewRealScrubber()) })
+
+	mem := tracetest.NewInMemoryExporter()
+	scrubExp := NewScrubSpanExporter(mem)
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(scrubExp))
+
+	_, span := tp.Tracer("test").Start(context.Background(), "sql-whitespace-test")
+	// Multi-line SQL with tabs — typical Go backtick string from query.go.
+	span.SetAttributes(attribute.String("db.statement",
+		"SELECT id, name, node_type\n\t\t\tFROM nodes\n\t\t\tWHERE deleted_at IS NULL"))
+	span.End()
+
+	spans := mem.GetSpans()
+	require.Len(t, spans, 1)
+
+	var stmt string
+	for _, kv := range spans[0].Attributes {
+		if string(kv.Key) == "db.statement" {
+			stmt = kv.Value.AsString()
+		}
+	}
+	require.NotEmpty(t, stmt, "db.statement attribute must be present")
+	assert.Equal(t,
+		"SELECT id, name, node_type FROM nodes WHERE deleted_at IS NULL",
+		stmt,
+		"multi-line SQL must be collapsed to single-line on export",
+	)
+	assert.NotContains(t, stmt, "\t", "exported db.statement must not contain tabs")
+	assert.NotContains(t, stmt, "\n", "exported db.statement must not contain newlines")
+}
+
+// TestScrubSpanExporter_SQLWhitespaceNormalized_SecretStillRedacted verifies
+// that whitespace normalization does not suppress scrubbing: a secret embedded
+// in a multi-line db.statement is both redacted AND whitespace-normalized (AC-J.5).
+func TestScrubSpanExporter_SQLWhitespaceNormalized_SecretStillRedacted(t *testing.T) {
+	RegisterScrubber(NewRealScrubber())
+	t.Cleanup(func() { RegisterScrubber(NewRealScrubber()) })
+
+	mem := tracetest.NewInMemoryExporter()
+	scrubExp := NewScrubSpanExporter(mem)
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(scrubExp))
+
+	_, span := tp.Tracer("test").Start(context.Background(), "sql-secret-whitespace-test")
+	// Multi-line SQL with an embedded AWS key (should be redacted).
+	span.SetAttributes(attribute.String("db.statement",
+		"INSERT INTO tokens\n\t\tVALUES ('AKIAIOSFODNN7EXAMPLE',\n\t\t$1)"))
+	span.End()
+
+	spans := mem.GetSpans()
+	require.Len(t, spans, 1)
+
+	var stmt string
+	for _, kv := range spans[0].Attributes {
+		if string(kv.Key) == "db.statement" {
+			stmt = kv.Value.AsString()
+		}
+	}
+	require.NotEmpty(t, stmt, "db.statement attribute must be present")
+	assert.Contains(t, stmt, "[REDACTED]", "AWS key must be redacted")
+	assert.NotContains(t, stmt, "AKIAIOSFODNN7EXAMPLE", "original AWS key must not appear")
+	assert.NotContains(t, stmt, "\t", "whitespace must be collapsed even when secret is redacted")
+	assert.NotContains(t, stmt, "\n", "newlines must be removed")
+}
+
 // ── captureProcessor helper ──────────────────────────────────────────────────
 
 // captureProcessor is a minimal sdklog.Processor that captures emitted records.

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -231,6 +232,41 @@ func (a *revocationStoreAdapter) GetRevoked(sub string) (bool, error) {
 	return revoked, nil
 }
 
+// shouldTraceHTTPPath returns true when path should produce an otelhttp span.
+//
+// "No-work" paths are excluded because they (a) generate high-volume noise with
+// no actionable APM signal, and (b) already have sufficient visibility via
+// slog.Info calls in their respective handlers or are trivially short (static
+// HTML, 404s, cookie clears). See 01-plan.md §otelhttp short-span investigation.
+//
+// Preserved paths (produce spans):
+//   - /mcp and /mcp/  — every MCP tool call
+//   - /viewer/*       — viewer reads with real DB payloads
+//
+// Excluded paths (no span):
+//   - /healthz        — container probe noise
+//   - /               — static landing page
+//   - /favicon.ico    — browser auto-request
+//   - /auth/*         — OAuth flow (covered by slog.Info in web handlers)
+//   - /dashboard*     — session-authenticated UI (covered by slog.Info)
+//   - /debug/vars     — expvar read
+//   - /metrics        — Prometheus scrape
+func shouldTraceHTTPPath(path string) bool {
+	switch {
+	case path == "/healthz":
+		return false
+	case path == "/" || path == "/favicon.ico":
+		return false
+	case strings.HasPrefix(path, "/auth/"):
+		return false
+	case strings.HasPrefix(path, "/dashboard"):
+		return false
+	case path == "/debug/vars" || path == "/metrics":
+		return false
+	}
+	return true
+}
+
 func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *ratelimit.Limiter, authMode auth.Mode) {
 	// WithHTTPContextFunc extracts the client IP from each incoming HTTP request
 	// and injects it into the request context so tool handlers can read it for
@@ -320,10 +356,10 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	// with semantic conventions (http.method, http.route, http.status_code).
 	// otelhttp is the outermost handler so the span opens before auth runs and
 	// is alive when auth.Middleware sets user.id and auth.cache_result (AC-C.3).
-	// The filter excludes /healthz to avoid polluting traces with probe noise (AC-C.2).
+	// shouldTraceHTTPPath excludes "no-work" paths from APM (AC-J.4).
 	tracedMux := otelhttp.NewHandler(mux, "context-harness-mcp",
 		otelhttp.WithFilter(func(r *http.Request) bool {
-			return r.URL.Path != "/healthz"
+			return shouldTraceHTTPPath(r.URL.Path)
 		}),
 	)
 
