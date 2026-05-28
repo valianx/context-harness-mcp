@@ -38,7 +38,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 )
 
 const (
@@ -99,6 +99,14 @@ type ShutdownFunc func(context.Context) error
 func Init(ctx context.Context) (ShutdownFunc, error) {
 	if !isObservabilityEnabled() {
 		slog.Info("observability disabled", "reason", "CH_OBSERVABILITY_ENABLED not true")
+		return noopShutdown, nil
+	}
+
+	// Honor OTEL_SDK_DISABLED — the stdio kill-switch in main.go sets this
+	// before invoking Init. Even with CH_OBSERVABILITY_ENABLED=true and a
+	// valid endpoint, OTEL_SDK_DISABLED=true must short-circuit to noop.
+	if os.Getenv("OTEL_SDK_DISABLED") == "true" {
+		slog.Info("observability disabled", "reason", "OTEL_SDK_DISABLED=true")
 		return noopShutdown, nil
 	}
 

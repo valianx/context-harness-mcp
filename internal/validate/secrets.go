@@ -96,6 +96,21 @@ func getGitleaksDetector() (*detect.Detector, error) {
 	return gitleaksDetector, gitleaksInitErr
 }
 
+// GitleaksDetector returns the shared, lazily-initialised gitleaks detector.
+// The detector is goroutine-safe for concurrent DetectString calls.
+//
+// Returns nil when the detector could not be initialised (e.g. missing rule
+// config); callers must handle the nil case gracefully.  The inline regex
+// fallbacks in this package remain active regardless.
+//
+// Callers outside this package (e.g. internal/observability/scrub.go) use
+// this getter to reuse the detector without duplicating the ~150-rule ruleset
+// or paying the initialisation cost twice.
+func GitleaksDetector() *detect.Detector {
+	d, _ := getGitleaksDetector()
+	return d
+}
+
 // InitDetector fires the gitleaks sync.Once and reports the number of rules
 // loaded. It is safe to call concurrently — repeated calls return instantly
 // after the first initialization completes.
