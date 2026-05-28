@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `refactor(observability): normalizar attributes.body en todos los logs MCP` — `internal/mcp/nodes.go`, `relations.go`, `query.go`: renombrar field `response` → `body` en `request_completed` (AC-NB.2); agregar `body` con string descriptivo en `validation_rejected`, `db_row_persisted`, `db_tx_committed`, `db_tx_rolled_back` (AC-NB.3–5). `internal/mcp/logs_test.go`: test renombrado a `TestLogs_CreateNodes_body_field_in_request_completed` + assert que `"response"` ya no existe + `scrubPassthroughFields` simplificado a sólo `"body"`.
+
 ### Added
 
 - `feat(observability): full payload logging — request/response bodies + db row logs` — `internal/mcp/tracing.go` extiende whitelist con 6 nuevos keys (`mcp.request_body`, `mcp.response_body`, `mcp.row_text`, `mcp.row_node_id`, `mcp.row_name`, `mcp.row_node_type`) + bump `snippetCap` 100→1000 + helper `marshalBody`; handlers `nodes.go`/`relations.go`/`query.go` emiten `mcp.request_body` y `mcp.response_body` en cada span + campo `body` en `request_received` + campo `response` en `request_completed`; `execCreateNodes` y `execAddObservations` emiten `db_row_persisted` por cada observation insertada; `execCreateRelations` emite `db_row_persisted` por cada relation insertada; `searchNodesHandler`, `openNodesHandler`, `readGraphHandler` emiten `db_row_retrieved` por cada nodo retornado. Override explícito del operador sobre la prohibición original de full-payload en observabilidad — el scrubber sigue activo en el boundary de exportación.

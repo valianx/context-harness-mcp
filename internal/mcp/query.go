@@ -127,7 +127,7 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
-				"response", responseBody,
+				"body", responseBody,
 			)
 		}()
 
@@ -177,6 +177,7 @@ func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 				"name", n.Name,
 				"node_type", n.NodeType,
 				"observation_count", len(n.Observations),
+				"body", fmt.Sprintf("retrieved name=%s type=%s obs=%d", n.Name, n.NodeType, len(n.Observations)),
 			)
 		}
 
@@ -237,7 +238,7 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
-				"response", responseBody,
+				"body", responseBody,
 			)
 		}()
 
@@ -279,6 +280,7 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 				"name", n.Name,
 				"node_type", n.NodeType,
 				"observation_count", len(n.Observations),
+				"body", fmt.Sprintf("retrieved name=%s type=%s obs=%d", n.Name, n.NodeType, len(n.Observations)),
 			)
 		}
 
@@ -413,7 +415,7 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
-				"response", responseBody,
+				"body", responseBody,
 			)
 		}()
 
@@ -460,6 +462,7 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 				"name", n.Name,
 				"node_type", n.NodeType,
 				"observation_count", len(n.Observations),
+				"body", fmt.Sprintf("retrieved name=%s type=%s obs=%d", n.Name, n.NodeType, len(n.Observations)),
 			)
 		}
 

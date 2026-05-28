@@ -71,7 +71,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				"outcome", outcome,
 				"duration_ms", time.Since(start).Milliseconds(),
 				"user.id", auth.UserIDFromContext(ctx),
-				"response", responseBody,
+				"body", responseBody,
 			)
 		}()
 
@@ -140,6 +140,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				"layer", verr.Layer,
 				"error_code", verr.Code,
 				"pattern", verr.MatchedPattern,
+				"body", fmt.Sprintf("rejected by %s layer: pattern=%s (%s)", verr.Layer, verr.MatchedPattern, verr.Code),
 			)
 			return ret(verr.ToMCPResult())
 		}
@@ -155,6 +156,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 				slog.ErrorContext(ctx, "db_tx_rolled_back",
 					"tool", "create_relations",
 					"error", err.Error(),
+					"body", fmt.Sprintf("rolled back: %s", err.Error()),
 				)
 				span.SetStatus(codes.Error, err.Error())
 				setRejectedInputAttr(span, firstRelationFragment(args.Relations))
@@ -179,6 +181,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 			slog.ErrorContext(ctx, "db_tx_rolled_back",
 				"tool", "create_relations",
 				"error", err.Error(),
+				"body", fmt.Sprintf("rolled back: %s", err.Error()),
 			)
 			span.SetStatus(codes.Error, err.Error())
 			return ret(errorResult(fmt.Sprintf("db error: %s", err)))
@@ -188,6 +191,7 @@ func createRelationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		slog.InfoContext(ctx, "db_tx_committed",
 			"tool", "create_relations",
 			"rows_inserted", created,
+			"body", fmt.Sprintf("committed %d rows", created),
 		)
 
 		outcome = outcomeSuccess
@@ -278,6 +282,7 @@ func execCreateRelations(ctx context.Context, pool *pgxpool.Pool, relations []re
 				"from", rel.From,
 				"to", rel.To,
 				"relation_type", rel.RelationType,
+				"body", fmt.Sprintf("persisted relation %s→%s type=%s", rel.From, rel.To, rel.RelationType),
 			)
 		}
 	}
