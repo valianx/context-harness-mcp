@@ -1,6 +1,9 @@
 # Session docs — ephemeral, pre-merge agent working notes
 /session-docs/
 
+# Agent workspaces — ephemeral implementation notes
+/workspaces/
+
 # Python
 __pycache__/
 *.py[cod]
