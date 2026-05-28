@@ -13,6 +13,7 @@
 - `[stack]` Build: multi-stage `Dockerfile` (`golang:1.22` → `debian:bookworm-slim`). Runtime stage incluye el shared library de ONNX en `/usr/local/lib` con `LD_LIBRARY_PATH` seteado, y el binario `goose` en `/usr/local/bin`. La misma imagen se usa en Phase 1 (docker-compose local) y Phase 2 (Render).
 - `[stack]` Tests: stdlib `testing` + `github.com/stretchr/testify` + `github.com/testcontainers/testcontainers-go/modules/postgres` v0.35.0. Integration tests levantan `pgvector/pgvector:pg16` ephemeral aislado por test run vía testcontainers — no dependen del docker-compose ni de Supabase. Requiere Docker daemon corriendo en la máquina (dev o CI). `TestMain` aplica migraciones vía `goose.Up` library (mismo path que prod) y expone `NewTestPool(t)` + `CleanDB(t)` helpers.
 - `[stack]` `github.com/zricethezav/gitleaks/v8` — usado como library (no CLI). Lazy-load en primer request post-cold-start para evitar penalty en boot. ~150 default rules + custom rules si emergen.
+- `[stack]` `github.com/exaring/otelpgx v0.9.4` — instrumentación pgx/v5 con OTel. `otelpgx.NewTracer()` registrado en `pgxpool.Config.ConnConfig.Tracer` en `internal/store/pool.go`. Emite spans hijas por query con `db.system=postgresql` y `db.query.text` parametrizado. `WithIncludeQueryParameters` NO habilitado (default false) — valores de `$1, $2` nunca aparecen en spans.
 
 ## Decisions
 
