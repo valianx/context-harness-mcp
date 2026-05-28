@@ -7,10 +7,13 @@ import (
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
+	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
 	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
+	"github.com/mariogutierrez/context-harness-mcp/internal/observability"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
 
@@ -101,16 +104,43 @@ type searchNodesArgs struct {
 
 func searchNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		start := time.Now()
+		ctx, span := toolTracer().Start(ctx, "mcp.search_nodes")
+		defer span.End()
+
+		span.SetAttributes(attrToolName.String("search_nodes"))
+
+		outcome := outcomeServerError
+		defer func() {
+			span.SetAttributes(attrToolOutcome.String(outcome))
+			observability.RecordRequest(ctx, "search_nodes", outcome, time.Since(start))
+		}()
+
+		if uid := auth.UserIDFromContext(ctx); uid != "" {
+			span.SetAttributes(attrUserID.String(uid))
+		}
+
 		var args searchNodesArgs
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
 		}
 
+		// AC-E.4: query length only — never query content.
+		span.SetAttributes(
+			attrQueryLength.Int(len(args.Query)),
+			attrHasEmbedding.Bool(true),
+		)
+
 		nodes, relations, err := searchNodes(ctx, pool, args.Query, projectFilterFrom(args.Project))
 		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
+		// AC-E.4: result count only — never result content.
+		span.SetAttributes(attrResultCount.Int(len(nodes)))
+
+		outcome = outcomeSuccess
 		return jsonResult(map[string]any{
 			"nodes":     nodes,
 			"relations": relations,
@@ -145,6 +175,22 @@ type openNodesArgs struct {
 
 func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		start := time.Now()
+		ctx, span := toolTracer().Start(ctx, "mcp.open_nodes")
+		defer span.End()
+
+		span.SetAttributes(attrToolName.String("open_nodes"))
+
+		outcome := outcomeServerError
+		defer func() {
+			span.SetAttributes(attrToolOutcome.String(outcome))
+			observability.RecordRequest(ctx, "open_nodes", outcome, time.Since(start))
+		}()
+
+		if uid := auth.UserIDFromContext(ctx); uid != "" {
+			span.SetAttributes(attrUserID.String(uid))
+		}
+
 		var args openNodesArgs
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
@@ -152,9 +198,14 @@ func openNodesHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 
 		nodes, relations, err := openNodes(ctx, pool, args.Names, projectFilterFrom(args.Project))
 		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
+		// Count only — no node names or relation content in span attributes.
+		span.SetAttributes(attrResultCount.Int(len(nodes)))
+
+		outcome = outcomeSuccess
 		return jsonResult(map[string]any{
 			"nodes":     nodes,
 			"relations": relations,
@@ -263,6 +314,22 @@ type readGraphArgs struct {
 
 func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		start := time.Now()
+		ctx, span := toolTracer().Start(ctx, "mcp.read_graph")
+		defer span.End()
+
+		span.SetAttributes(attrToolName.String("read_graph"))
+
+		outcome := outcomeServerError
+		defer func() {
+			span.SetAttributes(attrToolOutcome.String(outcome))
+			observability.RecordRequest(ctx, "read_graph", outcome, time.Since(start))
+		}()
+
+		if uid := auth.UserIDFromContext(ctx); uid != "" {
+			span.SetAttributes(attrUserID.String(uid))
+		}
+
 		var args readGraphArgs
 		if err := req.BindArguments(&args); err != nil {
 			return errorResult(fmt.Sprintf("invalid arguments: %s", err)), nil
@@ -270,14 +337,20 @@ func readGraphHandler(pool *pgxpool.Pool) server.ToolHandlerFunc {
 
 		nodeRows, err := store.ListActive(ctx, pool, projectFilterFrom(args.Project))
 		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
 		nodes, relations, err := buildNodeRelationResult(ctx, pool, nodeRows)
 		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
+		// Count only — no content in span attributes.
+		span.SetAttributes(attrResultCount.Int(len(nodes)))
+
+		outcome = outcomeSuccess
 		return jsonResult(map[string]any{
 			"nodes":          nodes,
 			"relations":      relations,

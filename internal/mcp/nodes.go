@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgvector "github.com/pgvector/pgvector-go"
 	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
 	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
+	"github.com/mariogutierrez/context-harness-mcp/internal/observability"
 	"github.com/mariogutierrez/context-harness-mcp/internal/ratelimit"
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 	"github.com/mariogutierrez/context-harness-mcp/internal/validate"
@@ -87,7 +90,25 @@ type createNodesArgs struct {
 
 func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		start := time.Now()
+		ctx, span := toolTracer().Start(ctx, "mcp.create_nodes")
+		defer span.End()
+
+		span.SetAttributes(attrToolName.String("create_nodes"))
+
+		// outcome is set by defer so all exit paths are covered (AC-E.5).
+		outcome := outcomeServerError
+		defer func() {
+			span.SetAttributes(attrToolOutcome.String(outcome))
+			observability.RecordRequest(ctx, "create_nodes", outcome, time.Since(start))
+		}()
+
+		if uid := auth.UserIDFromContext(ctx); uid != "" {
+			span.SetAttributes(attrUserID.String(uid))
+		}
+
 		if result := checkRateLimit(ctx, limiter); result != nil {
+			outcome = outcomePolicyReject
 			return result, nil
 		}
 
@@ -101,6 +122,11 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 		for i, n := range args.Nodes {
 			if n.Project != "" {
 				if verr := validate.Check(n.Project); verr != nil {
+					outcome = outcomePolicyReject
+					span.SetAttributes(
+						attrErrorCode.String(verr.Code),
+						attrLayer.String(verr.Layer),
+					)
 					return verr.ToMCPResult(), nil
 				}
 			}
@@ -132,9 +158,15 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 					Message: fmt.Sprintf("Sesión no encontrada: %s", *sessionID),
 					Layer:   validate.LayerSession,
 				}
+				outcome = outcomePolicyReject
+				span.SetAttributes(
+					attrErrorCode.String(verr.Code),
+					attrLayer.String(verr.Layer),
+				)
 				return verr.ToMCPResult(), nil
 			}
 			if err != nil {
+				span.SetStatus(codes.Error, err.Error())
 				return errorResult(fmt.Sprintf("db error: %s", err)), nil
 			}
 			if sess.EndedAt != nil {
@@ -143,6 +175,11 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 					Message: fmt.Sprintf("La sesión %s ya ha finalizado.", *sessionID),
 					Layer:   validate.LayerSession,
 				}
+				outcome = outcomePolicyReject
+				span.SetAttributes(
+					attrErrorCode.String(verr.Code),
+					attrLayer.String(verr.Layer),
+				)
 				return verr.ToMCPResult(), nil
 			}
 		}
@@ -157,15 +194,35 @@ func createNodesHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.T
 			}
 		}
 		if verr := validate.Run(&vp, validate.KindNodes); verr != nil {
+			outcome = outcomePolicyReject
+			span.SetStatus(codes.Error, verr.Code)
+			span.SetAttributes(
+				attrErrorCode.String(verr.Code),
+				attrLayer.String(verr.Layer),
+			)
+			observability.RecordValidationRejection(ctx, verr.Layer, verr.MatchedPattern)
 			return verr.ToMCPResult(), nil
 		}
+
+		// Count metadata only — no content in span attributes (AC-E.3).
+		totalObs := 0
+		for _, n := range args.Nodes {
+			totalObs += len(n.Observations)
+		}
+		span.SetAttributes(
+			attrNodeCount.Int(len(args.Nodes)),
+			attrObservationCount.Int(totalObs),
+			attrHasEmbedding.Bool(totalObs > 0),
+		)
 
 		userID, email := attributionFromContext(ctx)
 		createdNodes, createdObs, err := execCreateNodes(ctx, pool, args.Nodes, sessionID, userID, email)
 		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
+		outcome = outcomeSuccess
 		return jsonResult(map[string]any{
 			"created_nodes":        createdNodes,
 			"created_observations": createdObs,
@@ -264,7 +321,24 @@ type addObservationsArgs struct {
 
 func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		start := time.Now()
+		ctx, span := toolTracer().Start(ctx, "mcp.add_observations")
+		defer span.End()
+
+		span.SetAttributes(attrToolName.String("add_observations"))
+
+		outcome := outcomeServerError
+		defer func() {
+			span.SetAttributes(attrToolOutcome.String(outcome))
+			observability.RecordRequest(ctx, "add_observations", outcome, time.Since(start))
+		}()
+
+		if uid := auth.UserIDFromContext(ctx); uid != "" {
+			span.SetAttributes(attrUserID.String(uid))
+		}
+
 		if result := checkRateLimit(ctx, limiter); result != nil {
+			outcome = outcomePolicyReject
 			return result, nil
 		}
 
@@ -283,8 +357,21 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		}
 		vp2 := validate.Payload{Observations: flatObs}
 		if verr := validate.Run(&vp2, validate.KindObservations); verr != nil {
+			outcome = outcomePolicyReject
+			span.SetStatus(codes.Error, verr.Code)
+			span.SetAttributes(
+				attrErrorCode.String(verr.Code),
+				attrLayer.String(verr.Layer),
+			)
+			observability.RecordValidationRejection(ctx, verr.Layer, verr.MatchedPattern)
 			return verr.ToMCPResult(), nil
 		}
+
+		// Count metadata only — no content in span attributes (AC-E.3).
+		span.SetAttributes(
+			attrObservationCount.Int(len(flatObs)),
+			attrHasEmbedding.Bool(len(flatObs) > 0),
+		)
 
 		// Propagate potentially-redacted texts back into args so the DB write
 		// stores the scrubbed version rather than the original.
@@ -299,9 +386,11 @@ func addObservationsHandler(pool *pgxpool.Pool, limiter *ratelimit.Limiter) serv
 		userID, email := attributionFromContext(ctx)
 		added, err := execAddObservations(ctx, pool, args.Observations, userID, email)
 		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
 			return errorResult(fmt.Sprintf("db error: %s", err)), nil
 		}
 
+		outcome = outcomeSuccess
 		return jsonResult(map[string]any{"added": added}), nil
 	}
 }

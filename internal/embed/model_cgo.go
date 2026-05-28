@@ -6,12 +6,19 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	fastembed "github.com/anush008/fastembed-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/metrics"
+	"github.com/mariogutierrez/context-harness-mcp/internal/observability"
 )
+
+const embedTracerName = "github.com/mariogutierrez/context-harness-mcp/embed"
 
 // defaultEmbedder is the package-level singleton used by encoder.go's Default()
 // and RealEmbedder(). The ONNX session is initialized lazily on first Encode.
@@ -24,6 +31,10 @@ type FastEmbedder struct {
 	once    sync.Once
 	model   *fastembed.FlagEmbedding
 	initErr error
+
+	// warm is set to true after sync.Once fires successfully. A caller that
+	// reads warm=false before calling Do has the cold start (AC-E.6).
+	warm atomic.Bool
 }
 
 // Encode encodes texts in a single batch and returns one []float32 per input.
@@ -33,9 +44,21 @@ type FastEmbedder struct {
 // files) Encode returns a wrapped error — it does NOT panic. The caller
 // surfaces the error as an MCP error so a broken embedder degrades cleanly
 // per-call rather than crashing the server.
-func (e *FastEmbedder) Encode(_ context.Context, texts []string) ([][]float32, error) {
+func (e *FastEmbedder) Encode(ctx context.Context, texts []string) ([][]float32, error) {
 	start := time.Now()
-	defer func() { metrics.EmbedderDuration.Observe(time.Since(start).Seconds()) }()
+	// cold=true when this is the first call (sync.Once has not fired yet).
+	cold := !e.warm.Load()
+
+	ctx, span := otel.Tracer(embedTracerName).Start(ctx, "embed.encode",
+		trace.WithAttributes(attribute.Bool("mcp.embed_cold", cold)),
+	)
+	defer span.End()
+
+	defer func() {
+		dur := time.Since(start)
+		metrics.EmbedderDuration.Observe(dur.Seconds())
+		observability.RecordEmbedDuration(ctx, cold, dur)
+	}()
 
 	e.once.Do(func() {
 		showProgress := false
@@ -50,6 +73,8 @@ func (e *FastEmbedder) Encode(_ context.Context, texts []string) ([][]float32, e
 			return
 		}
 		e.model = m
+		// Mark warm after successful init so subsequent calls see cold=false.
+		e.warm.Store(true)
 	})
 
 	if e.initErr != nil {

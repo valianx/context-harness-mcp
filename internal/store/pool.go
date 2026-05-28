@@ -6,6 +6,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
@@ -35,6 +36,11 @@ func New(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg.MaxConnIdleTime = maxConnIdleTime
 	cfg.MaxConnLifetime = maxConnLifetime
 	cfg.ConnConfig.ConnectTimeout = connectTimeout
+
+	// Instrument every pgx query with an OTel child span. Parameters are
+	// intentionally excluded (default) so that $1, $2 placeholders appear in
+	// db.statement but the bound values never do — satisfying AC-D.2.
+	cfg.ConnConfig.Tracer = otelpgx.NewTracer()
 
 	// Register the pgvector `vector` type on every new connection so that
 	// pgx can encode/decode vector(384) columns natively.
