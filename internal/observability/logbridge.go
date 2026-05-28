@@ -115,6 +115,9 @@ func (h *BridgedSlogHandler) Enabled(ctx context.Context, level slog.Level) bool
 //  1. The provider is non-nil.
 //  2. The record's severity meets or exceeds OTEL_LOG_LEVEL (AC-B.4).
 func (h *BridgedSlogHandler) Handle(ctx context.Context, r slog.Record) error {
+	// Inject signal attribute so Axiom queries can filter logs vs spans (AC-SG.1).
+	r.AddAttrs(slog.String("signal", "log"))
+
 	// Always write to stdout first (AC-B.1).
 	innerErr := h.inner.Handle(ctx, r)
 

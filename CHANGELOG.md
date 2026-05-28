@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `feat(observability): attributes.signal=log|trace para distinguir telemetry type` — `internal/observability/logbridge.go`: `BridgedSlogHandler.Handle` inyecta `signal="log"` en cada log record antes de delegar al wrapped handler (AC-SG.1); `internal/observability/signal_processor.go` (NEW): `SignalSpanProcessor` implementa `sdktrace.SpanProcessor`, en `OnStart` llama `s.SetAttributes(attribute.String("signal", "trace"))` sobre cada span (AC-SG.2, AC-SG.3); `internal/observability/init.go`: pipeline de spans actualizado a `SignalSpanProcessor → noiseFilterProcessor → BatchSpanProcessor → ScrubSpanExporter → OTLP`; `internal/observability/signal_processor_test.go` (NEW): 4 tests con `tracetest.InMemoryExporter`; `internal/observability/logbridge_test.go`: 1 test nuevo `TestBridgedSlogHandler_AC_SG1_LogRecordCarriesSignalLog`.
+
 ### Changed
 
 - `refactor(observability): invertir HTTP filter de denylist a allowlist (solo /mcp y /viewer)` — `cmd/server/main.go`: `shouldTraceHTTPPath` reescrita como allowlist (`HasPrefix /mcp || HasPrefix /viewer`); bots WordPress detectados en producción (`/wp-admin/install.php`, `/wp-includes/`, `/vendor/phpunit/`) ya no emiten span; default deny para paths desconocidos (comportamiento opuesto a la denylist anterior). `cmd/server/main_test.go`: `TestShouldTraceHTTPPath` actualizado con casos AC-AL.1–AC-AL.4 incluyendo bot scanners y unknown-path default deny.

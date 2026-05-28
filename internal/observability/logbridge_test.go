@@ -250,6 +250,25 @@ func TestBridgedSlogHandler_AC_B5_UserIDAbsentWhenUnauthenticated(t *testing.T) 
 	assert.False(t, hasUserID, "user.id must be absent when not authenticated")
 }
 
+// ── AC-SG.1: logs llevan signal="log" ────────────────────────────────────────
+
+func TestBridgedSlogHandler_AC_SG1_LogRecordCarriesSignalLog(t *testing.T) {
+	var buf bytes.Buffer
+	proc := &recordCapture{}
+	provider := newTestProvider(proc)
+	h := NewBridgedSlogHandler(slog.NewJSONHandler(&buf, nil), provider)
+	logger := slog.New(h)
+
+	logger.InfoContext(context.Background(), "request_received", "tool", "search_nodes")
+
+	records := proc.Emitted()
+	require.Len(t, records, 1, "exactly one OTel record must be emitted")
+
+	val, ok := findAttr(t, records[0], "signal")
+	assert.True(t, ok, "signal attribute must be present on the OTel log record")
+	assert.Equal(t, "log", val.AsString(), "signal attribute value must be 'log'")
+}
+
 // ── Structural tests ──────────────────────────────────────────────────────────
 
 func TestBridgedSlogHandler_WithAttrsPropagatesToBothPaths(t *testing.T) {
