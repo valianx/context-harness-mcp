@@ -126,6 +126,9 @@ func TestGetUser_SuccessPath_EmitsRequestAndResponse(t *testing.T) {
 	if reqLog["operation"] != "request" {
 		t.Errorf("external_supabase_request operation = %v, want request", reqLog["operation"])
 	}
+	if reqLog["target"] != "external" {
+		t.Errorf("external_supabase_request target = %v, want external", reqLog["target"])
+	}
 
 	// AC-ES.2: response log present with mandatory fields including the raw body.
 	respLog, ok := findAuthLog(records, "external_supabase_response")
@@ -153,6 +156,9 @@ func TestGetUser_SuccessPath_EmitsRequestAndResponse(t *testing.T) {
 	}
 	if respLog["operation"] != "response" {
 		t.Errorf("external_supabase_response operation = %v, want response", respLog["operation"])
+	}
+	if respLog["target"] != "external" {
+		t.Errorf("external_supabase_response target = %v, want external", respLog["target"])
 	}
 
 	// No failed log must appear.
@@ -212,6 +218,9 @@ func TestGetUser_NetworkError_EmitsRequestAndFailed(t *testing.T) {
 	if failedLog["operation"] != "error" {
 		t.Errorf("external_supabase_failed operation = %v, want error", failedLog["operation"])
 	}
+	if failedLog["target"] != "external" {
+		t.Errorf("external_supabase_failed target = %v, want external", failedLog["target"])
+	}
 
 	// No response log must appear.
 	if _, hasResp := findAuthLog(records, "external_supabase_response"); hasResp {
@@ -270,6 +279,9 @@ func TestGetUser_Non2xx_EmitsRequestAndFailed(t *testing.T) {
 	}
 	if failedLog500["operation"] != "error" {
 		t.Errorf("external_supabase_failed operation = %v, want error", failedLog500["operation"])
+	}
+	if failedLog500["target"] != "external" {
+		t.Errorf("external_supabase_failed target = %v, want external", failedLog500["target"])
 	}
 }
 

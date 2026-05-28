@@ -120,6 +120,9 @@ func TestLogs_CreateNodes_PolicyReject(t *testing.T) {
 	if recvd["operation"] != "request" {
 		t.Errorf("request_received operation = %v, want request", recvd["operation"])
 	}
+	if recvd["target"] != "client" {
+		t.Errorf("request_received target = %v, want client", recvd["target"])
+	}
 
 	// validation_rejected must be present with correct layer and error_code.
 	rejected, ok := findLogLine(records, "validation_rejected")
@@ -137,6 +140,9 @@ func TestLogs_CreateNodes_PolicyReject(t *testing.T) {
 	}
 	if rejected["operation"] != "error" {
 		t.Errorf("validation_rejected operation = %v, want error", rejected["operation"])
+	}
+	if rejected["target"] != "internal" {
+		t.Errorf("validation_rejected target = %v, want internal", rejected["target"])
 	}
 
 	// The secret value must NOT appear in any log field except "body".
@@ -163,6 +169,9 @@ func TestLogs_CreateNodes_PolicyReject(t *testing.T) {
 	}
 	if completed["operation"] != "response" {
 		t.Errorf("request_completed operation = %v, want response", completed["operation"])
+	}
+	if completed["target"] != "client" {
+		t.Errorf("request_completed target = %v, want client", completed["target"])
 	}
 }
 
@@ -256,6 +265,9 @@ func TestLogs_AddObservations_PolicyReject(t *testing.T) {
 	if recvdAdd["operation"] != "request" {
 		t.Errorf("request_received operation = %v, want request", recvdAdd["operation"])
 	}
+	if recvdAdd["target"] != "client" {
+		t.Errorf("request_received target = %v, want client", recvdAdd["target"])
+	}
 
 	rejected, ok := findLogLine(records, "validation_rejected")
 	if !ok {
@@ -273,6 +285,9 @@ func TestLogs_AddObservations_PolicyReject(t *testing.T) {
 	if rejected["operation"] != "error" {
 		t.Errorf("validation_rejected operation = %v, want error", rejected["operation"])
 	}
+	if rejected["target"] != "internal" {
+		t.Errorf("validation_rejected target = %v, want internal", rejected["target"])
+	}
 
 	completedAdd, ok := findLogLine(records, "request_completed")
 	if !ok {
@@ -280,6 +295,9 @@ func TestLogs_AddObservations_PolicyReject(t *testing.T) {
 	}
 	if completedAdd["operation"] != "response" {
 		t.Errorf("request_completed operation = %v, want response", completedAdd["operation"])
+	}
+	if completedAdd["target"] != "client" {
+		t.Errorf("request_completed target = %v, want client", completedAdd["target"])
 	}
 }
 
@@ -318,6 +336,9 @@ func TestLogs_SearchNodes(t *testing.T) {
 	if recvdSearch["operation"] != "request" {
 		t.Errorf("request_received operation = %v, want request", recvdSearch["operation"])
 	}
+	if recvdSearch["target"] != "client" {
+		t.Errorf("request_received target = %v, want client", recvdSearch["target"])
+	}
 
 	// request_completed must be present (defer).
 	completedSearch, ok := findLogLine(records, "request_completed")
@@ -326,6 +347,9 @@ func TestLogs_SearchNodes(t *testing.T) {
 	}
 	if completedSearch["operation"] != "response" {
 		t.Errorf("request_completed operation = %v, want response", completedSearch["operation"])
+	}
+	if completedSearch["target"] != "client" {
+		t.Errorf("request_completed target = %v, want client", completedSearch["target"])
 	}
 
 	// db_tx_committed must NOT appear for a read handler (AC-RL.6).
@@ -361,6 +385,9 @@ func TestLogs_OpenNodes(t *testing.T) {
 	if recvdOpen["operation"] != "request" {
 		t.Errorf("request_received operation = %v, want request", recvdOpen["operation"])
 	}
+	if recvdOpen["target"] != "client" {
+		t.Errorf("request_received target = %v, want client", recvdOpen["target"])
+	}
 
 	completedOpen, ok := findLogLine(records, "request_completed")
 	if !ok {
@@ -368,6 +395,9 @@ func TestLogs_OpenNodes(t *testing.T) {
 	}
 	if completedOpen["operation"] != "response" {
 		t.Errorf("request_completed operation = %v, want response", completedOpen["operation"])
+	}
+	if completedOpen["target"] != "client" {
+		t.Errorf("request_completed target = %v, want client", completedOpen["target"])
 	}
 
 	if countLogLines(records, "db_tx_committed") > 0 {
@@ -404,6 +434,9 @@ func TestLogs_ReadGraph(t *testing.T) {
 	}
 	if recvdGraph["operation"] != "request" {
 		t.Errorf("request_received operation = %v, want request", recvdGraph["operation"])
+	}
+	if recvdGraph["target"] != "client" {
+		t.Errorf("request_received target = %v, want client", recvdGraph["target"])
 	}
 }
 
@@ -590,6 +623,9 @@ func TestLogs_CreateRelations_PolicyReject(t *testing.T) {
 	if recvdRel["operation"] != "request" {
 		t.Errorf("request_received operation = %v, want request", recvdRel["operation"])
 	}
+	if recvdRel["target"] != "client" {
+		t.Errorf("request_received target = %v, want client", recvdRel["target"])
+	}
 
 	rejectedRel, ok := findLogLine(records, "validation_rejected")
 	if !ok {
@@ -604,6 +640,9 @@ func TestLogs_CreateRelations_PolicyReject(t *testing.T) {
 	if rejectedRel["operation"] != "error" {
 		t.Errorf("validation_rejected operation = %v, want error", rejectedRel["operation"])
 	}
+	if rejectedRel["target"] != "internal" {
+		t.Errorf("validation_rejected target = %v, want internal", rejectedRel["target"])
+	}
 
 	completedRel, ok := findLogLine(records, "request_completed")
 	if !ok {
@@ -611,5 +650,8 @@ func TestLogs_CreateRelations_PolicyReject(t *testing.T) {
 	}
 	if completedRel["operation"] != "response" {
 		t.Errorf("request_completed operation = %v, want response", completedRel["operation"])
+	}
+	if completedRel["target"] != "client" {
+		t.Errorf("request_completed target = %v, want client", completedRel["target"])
 	}
 }
