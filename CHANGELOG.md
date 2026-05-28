@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `feat(observability): scaffold OTel SDK + métricas básicas` — `internal/observability/init.go` (TracerProvider + LoggerProvider + MeterProvider setup, W3C propagation, ParentBased sampler, shutdown flush, boot guard), `internal/observability/metrics.go` (9 instruments: `mcp.requests.total`, `mcp.request.duration`, `mcp.validate.rejections.total`, `mcp.embed.duration`, `mcp.embed.tokens_truncated.total`, `db.pool.acquired`, `auth.jwt.cache.total`, `kg.nodes.active`, `kg.observations.total`), `internal/observability/providers.go` (global provider accessors). OTLP/HTTP exporter, Scrubber registry with noopScrubber boot guard (AC-A.8), safe-to-fail observable gauges (AC-A.7), runtime sampler config (AC-A.9). Added OTel SDK deps to `go.mod` (v1.37 family + `sdk/log@v0.13.0` + `otlploghttp@v0.13.0`). Observability env vars documented in `.env.example`.
+
+### Added
+
 - **Viewer mirrors MCP `search_nodes` exactly** (`internal/viewer/handler.go`): search endpoint now returns the top 10 results by cosine similarity, matching the MCP tool's `LIMIT 10`. Operators see precisely what an agent sees when it calls `search_nodes` with the same query. The list-all endpoint (no query) keeps the 50-result browsing limit since it's not modeling an agent call.
 - `internal/viewer/handler.go` — `Score *float64 json:"score,omitempty"` field on `nodeView`; `nodeRowScored` struct; `searchByCosine` now SELECTs `MIN(o.embedding <=> $1::vector) AS min_distance` and returns scored rows; similarity computed as `1 - distance` clamped to [0,1] and attached to each `nodeView` on the search path only (nil on list-all, dropped by `omitempty`).
 - `internal/viewer/templates/index.html` — corner score badge (`.ch-score-badge`) with three color tiers: green ≥80% (`.ch-score-high`), yellow 50–79% (`.ch-score-mid`), red <50% (`.ch-score-low`); rendered as absolute-positioned overlay on each result card; `searchAPI()` maps the new `score` field from JSON; search input gated to 3+ characters with inline hint at 1–2 chars; search placeholder updated to reflect minimum.
