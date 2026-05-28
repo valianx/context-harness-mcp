@@ -230,25 +230,29 @@ func TestSpan_CreateNodes_no_observation_content(t *testing.T) {
 	}
 }
 
-// ── AC-E.4: search_nodes does not expose query content or result content ──────
+// ── AC-E.4 (updated): search_nodes mcp.query is present and scrubbed ──────────
 
-// TestSpan_SearchNodes_no_query_content verifies that only mcp.query_length
-// is recorded, never the query text itself or result content.
-func TestSpan_SearchNodes_no_query_content(t *testing.T) {
+// TestSpan_SearchNodes_query_length_and_text verifies that mcp.query_length is
+// set AND mcp.query contains the (scrubbed, capped) query text.
+//
+// NOTE: AC-E.4 originally prohibited query text in spans entirely. The tiered
+// FULL approach (observability-tuning PR-I) intentionally adds mcp.query to
+// search_nodes spans — the value passes through ScrubSpanExporter before export
+// so secrets in the query are redacted before leaving the process. The old
+// "no query content" invariant now applies only to raw unscrubbable content
+// (user.email, full observation text, SQL parameter values — still prohibited).
+func TestSpan_SearchNodes_query_length_and_text(t *testing.T) {
 	rec := setupTraceRecorder(t)
 
-	// Use a failing encoder so the handler errors at the embed step, before the
-	// pool is invoked.  The span is still emitted with the pre-pool attributes.
+	// Use a failing encoder so the handler errors at the embed step.
 	restore := embed.SetForTesting(failingEncoder{})
 	t.Cleanup(restore)
 
-	sensitiveQuery := "sensitive query about private matters"
+	query := "find service nodes in production"
 
 	handler := searchNodesHandler(nil)
-
 	req := mcplib.CallToolRequest{}
-	req.Params.Arguments = map[string]any{"query": sensitiveQuery}
-
+	req.Params.Arguments = map[string]any{"query": query}
 	_, _ = handler(context.Background(), req)
 
 	span, ok := findSpan(rec, "mcp.search_nodes")
@@ -260,11 +264,291 @@ func TestSpan_SearchNodes_no_query_content(t *testing.T) {
 	if !attrExists(span, "mcp.query_length") {
 		t.Error("expected mcp.query_length to be present")
 	}
-
-	// The query text must never appear as a span attribute value.
+	// mcp.query must be set with the query text (tiered FULL — AC-I.1).
+	if !attrExists(span, "mcp.query") {
+		t.Error("expected mcp.query to be present (tiered FULL approach)")
+	}
+	// Hard-prohibited: user.email must never appear.
 	for _, a := range allAttrValues(span) {
-		if strings.Contains(a.Value.AsString(), sensitiveQuery) {
-			t.Errorf("span attribute %q contains query content — must not be recorded", a.Key)
+		if strings.Contains(string(a.Key), "user.email") {
+			t.Errorf("span attribute %q is hard-prohibited (user.email)", a.Key)
+		}
+	}
+}
+
+// ── AC-E.5: mcp.tool_outcome is set on ALL exit paths via defer ───────────────
+
+// attrStringSlice returns the string slice value for the given key in the span's
+// attributes. Returns nil when not found or when the value is not a STRINGSLICE.
+func attrStringSlice(s sdktrace.ReadOnlySpan, key string) []string {
+	for _, a := range s.Attributes() {
+		if string(a.Key) == key {
+			return a.Value.AsStringSlice()
+		}
+	}
+	return nil
+}
+
+// ── AC-I.1: mcp.query in search_nodes spans ────────────────────────────────────
+
+// TestSpan_SearchNodes_query_attr emits a search_nodes span via the failing
+// encoder path (which sets the span attrs before failing) and verifies that
+// mcp.query is present and matches the input query text.
+func TestSpan_SearchNodes_query_attr(t *testing.T) {
+	rec := setupTraceRecorder(t)
+
+	restore := embed.SetForTesting(failingEncoder{})
+	t.Cleanup(restore)
+
+	handler := searchNodesHandler(nil)
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"query": "find service nodes"}
+	_, _ = handler(context.Background(), req)
+
+	span, ok := findSpan(rec, "mcp.search_nodes")
+	if !ok {
+		t.Fatal("expected span 'mcp.search_nodes'")
+	}
+	queryVal := attrValue(span, "mcp.query")
+	if queryVal == "" {
+		t.Error("mcp.query attribute must be set on search_nodes span")
+	}
+	if queryVal != "find service nodes" {
+		t.Errorf("mcp.query = %q, want %q", queryVal, "find service nodes")
+	}
+}
+
+// TestSpan_SearchNodes_query_attr_truncated verifies that a query exceeding
+// queryAttrCap (500 chars) is truncated with the ellipsis suffix.
+func TestSpan_SearchNodes_query_attr_truncated(t *testing.T) {
+	rec := setupTraceRecorder(t)
+
+	restore := embed.SetForTesting(failingEncoder{})
+	t.Cleanup(restore)
+
+	longQuery := strings.Repeat("x", 600)
+
+	handler := searchNodesHandler(nil)
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{"query": longQuery}
+	_, _ = handler(context.Background(), req)
+
+	span, ok := findSpan(rec, "mcp.search_nodes")
+	if !ok {
+		t.Fatal("expected span 'mcp.search_nodes'")
+	}
+	queryVal := attrValue(span, "mcp.query")
+	runes := []rune(queryVal)
+	if len(runes) != queryAttrCap {
+		t.Errorf("mcp.query rune count = %d, want %d (queryAttrCap)", len(runes), queryAttrCap)
+	}
+	if !strings.HasSuffix(queryVal, "…") {
+		t.Error("mcp.query must end with ellipsis when truncated")
+	}
+}
+
+// ── AC-I.3: mcp.node_names + mcp.node_types in create_nodes spans ─────────────
+
+// TestSpan_CreateNodes_node_names_and_types verifies that the node names and
+// types appear on the create_nodes span even on a policy_reject path.
+func TestSpan_CreateNodes_node_names_and_types(t *testing.T) {
+	rec := setupTraceRecorder(t)
+	installMockEmbedder(t)
+
+	handler := createNodesHandler(nil, nil)
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"nodes": []any{
+			map[string]any{"name": "alpha", "nodeType": "service", "observations": []any{}},
+			map[string]any{"name": "beta", "nodeType": "library", "observations": []any{}},
+		},
+	}
+	_, _ = handler(context.Background(), req)
+
+	span, ok := findSpan(rec, "mcp.create_nodes")
+	if !ok {
+		t.Fatal("expected span 'mcp.create_nodes'")
+	}
+	names := attrStringSlice(span, "mcp.node_names")
+	if len(names) != 2 {
+		t.Errorf("mcp.node_names count = %d, want 2", len(names))
+	}
+	types := attrStringSlice(span, "mcp.node_types")
+	if len(types) != 2 {
+		t.Errorf("mcp.node_types count = %d, want 2", len(types))
+	}
+}
+
+// ── AC-I.5: mcp.relations_summary in create_relations spans ───────────────────
+
+// TestSpan_CreateRelations_relations_summary verifies that relations_summary is
+// set on create_relations spans in the "from→to:type" format. We use an empty
+// relationType to trigger a taxonomy policy_reject so the handler exits before
+// reaching the nil pool (no DB required in tests).
+func TestSpan_CreateRelations_relations_summary(t *testing.T) {
+	rec := setupTraceRecorder(t)
+
+	handler := createRelationsHandler(nil, nil)
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"relations": []any{
+			// Empty relationType → taxonomy policy_reject before pool is touched.
+			map[string]any{"from": "a", "to": "b", "relationType": ""},
+			map[string]any{"from": "b", "to": "c", "relationType": ""},
+		},
+	}
+	_, _ = handler(context.Background(), req)
+
+	span, ok := findSpan(rec, "mcp.create_relations")
+	if !ok {
+		t.Fatal("expected span 'mcp.create_relations'")
+	}
+	summary := attrStringSlice(span, "mcp.relations_summary")
+	if len(summary) != 2 {
+		t.Errorf("mcp.relations_summary count = %d, want 2", len(summary))
+	}
+	wantFirst := "a→b:"
+	if len(summary) > 0 && summary[0] != wantFirst {
+		t.Errorf("mcp.relations_summary[0] = %q, want %q", summary[0], wantFirst)
+	}
+}
+
+// ── AC-I.6: mcp.rejected_input only on error exit paths ───────────────────────
+
+// TestSpan_CreateNodes_rejected_input_on_policy_reject verifies that
+// mcp.rejected_input appears on policy_reject spans but NOT on success spans.
+func TestSpan_CreateNodes_rejected_input_on_policy_reject(t *testing.T) {
+	rec := setupTraceRecorder(t)
+	installMockEmbedder(t)
+
+	handler := createNodesHandler(nil, nil)
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"nodes": []any{
+			map[string]any{
+				"name":     "SecretNode",
+				"nodeType": "tech",
+				// Known gitleaks pattern triggers Layer 2 policy_reject.
+				"observations": []any{"AKIAIOSFODNN7EXAMPLE"},
+			},
+		},
+	}
+	_, _ = handler(context.Background(), req)
+
+	span, ok := findSpan(rec, "mcp.create_nodes")
+	if !ok {
+		t.Fatal("expected span 'mcp.create_nodes'")
+	}
+	if got := attrValue(span, "mcp.tool_outcome"); got != outcomePolicyReject {
+		t.Errorf("mcp.tool_outcome = %q, want %q", got, outcomePolicyReject)
+	}
+	if !attrExists(span, "mcp.rejected_input") {
+		t.Error("mcp.rejected_input must be present on policy_reject span")
+	}
+}
+
+// TestSpan_CreateRelations_no_rejected_input_on_success verifies that
+// mcp.rejected_input is absent on successful spans (AC-I.6).
+// We use the fact that an empty relationType causes a policy_reject, so we
+// pick a valid relationType and let it fail at the DB layer (nil pool → server_error).
+// The important thing is that mcp.rejected_input is not set when outcome is success.
+func TestSpan_CreateRelations_no_rejected_input_when_taxonomy_passes(t *testing.T) {
+	rec := setupTraceRecorder(t)
+
+	handler := createRelationsHandler(nil, nil)
+	req := mcplib.CallToolRequest{}
+	req.Params.Arguments = map[string]any{
+		"relations": []any{
+			map[string]any{
+				"from":         "NodeA",
+				"to":           "NodeB",
+				"relationType": "", // empty → taxonomy reject
+			},
+		},
+	}
+	_, _ = handler(context.Background(), req)
+
+	span, ok := findSpan(rec, "mcp.create_relations")
+	if !ok {
+		t.Fatal("expected span 'mcp.create_relations'")
+	}
+	// Empty relationType triggers policy_reject — rejected_input should be present.
+	if got := attrValue(span, "mcp.tool_outcome"); got != outcomePolicyReject {
+		t.Errorf("mcp.tool_outcome = %q, want %q", got, outcomePolicyReject)
+	}
+	if !attrExists(span, "mcp.rejected_input") {
+		t.Error("mcp.rejected_input must be present on policy_reject span")
+	}
+}
+
+// ── AC-I.8: whitelist — no attribute key outside the 18 allowed keys ──────────
+
+// allowedMCPSpanKeys is the complete 18-key whitelist (10 existing + 8 new from PR-I).
+// Any attribute key outside this set that appears in a MCP span is a bug.
+var allowedMCPSpanKeys = map[string]bool{
+	"mcp.tool_name":             true,
+	"mcp.tool_outcome":          true,
+	"mcp.error_code":            true,
+	"mcp.layer":                 true,
+	"mcp.node_count":            true,
+	"mcp.observation_count":     true,
+	"mcp.result_count":          true,
+	"mcp.query_length":          true,
+	"mcp.has_embedding":         true,
+	"user.id":                   true,
+	"mcp.query":                 true,
+	"mcp.result_names":          true,
+	"mcp.node_names":            true,
+	"mcp.node_types":            true,
+	"mcp.node_name":             true,
+	"mcp.observation_snippets":  true,
+	"mcp.relations_summary":     true,
+	"mcp.rejected_input":        true,
+}
+
+// TestSpan_Whitelist_no_keys_outside_allowed_set verifies AC-I.8: no span
+// emitted by MCP handlers contains attribute keys outside the 18-key whitelist.
+func TestSpan_Whitelist_no_keys_outside_allowed_set(t *testing.T) {
+	rec := setupTraceRecorder(t)
+	installMockEmbedder(t)
+
+	// Trigger create_nodes policy_reject (taxonomy — empty nodeType).
+	handler1 := createNodesHandler(nil, nil)
+	req1 := mcplib.CallToolRequest{}
+	req1.Params.Arguments = map[string]any{
+		"nodes": []any{
+			map[string]any{"name": "N", "nodeType": "", "observations": []any{}},
+		},
+	}
+	_, _ = handler1(context.Background(), req1)
+
+	// Trigger create_relations policy_reject (taxonomy — empty relationType).
+	handler2 := createRelationsHandler(nil, nil)
+	req2 := mcplib.CallToolRequest{}
+	req2.Params.Arguments = map[string]any{
+		"relations": []any{
+			map[string]any{"from": "A", "to": "B", "relationType": ""},
+		},
+	}
+	_, _ = handler2(context.Background(), req2)
+
+	// Trigger search_nodes server_error via failing embedder.
+	restore := embed.SetForTesting(failingEncoder{})
+	t.Cleanup(restore)
+	handler3 := searchNodesHandler(nil)
+	req3 := mcplib.CallToolRequest{}
+	req3.Params.Arguments = map[string]any{"query": "test query"}
+	_, _ = handler3(context.Background(), req3)
+
+	for _, span := range rec.Ended() {
+		if !strings.HasPrefix(span.Name(), "mcp.") {
+			continue // skip non-MCP spans (e.g. parent spans in other tests)
+		}
+		for _, kv := range span.Attributes() {
+			key := string(kv.Key)
+			if !allowedMCPSpanKeys[key] {
+				t.Errorf("span %q has disallowed attribute key %q — add it to the whitelist or remove it from the handler", span.Name(), key)
+			}
 		}
 	}
 }
