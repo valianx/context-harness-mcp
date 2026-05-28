@@ -27,6 +27,7 @@ var defaultEmbedder = &FastEmbedder{}
 var errONXUnavailable = errors.New("embed: ONNX runtime unavailable (CGO disabled in this build)")
 
 // Encode always returns errONXUnavailable when compiled without CGO.
+// The stub does not emit OTel spans — there is no real work to trace.
 func (e *FastEmbedder) Encode(_ context.Context, _ []string) ([][]float32, error) {
 	start := time.Now()
 	defer func() { metrics.EmbedderDuration.Observe(time.Since(start).Seconds()) }()
