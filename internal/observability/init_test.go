@@ -42,6 +42,25 @@ func TestInit_DisabledByDefault(t *testing.T) {
 	assert.NoError(t, shutdown(context.Background()))
 }
 
+// TestInit_RespectsOTELSDKDisabled validates the integration with PR-H's
+// stdio kill-switch: even with CH_OBSERVABILITY_ENABLED=true and a valid
+// endpoint, OTEL_SDK_DISABLED=true must short-circuit Init to noop. This
+// runs BEFORE the endpoint check and the boot guard so stdio mode never
+// trips either.
+func TestInit_RespectsOTELSDKDisabled(t *testing.T) {
+	withEnv(t,
+		"CH_OBSERVABILITY_ENABLED", "true",
+		"OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.axiom.co",
+		"AXIOM_TOKEN", "xaat-test",
+		"OTEL_SDK_DISABLED", "true",
+	)
+
+	shutdown, err := Init(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, shutdown)
+	assert.NoError(t, shutdown(context.Background()))
+}
+
 // TestInit_FailsFastNoEndpoint validates AC-A.2: CH_OBSERVABILITY_ENABLED=true
 // with an empty OTEL_EXPORTER_OTLP_ENDPOINT returns a config error.
 func TestInit_FailsFastNoEndpoint(t *testing.T) {
