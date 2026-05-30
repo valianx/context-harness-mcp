@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- `README.md`: added `## Requirements` section (Postgres 16 + pgvector, Docker, local ONNX embeddings, Supabase auth conditionality, amd64-only image) and `## Limitations` section (single-tenant design, auth-off-by-default warning, Supabase-only login flow, no hard-delete via API, fail-open revocation). Added auth toggle note in `## Install` Option A clarifying `MCP_AUTH=none` vs `MCP_AUTH=enabled`.
+- `docs/auth.md`: added explicit note distinguishing generic HS256 JWT validation from the Supabase-specific login and provisioning flow.
+
 ## [1.0.0] - 2026-05-29
 
 Promote to stable GA. No functional change from 0.5.0.

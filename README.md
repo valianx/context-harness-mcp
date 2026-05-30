@@ -9,6 +9,14 @@ An [MCP](https://modelcontextprotocol.io/) server that exposes a Knowledge Graph
 - **Content Filter** on every write — three layers (size + junk denylist, secrets scan with [gitleaks](https://github.com/gitleaks/gitleaks), taxonomy enforcement) reject payloads with secrets, oversized text, or out-of-taxonomy node/relation types before any DB transaction opens. Atomic reject — never partial writes.
 - **MCP-protocol compatible.** Standard MCP streamable-http transport; works with Claude Code and any other MCP-compatible client. JSON wire shapes are stable and documented in [docs/mcp-tools.md](docs/mcp-tools.md).
 
+## Requirements
+
+- **Postgres 16 + pgvector** — the only required data store. Any Postgres 16 instance with the `pgvector` extension works. The easiest free option is a [Supabase](https://supabase.com) project (no credit card); plain self-hosted Postgres is equally valid.
+- **Docker** — to run the prebuilt image or build from source with `docker compose`. Alternatively, Go 1.23+ if you want to compile the binaries directly.
+- **Embeddings run locally** — semantic search uses a bundled `all-MiniLM-L6-v2` ONNX model. No external embedding API key, no per-call cost. The first image build downloads the ONNX runtime and model (~5 min); the prebuilt `ghcr` image already includes them.
+- **Supabase is required only if you enable authentication** (`MCP_AUTH=enabled`). It is the identity provider for the login and user-provisioning flow. With `MCP_AUTH=none` (the default) Supabase is not needed at all.
+- **Container image is linux/amd64 only.** The ONNX/CGO build targets amd64; arm64 or other architectures require a local build from source.
+
 ## Install
 
 A prebuilt image is published to GitHub Container Registry on every release tag — no local build required:
@@ -52,11 +60,21 @@ To use it from Claude Code, add to `~/.claude.json`:
 
 Full local runbook — DB options, migrations, troubleshooting, smoke tests — in [docs/local-stack.md](docs/local-stack.md).
 
+**Authentication toggle:** by default the server starts with `MCP_AUTH=none` — the `/mcp` endpoint is public and no Supabase project is required. To enable bearer-token auth, set `MCP_AUTH=enabled` plus `MCP_JWT_SECRET`, `SUPABASE_PROJECT_URL`, `SUPABASE_ANON_KEY`, and `MCP_WEBHOOK_SECRET`. See [docs/auth.md](docs/auth.md) for the full setup runbook. Do not expose a public-internet deployment without auth enabled.
+
 ### Option B — Cloud (any container hosting + any Postgres+pgvector)
 
 Same Docker image, deployed to whatever container host you prefer ([Railway](https://railway.app), [Render](https://render.com), [Fly](https://fly.io), [Coolify](https://coolify.io), your own VPS, …) and pointed at any Postgres 16+ with `pgvector` (managed: Supabase, Neon, Railway Postgres, RDS, …; or self-hosted). Continuous deploy via the included GitHub workflows (`goose up` + optional deploy hook), weekly encrypted `pg_dump` backups, and a configurable keepalive cron for providers that auto-pause.
 
 One-time setup runbook — principles plus equally-weighted per-platform examples — in [docs/deployment.md](docs/deployment.md).
+
+## Limitations
+
+- **Single-tenant by design.** One deployment = one shared Knowledge Graph = one team. All users of an instance share the same graph; `project` is a grouping tag, not an access-control boundary. For multiple isolated teams, run multiple independent deployments — each with its own Postgres database, its own Supabase project (if auth is enabled), and its own `MCP_JWT_SECRET`.
+- **Authentication is off by default.** `MCP_AUTH=none` means `/mcp` is fully public. The server emits a recurring log warning when auth is off and a remote DB is configured, but it does not block requests. Enable auth before any public-internet deployment.
+- **Auth login flow is Supabase-only.** The token itself is a standard HS256 JWT validated locally; but the login, user-provisioning, and revocation flow is written against Supabase. No other identity provider is supported without code changes. See [docs/auth.md](docs/auth.md) for the architecture details.
+- **No hard-delete via the API.** Permanent removal requires direct SQL or the Supabase Studio dashboard. The API provides reversible soft-delete via `mark_superseded`.
+- **Revocation fails open on DB error.** If a database outage occurs during a token-revocation check, the server trusts a recent cached result rather than denying the request. This is a deliberate availability-over-strictness trade-off.
 
 ## Documentation
 
