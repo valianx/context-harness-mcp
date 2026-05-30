@@ -114,7 +114,7 @@ Reinicia Claude Code → ready
    ```json
    {
      "mcpServers": {
-       "context-harness": {
+       "memory": {
          "transport": {
            "type": "http",
            "url": "https://<server-host>/mcp",
@@ -128,7 +128,7 @@ Reinicia Claude Code → ready
    ```
    Copiar el bloque completo.
 
-5. **Pegar en `~/.claude.json`**: Abrir `~/.claude.json` (o crearlo si no existe) y pegar el bloque bajo la clave `mcpServers`. Si ya tenés otros servers, mergeá el objeto `context-harness` dentro del existente `mcpServers`.
+5. **Pegar en `~/.claude.json`**: Abrir `~/.claude.json` (o crearlo si no existe) y pegar el bloque bajo la clave `mcpServers`. Si ya tenés otros servers, mergeá el objeto `memory` dentro del existente `mcpServers`.
 
 6. **Reiniciar Claude Code**: Cerrar y volver a abrir Claude Code. Claude Code leerá el nuevo header y lo enviará en cada request a `/mcp`.
 

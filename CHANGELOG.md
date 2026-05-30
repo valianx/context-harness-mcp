@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-29
+
+First semver release. All six roadmap phases shipped to `main`. 16 MCP tools registered and documented.
+
+### Added
+
+- **16 MCP tools** — nodes (`create_nodes`, `add_observations`, `update_observations`, `open_nodes`), relations (`create_relations`), query (`search_nodes`, `read_graph`, `stats`, `timeline`), conflict detection (`find_conflicts`, `mark_superseded`), sessions (`session_start`, `session_end`, `session_summary`), observability (`suggest_node_type`, `doctor`).
+- **Auth** (Phase 0) — Supabase Auth + JWT HS256 bearer tokens; `ch_session` HMAC cookie for browser surfaces; revocation via Supabase Database Webhook + LRU cache; attribution (`created_by_user_id`, `created_by_email`) on all writes; rate limiting per `sub` claim.
+- **Project scoping** (Phase 2) — `project_id` column on `nodes`/`relations` (default `'global'`); composite unique `(project_id, name)`; project filter on all read tools; `khctl export/import --project`; viewer project dropdown.
+- **Conflict detection** (Phase 3) — `find_conflicts` (semantic cosine search via pgvector) + `mark_superseded` (inserts `supersedes` relation, optional archive of old observations); `relationType` enum extended to 7 values (`supersedes`, `conflicts_with`).
+- **Sessions** (Phase 4) — `sessions` table; `session_start`/`session_end`/`session_summary` tools; `session_id` nullable FK on `nodes`.
+- **Polish** (Phase 5) — `suggest_node_type` (centroid-based classifier, 5-min TTL cache); viewer node-type filter + relations display + superseded badge; `khctl backup`/`khctl restore` (pg_dump wrappers); Prometheus `/metrics` endpoint (gated by `MCP_EXPOSE_METRICS=1`).
+- **Observability** — OTel SDK (TracerProvider + LoggerProvider + MeterProvider); Axiom OTLP export; slog→OTel bridge with `user.id` propagation; per-tool spans + pgx query spans; app-side PII/secret scrubber; noise filter (allowlist `/mcp`, `/viewer`); 9 Prometheus metrics; hard kill-switch for stdio transport.
+- **Web surfaces** — landing page, dashboard (token generation + CSRF), viewer (authenticated, project/type filters, relation display, superseded badge), auth pages (login magic-link, callback, logout).
+- **Content Filter** — three layers: syntactic (size + junk denylist), secrets (gitleaks + inline regex), taxonomy enforcement; atomic reject before any DB transaction.
+- **Semantic search** — `all-MiniLM-L6-v2` ONNX embeddings (384-dim); pgvector HNSW cosine index; lazy `sync.Once` init.
+
 ### Changed
 
 - `refactor(observability): taxonomy 3 operations + target axis (BREAKING vs operation=decision)` — `internal/mcp/tracing.go`: eliminado `opDecision`; agregadas constantes `targetClient`, `targetExternal`, `targetDB`, `targetInternal`; `internal/mcp/nodes.go`, `relations.go`, `query.go`: todos los slog calls actualizados — `db_tx_committed`/`db_row_persisted`/`db_row_retrieved` pasan de `operation=decision` a `operation=response, target=db`; `db_tx_rolled_back` agrega `target=db`; `validation_rejected` agrega `target=internal`; `request_received`/`request_completed` agregan `target=client`; `internal/auth/supabase_client.go`: los 3 external logs agregan `target=external`; `internal/mcp/logs_test.go`, `internal/auth/supabase_client_test.go`: assertions de `target` agregadas en todos los tests. **BREAKING**: queries APL que filtraban `operation == "decision"` dejarán de matchear — migrar a `operation == "response" and target == "db"` para DB writes/reads, o `target == "db"` solo para filtrar toda la actividad DB.

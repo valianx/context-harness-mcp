@@ -526,7 +526,7 @@ func TestRun_NilOnValidPayload(t *testing.T) {
 				Name:     "context-harness-mcp",
 				NodeType: "project",
 				Observations: []string{
-					"Go MCP server backed by Postgres + pgvector. Exposes 6 tools.",
+					"Go MCP server backed by Postgres + pgvector. Exposes 16 tools.",
 					"Deployed on Render Free with streamable-http transport.",
 				},
 			},

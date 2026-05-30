@@ -98,7 +98,7 @@ If your platform deploys on `git push` natively, you can disable the deploy-hook
 curl https://<your-host>/healthz
 # → {"status":"ok"}
 
-# 6 MCP tools round-trip
+# 16 MCP tools round-trip
 MCP_URL=https://<your-host>/mcp bash scripts/smoke/happy_path.sh
 MCP_URL=https://<your-host>/mcp bash scripts/smoke/secret_rejected.sh
 MCP_URL=https://<your-host>/mcp bash scripts/smoke/size_rejected.sh

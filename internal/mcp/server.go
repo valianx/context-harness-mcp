@@ -12,7 +12,7 @@ import (
 
 const (
 	serverName    = "context-harness-mcp"
-	serverVersion = "0.1.0"
+	serverVersion = "0.5.0"
 )
 
 // New returns a configured *server.MCPServer with all 16 MCP tools registered.

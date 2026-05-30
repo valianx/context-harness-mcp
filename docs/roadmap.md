@@ -10,7 +10,7 @@
 
 `context-harness-mcp` es un **producto open source**: cualquier team puede levantar su propia instancia privada en cualquier hosting de containers (Railway / Render / Fly / Coolify / self-hosted / etc.) contra cualquier Postgres+pgvector (Supabase, Neon, RDS, propio, …).
 
-Hoy corre como Knowledge Graph compartido sin auth, optimizado para un único operador. La siguiente versión (`v0.2.0`) lo convierte en una **memoria de equipo**: cualquier dev del team que deployó la instancia puede leer/escribir al mismo grafo con su identidad atribuida, con revocación instantánea, y con herramientas que evitan la entropía típica de un KG compartido (conflictos, supersedes, project scoping, sessions).
+Corre como memoria compartida de equipo con auth Supabase+JWT, project scoping, conflict detection, sessions, y observabilidad Axiom. Cualquier dev del team que deployó la instancia puede leer/escribir al mismo grafo con su identidad atribuida, con revocación instantánea, y con herramientas que evitan la entropía típica de un KG compartido (conflictos, supersedes, project scoping, sessions). Las seis phases del roadmap original están entregadas a `main` como versión `0.5.0`.
 
 Cada instancia es **single-tenant** (un team = un deploy). Multi-team = múltiples instancias independientes, cada una con su propio Supabase y su propio `MCP_JWT_SECRET`.
 
@@ -111,11 +111,11 @@ Nice-to-have, no bloqueante.
 
 | Phase | Status |
 |---|---|
-| 0 — Seguridad | 🟡 Planned |
-| 1 — Quick wins | 🟡 Planned |
-| 2 — Project scoping | 🟡 Planned |
-| 3 — Conflicts | 🟡 Planned |
-| 4 — Sessions | 🟡 Planned |
-| 5 — Polish | 🟡 Planned |
+| 0 — Seguridad | ✅ Shipped |
+| 1 — Quick wins | ✅ Shipped |
+| 2 — Project scoping | ✅ Shipped |
+| 3 — Conflicts | ✅ Shipped |
+| 4 — Sessions | ✅ Shipped |
+| 5 — Polish | ✅ Shipped |
 
-Última actualización: 2026-05-19.
+Última actualización: 2026-05-29.
