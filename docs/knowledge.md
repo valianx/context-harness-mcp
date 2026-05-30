@@ -48,6 +48,11 @@
 
 - `[decisión]` `SUPABASE_DB_URL` renombrada a `DATABASE_URL` — el servidor usa pgx + pgvector y funciona con cualquier Postgres + pgvector (Supabase, Neon, AWS RDS, self-hosted, Docker). El nombre anterior implicaba vendor lock-in inexistente. `DATABASE_URL` es el estándar de la industria (Heroku/Render/Fly/Railway lo auto-populan al provisionar Postgres). Backward-compat: `SUPABASE_DB_URL` se acepta como fallback deprecated por una release con warning en stderr. Se elimina en v2.0.
 
+- `[decisión]` OIDC supersede el login Supabase-specific: desde v1.1.0 el servidor soporta cualquier provider OIDC (Google, Auth0, Keycloak, Okta, Cognito, Entra, Supabase Auth) vía `OIDC_ISSUER_URL`. El path `SUPABASE_*` directo sigue funcional pero está deprecado. El blast radius está acotado al login flow — el GATE MCP (HS256 JWT) no cambia.
+- `[stack]` `github.com/coreos/go-oidc/v3` (OIDC discovery + id_token verification + JWKS rotation) + `golang.org/x/oauth2` (Authorization Code + PKCE S256). Añadidos en v1.1.0.
+- `[restricción]` Un solo proveedor OIDC por deployment (single-provider-per-deployment). Multi-provider agregaría complejidad de routing en el callback sin caso de uso real para un instance privado de equipo. Tier 2 (plain-OAuth2 para providers sin OIDC discovery, e.g. GitHub) es follow-up, no parte de v1.1.0.
+- `[restricción]` `OIDC_*` son las variables canónicas de auth en v1.1.0+. `SUPABASE_PROJECT_URL` + `SUPABASE_ANON_KEY` siguen siendo aceptados por compatibilidad pero emiten deprecation warning en boot. Ambos ausentes con `MCP_AUTH=enabled` produce startup error.
+
 ## Patterns
 
 - `[patrón]` Las signatures de las herramientas y los shapes JSON de retorno son byte-for-byte compatibles con `claude-dev-team/knowledge-graph/server.py` — los prompts del orquestador dependen de este contrato. Agregar campos nuevos está permitido; remover o renombrar existentes es un breaking change.

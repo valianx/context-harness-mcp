@@ -83,12 +83,12 @@ func TestMigrationsApplyCleanlyFreshContainer(t *testing.T) {
 	require.NoError(t, goose.Up(db, migrationsDir),
 		"goose.Up debe aplicar todas las migraciones sin error")
 
-	// Confirmar que se llegó a la versión actual (00001..00009 aplicados).
-	// Updated in v0.5.0 when migration 00009 (sessions) was added.
+	// Confirmar que se llegó a la versión actual (00001..00010 aplicados).
+	// Updated in v1.1.0 when migration 00010 (oidc_provider) was added.
 	version, err := goose.GetDBVersion(db)
 	require.NoError(t, err, "goose.GetDBVersion")
-	assert.Equal(t, int64(9), version,
-		"versión final de goose debe ser 9 (00001..00009 aplicados); versión actual: %d", version)
+	assert.Equal(t, int64(10), version,
+		"versión final de goose debe ser 10 (00001..00010 aplicados); versión actual: %d", version)
 }
 
 // ── AC-2: TestUsersTableSchema ────────────────────────────────────────────────
@@ -108,12 +108,15 @@ func TestUsersTableSchema(t *testing.T) {
 	ctx := context.Background()
 
 	// ── columnas esperadas ────────────────────────────────────────────────────
+	// Updated in v1.1.0 to include auth_provider and external_subject (migration 00010).
 	expectedCols := map[string]colMeta{
 		"supabase_user_id": {dataType: "uuid", isNullable: "NO"},
 		"email":            {dataType: "text", isNullable: "NO"},
 		"revoked_at":       {dataType: "timestamp with time zone", isNullable: "YES"},
 		"created_at":       {dataType: "timestamp with time zone", isNullable: "NO"},
 		"updated_at":       {dataType: "timestamp with time zone", isNullable: "NO"},
+		"auth_provider":    {dataType: "text", isNullable: "NO"},
+		"external_subject": {dataType: "text", isNullable: "YES"},
 	}
 
 	rows, err := pool.Query(ctx,

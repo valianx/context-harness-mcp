@@ -118,3 +118,4 @@ func RegisterLogin(mux *http.ServeMux) {
 	h := newLoginHandler()
 	mux.Handle("/auth/login", h)
 }
+

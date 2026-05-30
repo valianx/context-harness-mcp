@@ -7,10 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-05-29
+
+### Added
+
+- **Provider-agnostic OIDC login** — Authorization Code + PKCE flow via `github.com/coreos/go-oidc/v3`. Supports Google, Auth0, Keycloak, Okta, Cognito, Microsoft Entra, and Supabase Auth. Configure via `OIDC_ISSUER_URL` + `OIDC_CLIENT_ID` + `OIDC_CLIENT_SECRET`; discovery, JWKS rotation, and algorithm pinning are handled by go-oidc.
+- **`internal/auth/oidc/` package** — `Provider` (lazy discovery + oauth2 config + verifier), `OIDCConfig.Validate()` (fail-fast boot check), `AuthCodeURL`/`Exchange` (PKCE S256 + nonce), `IssueStateCookie`/`ReadStateCookie`/`ClearStateCookie` (HMAC-signed ephemeral cookie, `SameSite=Lax`, 10-minute TTL).
+- **`GET /auth/login` OIDC handler** — generates state/nonce/PKCE, sets ephemeral cookie, redirects to provider authorize endpoint.
+- **`GET /auth/callback` OIDC handler** — validates state (constant-time CSRF check), exchanges code + PKCE verifier, verifies id_token (signature/iss/aud/exp/alg), validates nonce (replay protection), upserts user, issues MCP JWT + `ch_session` cookie in an atomic transaction.
+- **`internal/web/mint.go`** — shared `mintTokenTx` helper for atomic upsert + JWT issuance + session cookie; used by both OIDC callback and legacy Supabase exchange.
+- **Migration `00010_oidc_provider.sql`** — additive columns `auth_provider text NOT NULL DEFAULT 'supabase'` and `external_subject text` on `users`; backfill; partial unique index on `(auth_provider, external_subject)`.
+- **`store.UpsertUserByProvider`** — upserts by `(auth_provider, external_subject)` with deterministic UUID v5 derivation for non-UUID subjects (Google numeric IDs, Auth0 `auth0|...`).
+- **`store.SetUserRevokedByEmail` / `SetUserRevokedBySubject`** — provider-agnostic revocation helpers.
+- **`khctl revoke` / `khctl reinstate`** — CLI commands to set/clear `users.revoked_at` by email or external_subject. Exit 0: updated; exit 1: not found; exit 2: DB error.
+- **Config validation at boot** — fail-fast when `MCP_AUTH=enabled` + OIDC configured but required `OIDC_*` vars are missing or redirect URI is non-HTTPS.
+- **OIDC security**: `InsecureSkipSignatureCheck` is never set; `SupportedSigningAlgs` is pinned (default `RS256`); `alg:none` rejected by go-oidc by default; `SkipClientIDCheck`/`SkipExpiryCheck`/`SkipIssuerCheck` all remain `false`; no `code`/`id_token`/`client_secret` in logs.
+
+### Changed
+
+- `serverVersion` bumped to `1.1.0`.
+- `internal/web/RegisterWebAuthRoutes` — single entry point that selects OIDC vs Supabase legacy mode based on `OIDC_ISSUER_URL` presence.
+- `migrations_test.go` — updated expected goose version (9 → 10) and `users` column count (5 → 7) to reflect migration 00010.
+
+### Deprecated
+
+- **Supabase legacy login path** (`SUPABASE_PROJECT_URL` + `POST /auth/exchange` + JS implicit flow via `callback.html`) — still functional when `OIDC_ISSUER_URL` is absent, but emits a deprecation warning at boot. Migrate to `OIDC_*` using the Supabase OIDC mapping in `docs/auth.md §g`.
+
 ### Documentation
 
 - `README.md`: added `## Requirements` section (Postgres 16 + pgvector, Docker, local ONNX embeddings, Supabase auth conditionality, amd64-only image) and `## Limitations` section (single-tenant design, auth-off-by-default warning, Supabase-only login flow, no hard-delete via API, fail-open revocation). Added auth toggle note in `## Install` Option A clarifying `MCP_AUTH=none` vs `MCP_AUTH=enabled`.
 - `docs/auth.md`: added explicit note distinguishing generic HS256 JWT validation from the Supabase-specific login and provisioning flow.
+- `docs/auth.md §g`: OIDC provider configuration, Supabase OIDC mapping, migration path, `khctl revoke`/`reinstate` usage, webhook-secret name correction (`SUPABASE_WEBHOOK_SECRET` not `MCP_WEBHOOK_SECRET`), revocation latency trade-off note.
+- `.env.example`: documented `OIDC_*`, `MCP_AUTH`, `MCP_PUBLIC_URL`, `MCP_JWT_SECRET` blocks; deprecated `SUPABASE_*` block retained with comments.
 
 ## [1.0.0] - 2026-05-29
 

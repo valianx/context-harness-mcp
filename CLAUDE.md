@@ -111,15 +111,15 @@ context-harness-mcp/
 | Embeddings | `github.com/Anush008/fastembed-go` — `all-MiniLM-L6-v2` ONNX, 384 dims, lazy `sync.Once` init (PR-5) |
 | Content Filter | `github.com/go-playground/validator/v10` (struct tags) + `github.com/zricethezav/gitleaks/v8` (secrets, PR-3) |
 | Migrations | `github.com/pressly/goose/v3` — forward-only SQL in `migrations/`; same binary for local mode and cloud mode |
-| Auth | `github.com/golang-jwt/jwt/v5` (HS256 issue + validate) + Supabase Auth (user identity) + LRU revocation cache (custom) |
+| Auth | `github.com/golang-jwt/jwt/v5` (HS256 issue + validate) + `github.com/coreos/go-oidc/v3` (OIDC discovery + id_token verify) + `golang.org/x/oauth2` (Auth Code + PKCE) + LRU revocation cache (custom). Supabase Auth remains a supported provider via `OIDC_ISSUER_URL`. |
 | Logging | stdlib `log/slog` JSON handler to stdout |
 | Testing | stdlib `testing` + `github.com/stretchr/testify` + `github.com/testcontainers/testcontainers-go/modules/postgres` (PR-2+); ephemeral pg+pgvector per test run |
-| Operator tooling | `cmd/khctl/` — Go binary with `seed`, `export`, `import` subcommands. Shipped in the Docker image at `/usr/local/bin/khctl`. No Python/uv required. |
+| Operator tooling | `cmd/khctl/` — Go binary with `seed`, `export`, `import`, `sync-users`, `revoke`, `reinstate` subcommands. Shipped in the Docker image at `/usr/local/bin/khctl`. No Python/uv required. |
 | Container base | `debian:bookworm-slim` — glibc required for ONNX Runtime Linux x64 |
 | Hosting (local mode) | `docker compose up` — local mcp server connecting to any Postgres+pgvector via `DATABASE_URL` |
 | Hosting (cloud mode) | Any container host (Railway / Render / Fly / Coolify / self-hosted Docker / …) using the same image |
 
-**Current version:** `1.0.0` (first stable release — committed MCP tool surface + stable JSON wire shapes).
+**Current version:** `1.1.0` (provider-agnostic OIDC login via Authorization Code + PKCE; `OIDC_ISSUER_URL` config; Supabase legacy path deprecated-but-functional; `khctl revoke`/`reinstate`).
 
 ---
 
