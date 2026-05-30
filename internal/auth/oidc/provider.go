@@ -91,26 +91,3 @@ func resetForTest() {
 	providerErr = nil
 }
 
-// newProviderFromConfig builds a Provider directly from the given config and
-// an already-discovered go-oidc provider. Used by tests that inject a mock issuer.
-func newProviderFromConfig(raw *gooidc.Provider, cfg OIDCConfig) *Provider {
-	verifierCfg := &gooidc.Config{
-		ClientID:             cfg.ClientID,
-		SupportedSigningAlgs: cfg.SupportedSigningAlgs,
-	}
-	verifier := raw.Verifier(verifierCfg)
-
-	o2cfg := oauth2.Config{
-		ClientID:     cfg.ClientID,
-		ClientSecret: cfg.ClientSecret,
-		Endpoint:     raw.Endpoint(),
-		RedirectURL:  cfg.RedirectURL,
-		Scopes:       cfg.Scopes,
-	}
-
-	return &Provider{
-		oidcProvider: raw,
-		oauth2Config: o2cfg,
-		verifier:     verifier,
-	}
-}
