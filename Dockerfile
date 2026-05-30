@@ -2,7 +2,7 @@
 # CGO_ENABLED=1 is required for fastembed-go's ONNX bindings (PR-5).
 # The skeleton in PR-1 compiles cleanly without fastembed; this flag is set
 # now so the build layer does not change when PR-5 adds the embedding code.
-FROM golang:1.23 AS builder
+FROM golang:1.25 AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /out/khctl ./cmd/khctl
 # application code changes. Built with -ldflags="-s -w" to strip debug symbols
 # and no_postgres=false / no_mysql=true etc. to include only the postgres driver,
 # keeping the binary small (goose bundles many DB drivers by default).
-FROM golang:1.23 AS goose-builder
+FROM golang:1.25 AS goose-builder
 
 RUN go install -ldflags="-s -w" -tags "no_mysql no_sqlite3 no_mssql no_redshift no_tidb no_clickhouse no_vertica no_ydb no_turso" \
     github.com/pressly/goose/v3/cmd/goose@v3.26.0
