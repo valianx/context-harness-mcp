@@ -4,7 +4,7 @@ An [MCP](https://modelcontextprotocol.io/) server that exposes a Knowledge Graph
 
 ## What it does
 
-- **6 MCP tools** to manage a knowledge graph — `create_nodes`, `add_observations`, `create_relations`, `search_nodes`, `open_nodes`, `read_graph`. See [docs/mcp-tools.md](docs/mcp-tools.md).
+- **16 MCP tools** to manage a knowledge graph — nodes, relations, query, conflict detection, sessions, observability. See [docs/mcp-tools.md](docs/mcp-tools.md) for the full list.
 - **Semantic search** via 384-dim `all-MiniLM-L6-v2` embeddings indexed with pgvector HNSW cosine. `search_nodes("authentication patterns")` returns the nodes whose observations are about auth, not just substring hits.
 - **Content Filter** on every write — three layers (size + junk denylist, secrets scan with [gitleaks](https://github.com/gitleaks/gitleaks), taxonomy enforcement) reject payloads with secrets, oversized text, or out-of-taxonomy node/relation types before any DB transaction opens. Atomic reject — never partial writes.
 - **MCP-protocol compatible.** Standard MCP streamable-http transport; works with Claude Code and any other MCP-compatible client. JSON wire shapes are stable and documented in [docs/mcp-tools.md](docs/mcp-tools.md).
@@ -52,7 +52,7 @@ One-time setup runbook — principles plus equally-weighted per-platform example
 
 | File | What's in it |
 |---|---|
-| [docs/mcp-tools.md](docs/mcp-tools.md) | The 6 MCP tools — arguments, responses, examples, error codes. |
+| [docs/mcp-tools.md](docs/mcp-tools.md) | The 16 MCP tools — arguments, responses, examples, error codes. |
 | [docs/local-stack.md](docs/local-stack.md) | Local Docker runbook (Option A above, expanded). |
 | [docs/deployment.md](docs/deployment.md) | Cloud deployment runbook (Option B above, expanded). |
 | [docs/auth.md](docs/auth.md) | Auth runbook — Supabase setup, dev flow, webhook config, revocation, troubleshooting. |

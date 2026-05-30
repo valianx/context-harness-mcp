@@ -9,8 +9,8 @@
 ## 1. Purpose & Boundaries
 
 **What this repo is.** `context-harness-mcp` is a **Go MCP server** that exposes a
-6-tool Knowledge-Graph surface (`create_nodes`, `add_observations`, `create_relations`,
-`search_nodes`, `open_nodes`, `read_graph`) backed by **Postgres + pgvector** and
+16-tool Knowledge-Graph surface (nodes, relations, query, conflict detection, sessions,
+observability — see `docs/mcp-tools.md` for the full set) backed by **Postgres + pgvector** and
 deployable as a static Docker binary to **any container hosting (free or paid) — local
 Docker, Railway, Render, Fly, Coolify, self-hosted VPS, etc.** Delete operations are
 intentionally not exposed as MCP tools — only via store-level SQL for operators
@@ -119,7 +119,7 @@ context-harness-mcp/
 | Hosting (local mode) | `docker compose up` — local mcp server connecting to any Postgres+pgvector via `DATABASE_URL` |
 | Hosting (cloud mode) | Any container host (Railway / Render / Fly / Coolify / self-hosted Docker / …) using the same image |
 
-**Current version:** `0.1.0-dev` (skeleton, PR-1).
+**Current version:** `0.5.0` (first semver release — 16 MCP tools, auth, project scoping, conflict detection, sessions, observability).
 
 ---
 
