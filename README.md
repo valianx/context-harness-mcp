@@ -11,6 +11,16 @@ An [MCP](https://modelcontextprotocol.io/) server that exposes a Knowledge Graph
 
 ## Install
 
+A prebuilt image is published to GitHub Container Registry on every release tag — no local build required:
+
+```sh
+docker pull ghcr.io/valianx/context-harness-mcp:latest
+# or pin to a specific release:
+docker pull ghcr.io/valianx/context-harness-mcp:1.0.0
+```
+
+Use the prebuilt image in place of `docker compose up --build` in the options below. The image is published automatically via `.github/workflows/release.yml` using `GITHUB_TOKEN` — no additional credentials needed.
+
 ### Option A — Local (Docker)
 
 You need Docker and a reachable Postgres with the `pgvector` extension. The easiest target is a free [Supabase](https://supabase.com) project (no credit card), but any Postgres 16 + pgvector works.
