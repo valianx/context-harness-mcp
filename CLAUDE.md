@@ -119,7 +119,7 @@ context-harness-mcp/
 | Hosting (local mode) | `docker compose up` — local mcp server connecting to any Postgres+pgvector via `DATABASE_URL` |
 | Hosting (cloud mode) | Any container host (Railway / Render / Fly / Coolify / self-hosted Docker / …) using the same image |
 
-**Current version:** `0.5.0` (first semver release — 16 MCP tools, auth, project scoping, conflict detection, sessions, observability).
+**Current version:** `1.0.0` (first stable release — committed MCP tool surface + stable JSON wire shapes).
 
 ---
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-05-29
+
+Promote to stable GA. No functional change from 0.5.0.
+
+### Changed
+
+- Declare the 16-tool MCP surface and JSON wire shapes a committed stable API. The tool argument shapes and response schemas documented in `docs/mcp-tools.md` are now semver-stable — breaking changes will require a major version bump.
+- Container image now published automatically to `ghcr.io/valianx/context-harness-mcp` on each release tag via the new `.github/workflows/release.yml` workflow. Operators can pull the prebuilt image instead of building from source (~5-minute build eliminated).
+
 ## [0.5.0] - 2026-05-29
 
 First semver release. All six roadmap phases shipped to `main`. 16 MCP tools registered and documented.
