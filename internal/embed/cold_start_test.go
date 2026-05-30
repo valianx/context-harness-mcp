@@ -34,7 +34,8 @@ func setupEmbedTraceRecorder(t *testing.T) *tracetest.SpanRecorder {
 // (0-indexed).
 func findEmbedSpan(rec *tracetest.SpanRecorder, idx int) (tracetest.SpanStub, bool) {
 	count := 0
-	for _, s := range rec.Ended() {
+	for _, ro := range rec.Ended() {
+		s := tracetest.SpanStubFromReadOnlySpan(ro)
 		if s.Name == "embed.encode" {
 			if count == idx {
 				return s, true
