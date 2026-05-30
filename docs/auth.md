@@ -292,6 +292,8 @@ Con `MCP_AUTH=none` (el default), el middleware de auth es un no-op: todos los r
 
 Para habilitar auth: setear `MCP_AUTH=enabled` + `MCP_JWT_SECRET` + `SUPABASE_PROJECT_URL` + `SUPABASE_ANON_KEY` + `MCP_WEBHOOK_SECRET` en el entorno del server.
 
+> **Nota — JWT genérico vs login Supabase-específico:** la *validación* del token en `/mcp` es un JWT HS256 estándar (firmado por este server con `MCP_JWT_SECRET`, no por Supabase). El token puede verificarse con cualquier librería HS256 compatible. Sin embargo, el flujo de *login, provisioning y revocación* — las páginas web `/auth/login`, `/auth/callback`, `/auth/exchange`, el webhook handler — está escrito para Supabase específicamente. Cambiar de proveedor de identidad requiere modificaciones en el código; no es una opción de configuración.
+
 ### ¿Por qué el cache de revocación tiene TTL de 1 hora?
 
 Trade-off elegido:
