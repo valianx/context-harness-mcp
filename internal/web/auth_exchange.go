@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
-	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
 
 // defaultSnippetServerName is the MCP server name used in the ~/.claude.json
@@ -152,65 +151,18 @@ func (h *exchangeHandler) validateSupabaseToken(w http.ResponseWriter, ctx conte
 }
 
 // exchangeWithinTx runs the DB transaction: upsert user, issue JWT, issue
-// session cookie, commit. On any failure it rolls back the transaction so no
-// orphan row is left for new users, and the existing row stays unchanged for
-// returning users. Returns the signed token and RFC3339 expires_at, or writes
+// session cookie, commit. Delegates to mintTokenTx using the Supabase legacy
+// provider path. Returns the signed token and RFC3339 expires_at, or writes
 // an error response and returns false.
-//
-// The session cookie is set on w before Commit so that Set-Cookie appears in
-// the same HTTP response as the JSON body. If cookie issuance fails (missing
-// MCP_JWT_SECRET), the transaction rolls back and a 500 is returned.
 func (h *exchangeHandler) exchangeWithinTx(w http.ResponseWriter, r *http.Request, user *auth.SupabaseUser) (string, string, bool) {
-	ctx := r.Context()
-
-	tx, err := h.pool.Begin(ctx)
+	// Use "supabase" as the provider for legacy Supabase exchange flows.
+	// The subject is the Supabase user UUID (already a valid UUID, so
+	// DeriveUserID will use it as-is as supabase_user_id).
+	result, err := mintTokenTx(r.Context(), w, r, h.pool, "supabase", user.ID, user.Email, h.baseURL)
 	if err != nil {
-		slog.Error("web: begin transaction failed", "error", err)
-		auth.WriteError(w, auth.CodeJWTIssuanceFailed, h.baseURL)
 		return "", "", false
 	}
-	// Defer rollback — a no-op after Commit (pgx ignores rollback on committed tx).
-	defer func() {
-		if rbErr := tx.Rollback(ctx); rbErr != nil && !isErrNoTx(rbErr) {
-			slog.Error("web: rollback failed", "error", rbErr)
-		}
-	}()
-
-	if err := store.UpsertUser(ctx, tx, user.ID, user.Email); err != nil {
-		slog.Error("web: upsert user failed", "error", err, "sub_prefix", subPrefix(user.ID))
-		auth.WriteError(w, auth.CodeJWTIssuanceFailed, h.baseURL)
-		return "", "", false
-	}
-
-	// Issue the MCP JWT. On failure: ROLLBACK (handled by defer) and 500.
-	// For a new user the upserted row is rolled back; for an existing user
-	// the row returns to its pre-call state (pgx Tx rollback semantics).
-	token, err := h.issueToken(user.ID, user.Email)
-	if err != nil {
-		slog.Error("web: IssueMCPToken failed", "error", err, "sub_prefix", subPrefix(user.ID))
-		auth.WriteError(w, auth.CodeJWTIssuanceFailed, h.baseURL)
-		return "", "", false // defer Rollback fires here
-	}
-
-	// Issue the 24h session cookie alongside the MCP JWT (AC-1). The cookie
-	// rotates on every successful exchange — no "reuse existing" branch —
-	// which eliminates session-fixation by construction.
-	if err := Issue(w, r, user.ID); err != nil {
-		slog.Error("web: session Issue failed", "error", err, "sub_prefix", subPrefix(user.ID))
-		auth.WriteError(w, auth.CodeJWTIssuanceFailed, h.baseURL)
-		return "", "", false
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		slog.Error("web: commit failed", "error", err, "sub_prefix", subPrefix(user.ID))
-		auth.WriteError(w, auth.CodeJWTIssuanceFailed, h.baseURL)
-		return "", "", false
-	}
-
-	// ExpiresAt is computed from the same expiry logic as IssueMCPToken.
-	// We re-derive it here for the response; the token itself is authoritative.
-	expiresAt := time.Now().Add(jwtExpiry()).Format(time.RFC3339)
-	return token, expiresAt, true
+	return result.Token, result.ExpiresAt, true
 }
 
 // buildSnippet returns a pretty-printed JSON string ready to paste into

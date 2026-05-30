@@ -54,7 +54,7 @@ const (
 	rejectedInputCap  = 500  // max chars for mcp.rejected_input
 )
 
-// Attribute keys — complete whitelist (10 existing + 8 tiered-content from PR-I + 6 full-payload).
+// Attribute keys — complete whitelist (10 existing + 8 tiered-content from PR-I + 2 full-payload).
 // See plan §Whitelist diff for the full list.
 var (
 	// --- 10 pre-existing keys ---
@@ -79,15 +79,11 @@ var (
 	attrRelationsSummary    = attribute.Key("mcp.relations_summary")
 	attrRejectedInput       = attribute.Key("mcp.rejected_input")
 
-	// --- 6 keys added by full-payload mode (operator-approved) ---
+	// --- 2 keys added by full-payload mode (operator-approved) ---
 	// All values pass through ScrubSpanExporter before export — secrets are
 	// redacted by the existing boundary; no local scrub is applied here.
 	attrRequestBody  = attribute.Key("mcp.request_body")
 	attrResponseBody = attribute.Key("mcp.response_body")
-	attrRowText      = attribute.Key("mcp.row_text")
-	attrRowNodeID    = attribute.Key("mcp.row_node_id")
-	attrRowName      = attribute.Key("mcp.row_name")
-	attrRowNodeType  = attribute.Key("mcp.row_node_type")
 )
 
 // toolTracer returns the global OTel tracer for MCP handlers.

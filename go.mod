@@ -1,11 +1,13 @@
 module github.com/mariogutierrez/context-harness-mcp
 
-go 1.23.0
+go 1.25.0
 
 require (
 	github.com/anush008/fastembed-go v1.0.0
+	github.com/coreos/go-oidc/v3 v3.18.0
 	github.com/exaring/otelpgx v0.9.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/mark3labs/mcp-go v0.47.1
 	github.com/pgvector/pgvector-go v0.2.2
@@ -27,6 +29,7 @@ require (
 	go.opentelemetry.io/otel/sdk/log/logtest v0.13.0
 	go.opentelemetry.io/otel/sdk/metric v1.37.0
 	go.opentelemetry.io/otel/trace v1.37.0
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/time v0.5.0
 )
 
@@ -55,13 +58,13 @@ require (
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/gitleaks/go-gitdiff v0.9.0 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.1 // indirect
 	github.com/h2non/filetype v1.1.3 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect

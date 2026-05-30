@@ -7,6 +7,81 @@
 
 ---
 
+## (g) OIDC Provider Configuration (v1.1.0+)
+
+Desde v1.1.0, el servidor soporta cualquier proveedor OIDC compatible (Google, Auth0, Keycloak, Okta, Cognito, Entra, y Supabase Auth). El flujo es Authorization Code + PKCE server-side (el `id_token` nunca toca el browser).
+
+### Variables de entorno OIDC
+
+| Variable | Requerida | Default | Descripción |
+|---|---|---|---|
+| `OIDC_ISSUER_URL` | sí (modo OIDC) | — | URL del issuer. El server hace discovery en `<URL>/.well-known/openid-configuration`. |
+| `OIDC_CLIENT_ID` | sí (modo OIDC) | — | Client ID registrado con el proveedor. También es el `aud` esperado del `id_token`. |
+| `OIDC_CLIENT_SECRET` | sí (modo OIDC) | — | Client secret (confidential client). Solo en env del server; nunca en HTML. |
+| `OIDC_REDIRECT_URL` | no | `MCP_PUBLIC_URL + /auth/callback` | Override explícito del redirect URI. Debe ser `https://` para no-localhost. |
+| `OIDC_SCOPES` | no | `openid email profile` | Scopes solicitados (espacio-separados). `openid` es obligatorio. |
+| `OIDC_ID_TOKEN_SIGNING_ALGS` | no | `RS256` | Algoritmos aceptados (coma-separados, e.g. `RS256,ES256`). Pin explícito. |
+
+### Selección de modo en boot
+
+| Condición | Modo | Notas |
+|---|---|---|
+| `OIDC_ISSUER_URL` presente | OIDC (canónico) | Flujo server-side Authorization Code + PKCE. |
+| `OIDC_ISSUER_URL` ausente + `SUPABASE_PROJECT_URL` presente | Supabase legacy (deprecated) | Emite warning en boot. |
+| Ambos ausentes + `MCP_AUTH=enabled` | Error fatal en boot | El server no arranca sin un proveedor de identidad. |
+
+### Configurar Supabase Auth como proveedor OIDC
+
+Supabase Auth expone discovery OIDC en `https://<project-ref>.supabase.co/auth/v1/.well-known/openid-configuration`.
+
+```
+OIDC_ISSUER_URL=https://<project-ref>.supabase.co/auth/v1
+OIDC_CLIENT_ID=<supabase-oauth-client-id>
+OIDC_CLIENT_SECRET=<supabase-oauth-client-secret>
+OIDC_SCOPES=openid email
+```
+
+> **Nota:** el `SUPABASE_ANON_KEY` ya no es necesario en OIDC mode. `SUPABASE_WEBHOOK_SECRET` sigue siendo opcional para revocación instantánea vía Database Webhook.
+
+### Ejemplo Google
+
+```
+OIDC_ISSUER_URL=https://accounts.google.com
+OIDC_CLIENT_ID=<client-id>.apps.googleusercontent.com
+OIDC_CLIENT_SECRET=GOCSPX-<secret>
+OIDC_SCOPES=openid email
+```
+
+### Migración desde Supabase legacy
+
+1. Registrar un OAuth client en Supabase (**Authentication → Third-party OAuth**).
+2. Setear `OIDC_*` con los valores del client.
+3. Agregar `<MCP_PUBLIC_URL>/auth/callback` a los redirect URIs permitidos del client.
+4. Redeploy.
+
+Los JWT MCP ya emitidos (1 año) siguen válidos — el cambio solo afecta nuevos logins.
+
+### Revocación provider-agnóstica: khctl revoke / reinstate
+
+El `POST /auth/webhook` de Supabase sigue siendo opcional para revocación instantánea (~1s). Para deployments no-Supabase, usar el CLI:
+
+```sh
+# Revocar por email (latencia: TTL del cache ≤1h)
+khctl revoke alice@example.com --dsn "$DATABASE_URL"
+
+# Revocar por external_subject (subject del id_token del proveedor)
+khctl revoke --by subject "google-subject-12345" --dsn "$DATABASE_URL"
+
+# Reinstatar (limpiar revoked_at)
+khctl reinstate alice@example.com --dsn "$DATABASE_URL"
+```
+
+> **Nota sobre latencia:** `khctl revoke` actualiza `users.revoked_at` inmediatamente en DB, pero el revocation cache del server (TTL ≤1h) puede aún aceptar requests hasta que expire. Para revocación sub-segundo en deployments Supabase, mantener el Database Webhook configurado.
+
+> **Corrección de documentación:** el secret del webhook se llama `SUPABASE_WEBHOOK_SECRET` en el código (`webhook.go:78`), no `MCP_WEBHOOK_SECRET` como aparecía en versiones anteriores de esta documentación. Usar `SUPABASE_WEBHOOK_SECRET`.
+
+---
+
 ## (a) Admin Runbook — Configuración inicial de Supabase Auth
 
 Esta sección cubre los pasos que el operador ejecuta una sola vez al deployar una nueva instancia de `context-harness-mcp` con auth habilitada.

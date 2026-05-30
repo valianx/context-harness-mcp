@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/auth"
+	oidcpkg "github.com/mariogutierrez/context-harness-mcp/internal/auth/oidc"
 	"github.com/mariogutierrez/context-harness-mcp/internal/config"
 	"github.com/mariogutierrez/context-harness-mcp/internal/embed"
 	"github.com/mariogutierrez/context-harness-mcp/internal/healthz"
@@ -123,6 +124,25 @@ func main() {
 		if os.Getenv("MCP_JWT_SECRET") == "" {
 			slog.Error("MCP_JWT_SECRET must be set when MCP_AUTH=enabled")
 			fmt.Fprintln(os.Stderr, "error: MCP_JWT_SECRET is required when MCP_AUTH=enabled — generate a 32+ byte hex secret and set it")
+			os.Exit(1)
+		}
+
+		// OIDC mode: validate required config at boot (fail-fast).
+		if oidcpkg.IsConfigured() {
+			cfg := oidcpkg.LoadOIDCConfig()
+			if err := cfg.Validate(); err != nil {
+				slog.Error("OIDC configuration invalid", "error", err)
+				fmt.Fprintf(os.Stderr, "error: OIDC config: %s\n", err)
+				os.Exit(1)
+			}
+			slog.Info("auth mode: OIDC", "issuer", cfg.IssuerURL)
+		} else if os.Getenv("SUPABASE_PROJECT_URL") != "" {
+			// Supabase legacy mode — warn of deprecation.
+			slog.Warn("auth mode: Supabase legacy (DEPRECATED) — migrate to OIDC_* variables; see docs/auth.md")
+		} else {
+			// Neither OIDC nor Supabase configured with auth enabled.
+			slog.Error("no identity provider configured: set OIDC_ISSUER_URL (OIDC mode) or SUPABASE_PROJECT_URL (legacy)")
+			fmt.Fprintln(os.Stderr, "error: MCP_AUTH=enabled requires an identity provider — set OIDC_ISSUER_URL or SUPABASE_PROJECT_URL")
 			os.Exit(1)
 		}
 	}
@@ -285,9 +305,13 @@ func runHTTP(s *mcpserver.MCPServer, addr string, pool *pgxpool.Pool, limiter *r
 	// Unauthenticated routes — registered BEFORE /mcp so they are never gated
 	// by auth.Middleware. Order matters: these must be reachable without a
 	// bearer token (login flow + HMAC-verified webhook).
-	web.RegisterCallback(mux)
-	web.RegisterExchange(mux, pool)
-	web.RegisterLogin(mux)
+	//
+	// Auth mode selection (fail-fast validation happens below when auth is enabled):
+	//  - OIDC_ISSUER_URL present → OIDC mode: PKCE + authorization code flow.
+	//  - OIDC_ISSUER_URL absent + SUPABASE_PROJECT_URL present → Supabase legacy
+	//    (deprecated; emits a warning below).
+	//  - Both absent + MCP_AUTH=enabled → fail-fast (no identity provider).
+	web.RegisterWebAuthRoutes(mux, pool, authMode)
 	// Webhook is HMAC-verified inside the handler; no bearer token required.
 	// The same revocationCache used by auth.Middleware is passed here so that
 	// a webhook event immediately invalidates the cached revocation state,

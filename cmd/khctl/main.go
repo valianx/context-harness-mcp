@@ -39,6 +39,10 @@ func main() {
 		backupCmd(args)
 	case "restore":
 		restoreCmd(args)
+	case "revoke":
+		revokeCmd(args)
+	case "reinstate":
+		reinstateCmd(args)
 	case "help", "--help", "-h":
 		printUsage()
 		os.Exit(0)
@@ -74,6 +78,12 @@ Subcommands:
   restore    FILE [--dsn URL] [--clean] [--yes] Restore pg_dump custom-format archive (created by 'khctl backup').
                                                 --clean drops existing schema first (destructive). --yes skips
                                                 the interactive confirmation prompt required with --clean.
+  revoke     <user> [--dsn URL] [--by email|subject]
+                                                Set users.revoked_at = now() for the matching user.
+                                                Exit 0: updated. Exit 1: not found. Exit 2: DB error.
+  reinstate  <user> [--dsn URL] [--by email|subject]
+                                                Set users.revoked_at = NULL for the matching user (un-revoke).
+                                                Exit 0: updated. Exit 1: not found. Exit 2: DB error.
 
 Both 'backup' and 'restore' require the 'pg_dump' / 'pg_restore' binaries
 on PATH (debian package: postgresql-client).

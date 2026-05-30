@@ -55,7 +55,7 @@ jobs:
       - uses: actions/setup-go@v5
         if: ${{ env.DATABASE_URL != '' }}
         with:
-          go-version: "1.23"
+          go-version: "1.25"
 
       - name: Install goose
         if: ${{ env.DATABASE_URL != '' }}

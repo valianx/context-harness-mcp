@@ -37,6 +37,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/mariogutierrez/context-harness-mcp/internal/store"
 )
@@ -214,10 +215,17 @@ func TestOtelpgx_AC_D1_QueryProducesSpanWithDBSystemAndStatement(t *testing.T) {
 		querySpan.SpanContext().TraceID(),
 		"query span must share the trace ID of the HTTP parent span",
 	)
-	assert.Equal(t,
-		parentSpan.SpanContext().SpanID(),
-		querySpan.Parent().SpanID(),
-		"query span's parent must be the HTTP span",
+
+	// otelpgx v0.9.4 inserts a "pool.acquire" intermediate span between the
+	// caller's context span and the query span: http.request → pool.acquire →
+	// query. The production noiseFilterProcessor drops pool.acquire before
+	// export, but the test uses a raw SpanRecorder, so the intermediate span
+	// appears in the recorded set. We verify the meaningful invariant: the HTTP
+	// span is an ANCESTOR of the query span (correct context propagation),
+	// rather than asserting it is the DIRECT parent (which is too strict here).
+	assert.True(t,
+		isAncestorSpan(spans, querySpan, parentSpan.SpanContext().SpanID()),
+		"HTTP span must be an ancestor of the query span (context propagation must flow through otelpgx intermediate spans)",
 	)
 }
 
@@ -313,6 +321,47 @@ func TestOtelpgx_AC_D3_SQLErrorMarksSpanWithError(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// isAncestorSpan reports whether the span identified by ancestorID is a
+// (possibly indirect) ancestor of descendant within the recorded span set. It
+// walks the parent chain of descendant by matching Parent().SpanID() against
+// recorded spans, stopping when it reaches ancestorID or exhausts the chain.
+//
+// This is used instead of a direct-parent assertion because otelpgx v0.9.4
+// emits a "pool.acquire" intermediate span that sits between the caller's
+// context span and the query span. The production pipeline's noiseFilterProcessor
+// drops pool.acquire before export; the test SpanRecorder captures it, making
+// the query span's direct parent pool.acquire rather than the HTTP span.
+func isAncestorSpan(spans []sdktrace.ReadOnlySpan, descendant sdktrace.ReadOnlySpan, ancestorID trace.SpanID) bool {
+	current := descendant
+	for {
+		parentID := current.Parent().SpanID()
+		if !parentID.IsValid() {
+			// Reached the root without finding the ancestor.
+			return false
+		}
+		if parentID == ancestorID {
+			return true
+		}
+		// Walk up: find the recorded span whose SpanID matches parentID.
+		var next sdktrace.ReadOnlySpan
+		for _, s := range spans {
+			if s.SpanContext().SpanID() == parentID {
+				next = s
+				break
+			}
+		}
+		if next == nil {
+			// Parent not in the recorded set — the current span's parent is
+			// the HTTP span (which is not yet ended and therefore not in
+			// rec.Ended()), meaning parentID IS the ancestorID; the loop
+			// above would have returned true before reaching here. If we
+			// reach this point the chain is broken for another reason.
+			return false
+		}
+		current = next
+	}
+}
 
 // findSpanContaining returns the first ended span whose name contains keyword.
 func findSpanContaining(spans []sdktrace.ReadOnlySpan, keyword string) sdktrace.ReadOnlySpan {
