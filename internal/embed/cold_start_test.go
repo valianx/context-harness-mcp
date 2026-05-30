@@ -7,6 +7,9 @@
 // This test is gated by the cgo build tag because FastEmbedder only exists
 // in model_cgo.go.  On non-CGO builds the stub never sets mcp.embed_cold
 // (no OTel span is emitted by the stub), and the test is not applicable.
+//
+// ONNX is mocked via the loadModel seam on FastEmbedder so these tests run
+// without the native ONNX library present (unit-test environment, CI).
 package embed
 
 import (
@@ -17,6 +20,24 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
+
+// fakeModel is a minimal embedModel implementation that returns deterministic
+// fake vectors. It satisfies the embedModel interface without requiring ONNX.
+type fakeModel struct{}
+
+func (f *fakeModel) Embed(texts []string, _ int) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i := range texts {
+		out[i] = make([]float32, EmbeddingDim) // zero vector; shape is what matters
+	}
+	return out, nil
+}
+
+// fakeLoader returns an immediately-available fakeModel. Inject this into
+// FastEmbedder.loadModel to bypass real ONNX initialization in tests.
+func fakeLoader() (embedModel, error) {
+	return &fakeModel{}, nil
+}
 
 // setupEmbedTraceRecorder installs an in-memory span recorder as the global
 // TracerProvider and returns it, plus a cleanup func.
@@ -59,17 +80,16 @@ func boolAttr(s tracetest.SpanStub, key string) (bool, bool) {
 
 // TestEmbedColdStart_first_call_is_cold verifies AC-E.6: the first Encode
 // call on a fresh FastEmbedder emits a span with mcp.embed_cold=true.
-// The ONNX model init will fail (model files not present in CI), but the span
-// is started before sync.Once.Do so the attribute is already recorded.
+// The ONNX loader is replaced by fakeLoader so no native library is needed.
 func TestEmbedColdStart_first_call_is_cold(t *testing.T) {
 	rec := setupEmbedTraceRecorder(t)
 
-	// Create a fresh embedder so sync.Once has not fired.
-	e := &FastEmbedder{}
+	// Inject the fake loader — no ONNX required.
+	e := &FastEmbedder{loadModel: fakeLoader}
 
-	// Encode will fail (no ONNX model in unit test env), but that is fine — we
-	// only care that the span was emitted with the correct cold attribute.
-	_, _ = e.Encode(context.Background(), []string{"hello"})
+	if _, err := e.Encode(context.Background(), []string{"hello"}); err != nil {
+		t.Fatalf("Encode returned unexpected error: %v", err)
+	}
 
 	span, ok := findEmbedSpan(rec, 0)
 	if !ok {
@@ -86,29 +106,37 @@ func TestEmbedColdStart_first_call_is_cold(t *testing.T) {
 }
 
 // TestEmbedColdStart_warm_flag_reflects_sync_once_state verifies that a
-// FastEmbedder reports cold=false when warm.Load() is true — simulating the
-// state after a successful init.  We directly manipulate warm to avoid
-// requiring ONNX model files.
+// FastEmbedder reports cold=false after a successful init has already run
+// (i.e., sync.Once has fired and warm=true).
+//
+// Two Encode calls are made on the same embedder instance.  The first is the
+// cold call (warm=false at entry); the second is the warm call (warm=true at
+// entry because the first call's sync.Once set it).
 func TestEmbedColdStart_warm_flag_reflects_sync_once_state(t *testing.T) {
 	rec := setupEmbedTraceRecorder(t)
 
-	e := &FastEmbedder{}
-	// Simulate a previously successful init by marking the embedder warm.
-	e.warm.Store(true)
-	// Also force sync.Once to be "done" by running an empty Do.
-	e.once.Do(func() {})
-	// initErr remains nil, model remains nil — Embed will panic/fail but span fires.
+	// Inject the fake loader — no ONNX required.
+	e := &FastEmbedder{loadModel: fakeLoader}
 
-	_, _ = e.Encode(context.Background(), []string{"hello"})
+	// First call: cold start — sync.Once fires, warm becomes true.
+	if _, err := e.Encode(context.Background(), []string{"first"}); err != nil {
+		t.Fatalf("first Encode returned unexpected error: %v", err)
+	}
 
-	span, ok := findEmbedSpan(rec, 0)
+	// Second call: warm path — warm.Load() returns true before span starts.
+	if _, err := e.Encode(context.Background(), []string{"second"}); err != nil {
+		t.Fatalf("second Encode returned unexpected error: %v", err)
+	}
+
+	// The second span (index 1) must have mcp.embed_cold=false.
+	span, ok := findEmbedSpan(rec, 1)
 	if !ok {
-		t.Fatal("expected span 'embed.encode' to be emitted")
+		t.Fatal("expected a second 'embed.encode' span to be emitted")
 	}
 
 	cold, found := boolAttr(span, "mcp.embed_cold")
 	if !found {
-		t.Fatal("expected 'mcp.embed_cold' attribute to be present")
+		t.Fatal("expected 'mcp.embed_cold' attribute to be present on second embed.encode span")
 	}
 	if cold {
 		t.Errorf("warm embedder: mcp.embed_cold = true, want false")

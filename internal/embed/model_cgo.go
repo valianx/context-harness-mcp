@@ -24,17 +24,41 @@ const embedTracerName = "github.com/mariogutierrez/context-harness-mcp/embed"
 // and RealEmbedder(). The ONNX session is initialized lazily on first Encode.
 var defaultEmbedder = &FastEmbedder{}
 
+// embedModel is the minimal interface that the underlying ONNX model must satisfy.
+// *fastembed.FlagEmbedding implements this interface.  The seam allows tests to
+// inject a fake model without requiring ONNX native libraries.
+type embedModel interface {
+	Embed(texts []string, batchSize int) ([][]float32, error)
+}
+
 // FastEmbedder wraps fastembed-go's FlagEmbedding configured for
 // all-MiniLM-L6-v2 (384 dims). Thread-safe: the ONNX session is
 // materialized exactly once via sync.Once; concurrent first calls block.
 type FastEmbedder struct {
 	once    sync.Once
-	model   *fastembed.FlagEmbedding
+	model   embedModel
 	initErr error
 
 	// warm is set to true after sync.Once fires successfully. A caller that
 	// reads warm=false before calling Do has the cold start (AC-E.6).
 	warm atomic.Bool
+
+	// loadModel is the factory used inside sync.Once to obtain the underlying
+	// model. The zero value (nil) defaults to the real ONNX loader. Tests
+	// inject a fake by setting this field before the first Encode call.
+	loadModel func() (embedModel, error)
+}
+
+// realLoader is the production model factory: allocates a fastembed ONNX
+// session for all-MiniLM-L6-v2 (384 dims, max sequence length 512).
+func realLoader() (embedModel, error) {
+	showProgress := false
+	opts := &fastembed.InitOptions{
+		Model:                fastembed.AllMiniLML6V2,
+		MaxLength:            512,
+		ShowDownloadProgress: &showProgress,
+	}
+	return fastembed.NewFlagEmbedding(opts)
 }
 
 // Encode encodes texts in a single batch and returns one []float32 per input.
@@ -61,13 +85,11 @@ func (e *FastEmbedder) Encode(ctx context.Context, texts []string) ([][]float32,
 	}()
 
 	e.once.Do(func() {
-		showProgress := false
-		opts := &fastembed.InitOptions{
-			Model:                fastembed.AllMiniLML6V2,
-			MaxLength:            512,
-			ShowDownloadProgress: &showProgress,
+		loader := e.loadModel
+		if loader == nil {
+			loader = realLoader
 		}
-		m, err := fastembed.NewFlagEmbedding(opts)
+		m, err := loader()
 		if err != nil {
 			e.initErr = fmt.Errorf("embed: ONNX session init failed: %w", err)
 			return
