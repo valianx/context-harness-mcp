@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`record_flow_event` MCP tool (17th tool)** — validates metadata-only pipeline friction events against a closed 8-value `event` enum (`guard.block`, `gate.fail`, `verify.reject`, `iteration.loop`, `blocked`, `scope.collapse`, `mcp.unavailable`, `abandon`) and relays them as scrubbed structured log lines (`signal="flow_event"`) to Axiom via the existing LoggerProvider→ScrubLogProcessor→OTLP/HTTP path. No Postgres write. Validates common + per-event fields; rejects secrets and user-paths via the Content Filter. Requires `CH_OBSERVABILITY_ENABLED=true` for relay; validates and returns `{"recorded":true}` regardless. Closed-enum rejection also emits `flow_event_rejected` for runtime drift visibility (AC-1.9).
+
 ## [1.1.0] - 2026-05-29
 
 ### Added

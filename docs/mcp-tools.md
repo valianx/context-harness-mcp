@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The server exposes sixteen knowledge-graph tools plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
+The server exposes seventeen tools (sixteen knowledge-graph tools plus one flow-telemetry tool) plus a `healthz` HTTP probe. Every write tool runs through the [Content Filter](#content-filter--policy-errors) before any database transaction opens — a rejection is observable as an MCP error with a stable `policy/*` code and zero rows written.
 
 JSON wire shapes use graph-DB vocabulary (`nodes`, `nodeType`) matching the migration-00003 schema. Field naming conventions are documented per-tool below.
 
@@ -699,6 +699,83 @@ When no active observations with embeddings exist, the tool returns successfully
 | `text` is empty or whitespace-only | MCP error |
 | `text` exceeds 8192 characters | MCP error |
 | `project` fails naming regex | `policy/project-naming-violation` |
+
+---
+
+---
+
+## Flow telemetry
+
+### 17. `record_flow_event`
+
+Record a metadata-only pipeline friction event. The tool validates the payload against the closed flow-event schema, runs it through the Content Filter (secrets + user-path layers), and relays a scrubbed structured log line to the observability backend (Axiom) when `CH_OBSERVABILITY_ENABLED=true`. The event is **never persisted to Postgres** — it is a fire-and-forget telemetry signal only.
+
+**Prerequisite:** `CH_OBSERVABILITY_ENABLED=true` and a configured OTLP endpoint. When observability is disabled the tool still validates and returns `{"recorded": true}` — the relay is silently skipped.
+
+**Arguments**
+
+```json
+{
+  "event": {
+    "event":      "gate.fail",
+    "ts":         "2026-06-21T10:00:00Z",
+    "project":    "team-harness",
+    "task_type":  "feature",
+    "th_version": "2.117.2",
+    "gate":       "STAGE-GATE-2",
+    "verdict":    "fail"
+  }
+}
+```
+
+**Common fields (every event)**
+
+| Field | Type | Required | Constraint |
+|-------|------|----------|------------|
+| `event` | string | yes | Closed 8-value enum (see below) |
+| `ts` | string | yes | RFC3339 UTC |
+| `project` | string | yes | Bare repo name — same regex as other write tools (`^[a-z]([a-z0-9-]{0,62}[a-z0-9])?$`) |
+| `task_type` | string | yes | `feature \| fix \| hotfix \| refactor \| enhancement \| docs \| research` |
+| `th_version` | string | yes | Plugin semver string (e.g. `2.117.2`) |
+
+**Closed `event` enum + per-event fields**
+
+| `event` | per-event fields | field constraints |
+|---------|------------------|-------------------|
+| `guard.block` | `hook`, `reason`, `resolved` | `hook` ∈ {prepublish, dev, policy}; `reason` ∈ {over-bump, secret, outward}; `resolved` bool |
+| `gate.fail` | `gate`, `verdict` | `gate` ∈ {STAGE-GATE-1, STAGE-GATE-2, STAGE-GATE-3, acceptance, plan-review}; `verdict` ∈ {fail, concerns} |
+| `verify.reject` | `agent`, `verdict` | `agent` ∈ {qa, security, tester, acceptance}; `verdict` ∈ {fail, concerns} |
+| `iteration.loop` | `stage`, `iterations` | `stage` ∈ {1, 2, 3}; `iterations` int ≥ 2 |
+| `blocked` | `reason` | `reason` ∈ {no-dispatch, manual-push, guard, dependency} |
+| `scope.collapse` | `items_dropped` | `items_dropped` int ≥ 1 |
+| `mcp.unavailable` | `op` | `op` ∈ {read, write} |
+| `abandon` | `last_stage` | `last_stage` ∈ {1, 2, 3} |
+
+**Success response**
+
+```json
+{ "recorded": true }
+```
+
+**Error responses**
+
+| Condition | Code |
+|-----------|------|
+| `event` not in the closed 8-value enum | `policy/flow-event-unknown-type` |
+| A per-event field is outside its closed sub-enum or numeric boundary | `policy/flow-event-bad-field` |
+| Any string field contains a secret | `policy/secret-detected` |
+| Any string field contains an absolute user-path | `policy/taxonomy-violation` |
+| `project` fails the naming regex | `policy/project-naming-violation` |
+| Rate limit exceeded | `policy/rate-limited` |
+
+**Policy notes**
+
+- Flow events are **metadata-only** — no diff, no code, no file paths, no commit messages. Every field is a bounded enum, int, bool, semver, or timestamp.
+- The Content Filter's secrets + user-path layers run on all string fields before relay.
+- The relay path is a scrubbed structured slog log line (`signal="flow_event"`) — **never** a metric (metric labels are unscrubbed by SDK design).
+- A closed-enum rejection for `event` also emits a `flow_event_rejected` log (`reason=unknown-type`, offending token) so drifted clients surface in Axiom.
+- Rate-limited at the same per-IP/per-sub budget as all other write tools.
+- No `pgx.Tx` is opened — the tool does no database writes.
 
 ---
 

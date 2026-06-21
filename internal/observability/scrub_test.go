@@ -563,6 +563,132 @@ func TestRedact_UUIDNotRedacted(t *testing.T) {
 	assert.Equal(t, input, result, "UUIDs must not be redacted by any token pattern")
 }
 
+// ── AC-1.3 / Step-3: flow-event-shaped strings are redacted on the log path ──
+
+// TestScrubLogProcessor_FlowEventAxiomToken asserts that an xaat- Axiom token
+// embedded in a flow-event log record attribute is redacted before export.
+// This confirms the relay path (ScrubLogProcessor) covers the flow-event case.
+func TestScrubLogProcessor_FlowEventAxiomToken(t *testing.T) {
+	RegisterScrubber(NewRealScrubber())
+	t.Cleanup(func() { RegisterScrubber(NewRealScrubber()) })
+
+	var captured *sdklog.Record
+	captureFn := &captureProcessor{fn: func(r *sdklog.Record) {
+		cloned := r.Clone()
+		captured = &cloned
+	}}
+	proc := NewScrubLogProcessor(captureFn)
+
+	// Simulate what relayFlowEvent produces: a log record body of "flow_event"
+	// with a signal attribute and a synthetic project value that happens to
+	// contain an Axiom token (edge case: a drifted client passes content through
+	// a field that should be enum-shaped).
+	axiomToken := "xaat-8358120a-b349-4d16-a82e-0aba2a301ad0"
+	rec := sdklogt.RecordFactory{
+		Body: logapi.StringValue("flow_event"),
+	}.NewRecord()
+	rec.SetAttributes(
+		logapi.String("signal", "flow_event"),
+		logapi.String("project", "team-harness "+axiomToken),
+	)
+
+	err := proc.OnEmit(context.Background(), &rec)
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+
+	// Verify no attribute value contains the raw token.
+	captured.WalkAttributes(func(kv logapi.KeyValue) bool {
+		if kv.Value.Kind() == logapi.KindString {
+			assert.NotContains(t, kv.Value.AsString(), axiomToken,
+				"Axiom token in attribute %q must be redacted before export", kv.Key)
+		}
+		return true
+	})
+}
+
+// TestScrubLogProcessor_FlowEventEmailHash asserts that an email address
+// embedded in a flow-event log record attribute is hashed before export.
+// Verification uses the existing Redact API to confirm the scrubber handles
+// email-in-attribute strings — the relay path applies the same scrubber.
+func TestScrubLogProcessor_FlowEventEmailHash(t *testing.T) {
+	sc := newTestScrubber()
+
+	// Simulate the kind of string a flow-event "th_version" field could carry
+	// if a drifted client accidentally included a user email.
+	input := "user@example.com-2.117.2"
+	result := sc.Redact(input)
+
+	assert.NotContains(t, result, "@",
+		"raw email in flow-event attribute must be hashed by the scrubber")
+	assert.Contains(t, result, "[email:",
+		"email in flow-event attribute must be replaced with a hash token")
+}
+
+// ── SEC cross-cutting: absolute-path redaction at export time ───────────────
+
+// TestRedact_AbsolutePathUnixHome asserts that a /home/<user>/... path value
+// embedded in a relayed log attribute is redacted by the scrubber pipeline,
+// providing a last-line defence independent of the validate layer.
+func TestRedact_AbsolutePathUnixHome(t *testing.T) {
+	sc := newTestScrubber()
+	input := "workspace: /home/alice/projects/context-harness-mcp"
+	result := sc.Redact(input)
+	assert.NotContains(t, result, "/home/alice", "Unix home path must be redacted")
+	assert.Contains(t, result, "[REDACTED]", "redaction marker must be present")
+}
+
+// TestRedact_AbsolutePathRoot asserts that /root/... paths are redacted.
+func TestRedact_AbsolutePathRoot(t *testing.T) {
+	sc := newTestScrubber()
+	result := sc.Redact("config: /root/.ssh/id_rsa")
+	assert.NotContains(t, result, "/root/", "root home path must be redacted")
+	assert.Contains(t, result, "[REDACTED]", "redaction marker must be present")
+}
+
+// TestRedact_AbsolutePathWindowsDrive asserts that Windows drive-letter paths
+// (C:\Users\...) are redacted.
+func TestRedact_AbsolutePathWindowsDrive(t *testing.T) {
+	sc := newTestScrubber()
+	result := sc.Redact(`project root: C:\Users\alice\projects\context-harness-mcp`)
+	assert.NotContains(t, result, `C:\Users\alice`, "Windows drive path must be redacted")
+	assert.Contains(t, result, "[REDACTED]", "redaction marker must be present")
+}
+
+// TestScrubLogProcessor_FlowEventPathInAttribute asserts that a /home/<user>/...
+// path embedded in a log record attribute is redacted before export —
+// mirroring the SEC cross-cutting requirement.
+func TestScrubLogProcessor_FlowEventPathInAttribute(t *testing.T) {
+	RegisterScrubber(NewRealScrubber())
+	t.Cleanup(func() { RegisterScrubber(NewRealScrubber()) })
+
+	var captured *sdklog.Record
+	captureFn := &captureProcessor{fn: func(r *sdklog.Record) {
+		cloned := r.Clone()
+		captured = &cloned
+	}}
+	proc := NewScrubLogProcessor(captureFn)
+
+	rec := sdklogt.RecordFactory{
+		Body: logapi.StringValue("flow_event"),
+	}.NewRecord()
+	rec.SetAttributes(
+		logapi.String("signal", "flow_event"),
+		logapi.String("th_version", "2.117.2 /home/alice/private"),
+	)
+
+	err := proc.OnEmit(context.Background(), &rec)
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+
+	captured.WalkAttributes(func(kv logapi.KeyValue) bool {
+		if kv.Value.Kind() == logapi.KindString {
+			assert.NotContains(t, kv.Value.AsString(), "/home/alice",
+				"absolute path in attribute %q must be redacted before export", kv.Key)
+		}
+		return true
+	})
+}
+
 // ── captureProcessor helper ──────────────────────────────────────────────────
 
 // captureProcessor is a minimal sdklog.Processor that captures emitted records.

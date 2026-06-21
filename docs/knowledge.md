@@ -107,6 +107,12 @@
 - `[patrón]` Viewer search path computes similarity as `1 - min_distance` from pgvector `<=>` cosine distance, clamped to [0,1]. The `score` field is `*float64` with `omitempty` — present only on the search path, absent on list-all. Frontend color thresholds: ≥80% green, 50–79% yellow, <50% red.
 - `[patrón]` Viewer search input gated to 3+ characters: 1–2 chars shows inline hint and clears results without firing the API; empty clears to list-all; 3+ fires debounced semantic search.
 
+## v1.2.0 — Flow telemetry ingest
+
+- `[decisión]` Flow events relay as CH structured slog log lines (`signal="flow_event"`) via the existing LoggerProvider→ScrubLogProcessor→OTLP/HTTP→Axiom path — NOT as metrics (metric labels are unscrubbed by SDK design) and NOT as standalone spans. v1.2.0.
+- `[restricción]` `record_flow_event` tool uses a closed 8-value `event` enum: `guard.block`, `gate.fail`, `verify.reject`, `iteration.loop`, `blocked`, `scope.collapse`, `mcp.unavailable`, `abandon`. This enum is an authoritative multi-site invariant (validated in `internal/validate/flowevent.go` here; mirrored in `agents/orchestrator.md §Flow Telemetry Emission` in team-harness). Both sites must stay byte-identical; a change to the enum requires coordinated PRs in both repos. v1.2.0.
+- `[patrón]` Flow-event tool opens no `pgx.Tx` — fire-and-forget telemetry only, never persisted to Postgres. The Content Filter's secrets + user-path layers still run on all string fields before relay (metadata-only guardrail). v1.2.0.
+
 ## v0.5.0 — Sessions
 
 - `[patrón]` Sessions are tags, not security boundaries. Any caller can call `session_end` / `session_summary` on any session — same trust model as `project_id` (single-deployment trust). v0.5.0.
