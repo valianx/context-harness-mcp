@@ -12,10 +12,10 @@ import (
 
 const (
 	serverName    = "context-harness-mcp"
-	serverVersion = "1.1.0"
+	serverVersion = "1.2.0"
 )
 
-// New returns a configured *server.MCPServer with all 16 MCP tools registered.
+// New returns a configured *server.MCPServer with all 17 MCP tools registered.
 // pool must be non-nil — the server requires DB access for all write and read
 // tool handlers. limiter enforces per-IP write-tool rate limits; pass a non-nil
 // *ratelimit.Limiter for HTTP deployments.
@@ -28,6 +28,7 @@ func New(pool *pgxpool.Pool, limiter *ratelimit.Limiter) *server.MCPServer {
 	RegisterConflicts(s, pool, limiter)
 	RegisterSuggestNodeType(s, pool)
 	RegisterSessions(s, pool, limiter)
+	RegisterFlowEvent(s, pool, limiter)
 	return s
 }
 

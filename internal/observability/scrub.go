@@ -91,6 +91,20 @@ var extraTokenPatterns = []*regexp.Regexp{
 	// Railway API tokens
 	regexp.MustCompile(`rly-[A-Za-z0-9\-]{20,}`),
 
+	// Absolute filesystem paths — last-line defence so paths that slip through
+	// validate.checkAbsolutePaths (e.g. in non-flow-event log attributes) are
+	// still redacted at export time. Mirrors validate.absolutePathPatterns.
+	// fix(sec-cross-cutting): add path patterns to scrubber pipeline.
+	//
+	// Unix/macOS home directories: /home/<user>/...
+	regexp.MustCompile(`/home/[^/\s]+(?:/[^\s]*)?`),
+	// Root home: /root/...
+	regexp.MustCompile(`/root/[^\s]*`),
+	// WSL mount points: /mnt/<drive>/...
+	regexp.MustCompile(`/mnt/[a-z]/[^\s]*`),
+	// Windows drive-letter paths (backslash or forward slash).
+	regexp.MustCompile(`(?i)[A-Za-z]:[/\\][^\s]*`),
+
 	// Hex secrets of 64+ chars (HMAC secrets, JWT signing keys — e.g. openssl rand -hex 32).
 	// Matches lowercase hex only; does NOT match UUIDs (dashes break the run) or
 	// base64 (uppercase + symbols not included here).
